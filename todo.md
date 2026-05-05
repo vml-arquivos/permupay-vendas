@@ -51,4 +51,4 @@
 - [x] Configurar variáveis de ambiente (.env.example)
 - [x] Criar Dockerfile para Coolify com PostgreSQL 14
 - [x] Criar docker-compose.yml para desenvolvimento local
-- [ ] Commitar com mensagem: feat: add automatic pricing simulator
+- [x] Commitar com mensagem: feat: add automatic pricing simulator
