@@ -1,12 +1,16 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import { type Server } from "http";
-import { nanoid } from "nanoid";
 import path from "path";
-import { createServer as createViteServer } from "vite";
-import viteConfig from "../../vite.config";
 
 export async function setupVite(app: Express, server: Server) {
+  // Imports dinâmicos: vite e dependências de dev só são carregados
+  // quando NODE_ENV=development. Em produção este bloco nunca executa,
+  // portanto o pacote 'vite' não precisa estar instalado.
+  const { createServer: createViteServer } = await import("vite");
+  const { nanoid } = await import("nanoid");
+  const { default: viteConfig } = await import("../../vite.config");
+
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -48,10 +52,10 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath =
-    process.env.NODE_ENV === "development"
-      ? path.resolve(import.meta.dirname, "../..", "dist", "public")
-      : path.resolve(import.meta.dirname, "public");
+  // Em produção: esbuild gera dist/index.js; Vite gera dist/public/.
+  // import.meta.dirname aponta para dist/, então "public" resolve para dist/public/.
+  const distPath = path.resolve(import.meta.dirname, "public");
+
   if (!fs.existsSync(distPath)) {
     console.error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
