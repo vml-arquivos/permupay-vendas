@@ -7,7 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import { serveStatic } from "./serveStatic";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -46,6 +46,10 @@ async function startServer() {
   );
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
+    // Import dinâmico com caminho variável para impedir que o esbuild inclua
+    // vite.config.ts e plugins de desenvolvimento no bundle de produção.
+    const viteDevModulePath = "./viteDev";
+    const { setupVite } = await import(viteDevModulePath);
     await setupVite(app, server);
   } else {
     serveStatic(app);
