@@ -29,8 +29,8 @@ FROM node:22-alpine AS runtime
 
 WORKDIR /app
 
-# Instalar pnpm
-RUN npm install -g pnpm@10.4.1 --quiet
+# Instalar netcat e pnpm (nc é necessário para aguardar o banco no entrypoint)
+RUN apk add --no-cache netcat-openbsd && npm install -g pnpm@10.4.1 --quiet
 
 # Copiar arquivos de dependências
 COPY package.json pnpm-lock.yaml ./

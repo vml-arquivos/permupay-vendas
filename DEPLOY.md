@@ -13,7 +13,7 @@ Cole estas variáveis em **Environment Variables** da aplicação no Coolify:
 # ── Banco de Dados (PostgreSQL interno do Coolify) ────────────────────────────
 DATABASE_URL=postgres://rifas:Marcelle040410vm@xvglapzakedq4a09xjmplozb:5432/postgres
 
-# ── Autenticação JWT (obrigatório — chave secreta para assinar tokens) ─────────
+# ── Autenticação JWT ──────────────────────────────────────────────────────────
 JWT_SECRET=fl4iIG18nOPbLUuDm7kiKkv+ms2A+3T4UOGb0LPmAcHSrhbks2KmrlSfUQrt+tMPyNHNUcltLwUEfhU2LDN8LQ==
 
 # ── Aplicação ─────────────────────────────────────────────────────────────────
@@ -22,45 +22,54 @@ PORT=3000
 VITE_APP_TITLE=PermuPay Vendas
 ```
 
-> Apenas 5 variáveis necessárias. Sem OAuth externo, sem APIs de terceiros.
+---
+
+## ⚠️ Passo Crítico: Conectar à Rede Docker do Banco
+
+O banco `rifas` roda em uma rede Docker interna do Coolify. O container da aplicação **precisa estar na mesma rede** para que o hostname `xvglapzakedq4a09xjmplozb` seja resolvível.
+
+### Como conectar no Coolify:
+
+1. Abra a aplicação PermuPay no Coolify
+2. Vá em **Network** (aba na configuração da aplicação)
+3. Em **Connect to other services**, selecione o banco **rifas**
+4. Clique em **Save** e depois em **Redeploy**
+
+> Sem isso, o container não consegue alcançar o banco e fica tentando conectar até atingir o timeout.
 
 ---
 
-## Passo a Passo no Coolify
+## Passo a Passo Completo no Coolify
 
 ### 1. Criar a Aplicação
 
-1. No Coolify, vá em **Projects → New Resource → Application**
-2. Selecione **GitHub** como source → repositório `vml-arquivos/permupay-vendas`
+1. **Projects → New Resource → Application**
+2. Source: **GitHub** → `vml-arquivos/permupay-vendas`
 3. Branch: `main`
 4. Build Pack: **Dockerfile**
 5. Dockerfile path: `./Dockerfile`
 
 ### 2. Configurar Domínio
 
-1. Em **Domains**, adicione: `https://autopay.permupay.com.br`
+1. Em **Domains**: `https://autopay.permupay.com.br`
 2. Ative **Force HTTPS**
 
 ### 3. Configurar Variáveis de Ambiente
 
-1. Vá em **Environment Variables**
-2. Cole as 5 variáveis do bloco acima
-3. Clique em **Save**
+Cole as 5 variáveis do bloco acima em **Environment Variables**.
 
-### 4. Configurar Rede (Banco de Dados)
+### 4. ⚠️ Conectar à Rede do Banco (OBRIGATÓRIO)
 
-O banco PostgreSQL já está rodando no Coolify com o nome `rifas`.
-Certifique-se de que a aplicação e o banco estão **na mesma rede Docker** no Coolify:
-- Vá em **Network** da aplicação
-- Adicione a mesma rede do banco `rifas`
+1. Vá em **Network** da aplicação
+2. Em **Connect to other services**, adicione o banco **rifas**
+3. Salve
 
 ### 5. Deploy
 
-1. Clique em **Deploy**
-2. Acompanhe os logs — o entrypoint irá:
-   - Aguardar o banco ficar disponível
-   - Aplicar as migrations automaticamente
-   - Iniciar o servidor Node.js
+Clique em **Deploy**. O entrypoint irá:
+- Aguardar o banco ficar disponível (via `nc`)
+- Aplicar as migrations automaticamente
+- Iniciar o servidor Node.js
 
 ### 6. Primeiro Acesso
 
@@ -70,39 +79,34 @@ Acesse `https://autopay.permupay.com.br` e crie o primeiro usuário.
 
 ---
 
-## Autenticação
+## Diagnóstico de Problemas
 
-O sistema usa autenticação própria com **email + senha + JWT**.
+### Container não conecta ao banco
 
-- **Sem OAuth externo** — nenhuma dependência de serviços de terceiros
-- **Sem Manus, Google, GitHub** — 100% autossuficiente no Coolify
-- **Primeiro usuário = admin** — cadastre-se na primeira vez para ter acesso total
-- **JWT_SECRET** — chave para assinar os tokens de sessão (mude em produção)
+Verifique nos logs do Coolify se aparece a linha:
+```
+[PermuPay] Banco alvo: xvglapzakedq4a09xjmplozb:5432
+```
+
+Se o banco não responde, o problema é de rede Docker. Siga o **Passo 4** acima.
+
+### Testar conectividade manualmente (Terminal do Coolify)
+
+No terminal do container da aplicação:
+```sh
+nc -zv xvglapzakedq4a09xjmplozb 5432
+```
+
+Se retornar `Connection refused` ou `Name does not resolve`, a rede não está configurada.
 
 ---
 
-## Migrations
+## Autenticação
 
-As migrations são aplicadas **automaticamente** no boot do container pelo `docker-entrypoint.sh`.
-
-### SQL da Migration (para referência)
-
-```sql
-CREATE TYPE "public"."role" AS ENUM('user', 'admin');
-
-CREATE TABLE "users" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "email" varchar(320) NOT NULL,
-  "name" text NOT NULL,
-  "passwordHash" text NOT NULL,
-  "role" "role" DEFAULT 'user' NOT NULL,
-  "active" boolean DEFAULT true NOT NULL,
-  "createdAt" timestamp DEFAULT now() NOT NULL,
-  "updatedAt" timestamp DEFAULT now() NOT NULL,
-  "lastSignedIn" timestamp DEFAULT now() NOT NULL,
-  CONSTRAINT "users_email_unique" UNIQUE("email")
-);
-```
+- **Sem OAuth externo** — 100% autossuficiente no Coolify
+- **Email + senha + bcrypt + JWT**
+- **Primeiro usuário = admin** automático
+- Migrations aplicadas automaticamente no boot
 
 ---
 
