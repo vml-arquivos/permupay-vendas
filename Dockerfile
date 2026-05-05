@@ -29,8 +29,8 @@ FROM node:22-alpine AS runtime
 
 WORKDIR /app
 
-# Instalar pnpm
-RUN npm install -g pnpm@10.4.1 --quiet
+# Instalar wget (necessário para o healthcheck) e pnpm
+RUN apk add --no-cache wget && npm install -g pnpm@10.4.1 --quiet
 
 # Copiar arquivos de dependências
 COPY package.json pnpm-lock.yaml ./

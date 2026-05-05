@@ -8,13 +8,13 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
-export const roleEnum = pgEnum("role", ["user", "admin"]);
+export const roleEnum = pgEnum("permupay_role", ["user", "admin"]);
 
 /**
  * Tabela de usuários com autenticação própria (email + senha).
  * Sem dependência de OAuth externo.
  */
-export const users = pgTable("users", {
+export const users = pgTable("permupay_users", {
   id: serial("id").primaryKey(),
   email: varchar("email", { length: 320 }).notNull().unique(),
   name: text("name").notNull(),

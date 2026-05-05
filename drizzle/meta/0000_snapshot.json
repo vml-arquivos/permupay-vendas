@@ -1,11 +1,11 @@
 {
-  "id": "82df4abb-aad0-4cb8-9a97-ee6529c9f027",
+  "id": "a9f77c87-ce9d-4492-b832-34e1aea0e51f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.users": {
-      "name": "users",
+    "public.permupay_users": {
+      "name": "permupay_users",
       "schema": "",
       "columns": {
         "id": {
@@ -73,8 +73,8 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "users_email_unique": {
-          "name": "users_email_unique",
+        "permupay_users_email_unique": {
+          "name": "permupay_users_email_unique",
           "nullsNotDistinct": false,
           "columns": [
             "email"
