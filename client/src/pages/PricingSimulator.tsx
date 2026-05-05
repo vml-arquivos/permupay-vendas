@@ -1,4 +1,6 @@
 import { useState, useCallback } from "react";
+import { trpc } from "@/lib/trpc";
+import { Link } from "wouter";
 import {
   calculatePricing,
   isPricingError,
@@ -385,6 +387,9 @@ export default function PricingSimulator() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showBoleto, setShowBoleto] = useState(true);
   const [showCard, setShowCard] = useState(true);
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const productsQuery = trpc.products.list.useQuery();
+  const saveSimulation = trpc.simulations.create.useMutation();
 
   const set = useCallback(
     (field: keyof FormState) => (value: string | boolean) => {

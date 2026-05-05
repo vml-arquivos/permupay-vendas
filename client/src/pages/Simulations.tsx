@@ -1,0 +1,3 @@
+import { Link } from 'wouter';import { trpc } from '@/lib/trpc';
+export default function Simulations(){const u=trpc.useUtils();const {data=[]}=trpc.simulations.list.useQuery();const del=trpc.simulations.delete.useMutation({onSuccess:()=>u.simulations.list.invalidate()});const dup=trpc.simulations.duplicate.useMutation({onSuccess:()=>u.simulations.list.invalidate()});
+return <div className='p-6'><h1 className='text-xl font-bold'>Simulações</h1>{data.map((s:any)=><div key={s.id} className='border p-3 my-2'><Link href={`/simulacoes/${s.id}`}>{s.name}</Link> - {s.recommendedPrice} - {s.bestPaymentMethod} - {s.diagnosis}<button onClick={()=>dup.mutate({id:s.id})}>Duplicar</button><button onClick={()=>del.mutate({id:s.id})}>Excluir</button></div>)}</div>}
