@@ -85,7 +85,7 @@ describe("Pix / À Vista", () => {
     const pix = result.results.find((r) => r.method === "PIX")!;
     // A margem real calculada pelo cálculo reverso pode ser ligeiramente diferente
     // da desejada devido ao imposto. O diagnóstico deve ser APROVADO ou ATENÇÃO (nunca RISCO ou PREJUÍZO)
-    expect(["APROVADO", "ATENÇÃO"]).toContain(pix.diagnostic);
+    expect(["SAUDAVEL", "ATENCAO", "EXCELENTE"]).toContain(pix.diagnostic);
     expect(pix.netProfit).toBeGreaterThan(0);
   });
 
@@ -279,7 +279,7 @@ describe("Validações", () => {
 describe("Diagnóstico", () => {
   it("deve retornar PREJUÍZO quando lucro líquido é negativo", () => {
     const diagnostic = getDiagnostic(5, -10);
-    expect(diagnostic).toBe("PREJUÍZO");
+    expect(diagnostic).toBe("PREJUIZO");
   });
 
   it("deve retornar RISCO quando margem real < 10%", () => {
@@ -289,13 +289,13 @@ describe("Diagnóstico", () => {
 
   it("deve retornar APROVADO quando margem real >= margem desejada", () => {
     const diagnostic = getDiagnostic(20, 100, 15);
-    expect(diagnostic).toBe("APROVADO");
+    expect(diagnostic).toBe("SAUDAVEL");
   });
 
   it("deve retornar ATENÇÃO quando margem real está abaixo da desejada mas acima de 10%", () => {
     // margem real = 15%, desejada = 25%, lucro positivo
     const diagnostic = getDiagnostic(15, 100, 25);
-    expect(diagnostic).toBe("ATENÇÃO");
+    expect(diagnostic).toBe("ATENCAO");
   });
 
   it("deve gerar diagnóstico de PREJUÍZO no resultado quando produto não é viável", () => {

@@ -25,7 +25,7 @@ export type PaymentMethod =
   | "CREDITO_A_VISTA"
   | "CREDITO_PARCELADO";
 
-export type DiagnosticStatus = "APROVADO" | "ATENÇÃO" | "RISCO" | "PREJUÍZO";
+export type DiagnosticStatus = "EXCELENTE" | "SAUDAVEL" | "ATENCAO" | "RISCO" | "PREJUIZO";
 
 export interface TaxRates {
   cash: number;        // Pix/à vista
@@ -206,10 +206,12 @@ export function getDiagnostic(
   netProfit: number,
   desiredMarginRate?: number
 ): DiagnosticStatus {
-  if (netProfit < 0) return "PREJUÍZO";
+  if (netProfit < 0) return "PREJUIZO";
   if (realMarginRate < 10) return "RISCO";
-  if (desiredMarginRate !== undefined && realMarginRate < desiredMarginRate) return "ATENÇÃO";
-  return "APROVADO";
+  const desired = desiredMarginRate ?? 10;
+  if (realMarginRate < desired) return "ATENCAO";
+  if (realMarginRate >= desired + 10) return "EXCELENTE";
+  return "SAUDAVEL";
 }
 
 // ─── Validações ───────────────────────────────────────────────────────────────
@@ -573,11 +575,11 @@ export function calculatePricing(
 
   // Verificar se o produto é saudável (pelo menos um método com APROVADO)
   const hasUnhealthyProduct = results.every(
-    (r) => r.diagnostic === "PREJUÍZO" || r.diagnostic === "RISCO"
+    (r) => r.diagnostic === "PREJUIZO" || r.diagnostic === "RISCO"
   );
 
   const unhealthyAlert = hasUnhealthyProduct
-    ? "Atenção: este produto apresenta margem crítica ou prejuízo em todas as formas de pagamento. Revise os custos ou a margem desejada."
+    ? "Atenção: este produto apresenta margem crítica ou prejuízo em todas as formas de pagamento. Revise os custos, taxas financeiras e margem desejada."
     : undefined;
 
   return {
