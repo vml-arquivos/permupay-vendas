@@ -13,31 +13,16 @@ Cole estas variáveis em **Environment Variables** da aplicação no Coolify:
 # ── Banco de Dados (PostgreSQL interno do Coolify) ────────────────────────────
 DATABASE_URL=postgres://rifas:Marcelle040410vm@xvglapzakedq4a09xjmplozb:5432/postgres
 
-# ── Autenticação JWT ──────────────────────────────────────────────────────────
+# ── Autenticação JWT (obrigatório — chave secreta para assinar tokens) ─────────
 JWT_SECRET=fl4iIG18nOPbLUuDm7kiKkv+ms2A+3T4UOGb0LPmAcHSrhbks2KmrlSfUQrt+tMPyNHNUcltLwUEfhU2LDN8LQ==
 
 # ── Aplicação ─────────────────────────────────────────────────────────────────
 NODE_ENV=production
 PORT=3000
 VITE_APP_TITLE=PermuPay Vendas
-
-# ── OAuth (Manus Auth — preencha com seus dados do painel Manus) ──────────────
-VITE_APP_ID=
-OAUTH_SERVER_URL=https://api.manus.im
-VITE_OAUTH_PORTAL_URL=https://manus.im
-OWNER_OPEN_ID=
-OWNER_NAME=PermuPay
-
-# ── APIs Internas Manus (preencha com seus dados do painel Manus) ─────────────
-BUILT_IN_FORGE_API_URL=https://api.manus.im
-BUILT_IN_FORGE_API_KEY=
-VITE_FRONTEND_FORGE_API_KEY=
-VITE_FRONTEND_FORGE_API_URL=https://api.manus.im
-
-# ── Analytics (opcional) ──────────────────────────────────────────────────────
-VITE_ANALYTICS_ENDPOINT=
-VITE_ANALYTICS_WEBSITE_ID=
 ```
+
+> Apenas 5 variáveis necessárias. Sem OAuth externo, sem APIs de terceiros.
 
 ---
 
@@ -54,12 +39,12 @@ VITE_ANALYTICS_WEBSITE_ID=
 ### 2. Configurar Domínio
 
 1. Em **Domains**, adicione: `https://autopay.permupay.com.br`
-2. Ative **Force HTTPS** e **WWW Redirect** se necessário
+2. Ative **Force HTTPS**
 
 ### 3. Configurar Variáveis de Ambiente
 
 1. Vá em **Environment Variables**
-2. Cole todas as variáveis do bloco acima
+2. Cole as 5 variáveis do bloco acima
 3. Clique em **Save**
 
 ### 4. Configurar Rede (Banco de Dados)
@@ -77,9 +62,22 @@ Certifique-se de que a aplicação e o banco estão **na mesma rede Docker** no 
    - Aplicar as migrations automaticamente
    - Iniciar o servidor Node.js
 
-### 6. Verificar
+### 6. Primeiro Acesso
 
-Acesse `https://autopay.permupay.com.br` — o sistema deve estar funcionando.
+Acesse `https://autopay.permupay.com.br` e crie o primeiro usuário.
+
+> **O primeiro usuário cadastrado vira admin automaticamente.**
+
+---
+
+## Autenticação
+
+O sistema usa autenticação própria com **email + senha + JWT**.
+
+- **Sem OAuth externo** — nenhuma dependência de serviços de terceiros
+- **Sem Manus, Google, GitHub** — 100% autossuficiente no Coolify
+- **Primeiro usuário = admin** — cadastre-se na primeira vez para ter acesso total
+- **JWT_SECRET** — chave para assinar os tokens de sessão (mude em produção)
 
 ---
 
@@ -87,35 +85,29 @@ Acesse `https://autopay.permupay.com.br` — o sistema deve estar funcionando.
 
 As migrations são aplicadas **automaticamente** no boot do container pelo `docker-entrypoint.sh`.
 
-Para aplicar manualmente via terminal do Coolify:
-```bash
-node -e "
-const { drizzle } = require('drizzle-orm/node-postgres');
-const { migrate } = require('drizzle-orm/node-postgres/migrator');
-const { Pool } = require('pg');
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-const db = drizzle(pool);
-migrate(db, { migrationsFolder: './drizzle' }).then(() => { console.log('OK'); pool.end(); });
-"
-```
-
----
-
-## SQL da Migration (para referência)
+### SQL da Migration (para referência)
 
 ```sql
 CREATE TYPE "public"."role" AS ENUM('user', 'admin');
 
 CREATE TABLE "users" (
   "id" serial PRIMARY KEY NOT NULL,
-  "openId" varchar(64) NOT NULL,
-  "name" text,
-  "email" varchar(320),
-  "loginMethod" varchar(64),
+  "email" varchar(320) NOT NULL,
+  "name" text NOT NULL,
+  "passwordHash" text NOT NULL,
   "role" "role" DEFAULT 'user' NOT NULL,
+  "active" boolean DEFAULT true NOT NULL,
   "createdAt" timestamp DEFAULT now() NOT NULL,
   "updatedAt" timestamp DEFAULT now() NOT NULL,
   "lastSignedIn" timestamp DEFAULT now() NOT NULL,
-  CONSTRAINT "users_openId_unique" UNIQUE("openId")
+  CONSTRAINT "users_email_unique" UNIQUE("email")
 );
+```
+
+---
+
+## Gerar um novo JWT_SECRET
+
+```bash
+openssl rand -base64 64
 ```

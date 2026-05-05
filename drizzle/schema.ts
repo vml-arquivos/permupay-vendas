@@ -1,5 +1,5 @@
 import {
-  integer,
+  boolean,
   pgEnum,
   pgTable,
   serial,
@@ -8,26 +8,19 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
-/**
- * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
- */
-
 export const roleEnum = pgEnum("role", ["user", "admin"]);
 
+/**
+ * Tabela de usuários com autenticação própria (email + senha).
+ * Sem dependência de OAuth externo.
+ */
 export const users = pgTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
   id: serial("id").primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
-  name: text("name"),
-  email: varchar("email", { length: 320 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  name: text("name").notNull(),
+  passwordHash: text("passwordHash").notNull(),
   role: roleEnum("role").default("user").notNull(),
+  active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -35,5 +28,4 @@ export const users = pgTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
-
-// TODO: Add your tables here
+export type SafeUser = Omit<User, "passwordHash">;

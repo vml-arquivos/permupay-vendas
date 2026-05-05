@@ -1,5 +1,5 @@
 {
-  "id": "3016c86d-bd08-42d0-8119-31e1b0d2eead",
+  "id": "82df4abb-aad0-4cb8-9a97-ee6529c9f027",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -14,9 +14,9 @@
           "primaryKey": true,
           "notNull": true
         },
-        "openId": {
-          "name": "openId",
-          "type": "varchar(64)",
+        "email": {
+          "name": "email",
+          "type": "varchar(320)",
           "primaryKey": false,
           "notNull": true
         },
@@ -24,19 +24,13 @@
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "email": {
-          "name": "email",
-          "type": "varchar(320)",
+        "passwordHash": {
+          "name": "passwordHash",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
-        },
-        "loginMethod": {
-          "name": "loginMethod",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "role": {
           "name": "role",
@@ -45,6 +39,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'user'"
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
         },
         "createdAt": {
           "name": "createdAt",
@@ -72,11 +73,11 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "users_openId_unique": {
-          "name": "users_openId_unique",
+        "users_email_unique": {
+          "name": "users_email_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "openId"
+            "email"
           ]
         }
       },

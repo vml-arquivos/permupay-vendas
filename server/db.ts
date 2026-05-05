@@ -1,19 +1,20 @@
-import { eq, sql } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from "./_core/env";
+import { InsertUser, SafeUser, User, users } from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: Pool | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       _pool = new Pool({
         connectionString: process.env.DATABASE_URL,
-        ssl: process.env.DATABASE_URL?.includes("localhost") ? false : { rejectUnauthorized: false },
+        ssl: process.env.DATABASE_URL?.includes("localhost")
+          ? false
+          : { rejectUnauthorized: false },
       });
       _db = drizzle(_pool);
     } catch (error) {
@@ -24,84 +25,75 @@ export async function getDb() {
   return _db;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
+// ─── Helpers de usuário ───────────────────────────────────────────────────────
 
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    // PostgreSQL upsert using ON CONFLICT
-    await db
-      .insert(users)
-      .values(values)
-      .onConflictDoUpdate({
-        target: users.openId,
-        set: updateSet as Partial<InsertUser>,
-      });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
+export function toSafeUser(user: User): SafeUser {
+  const { passwordHash: _, ...safe } = user;
+  return safe;
 }
 
-export async function getUserByOpenId(openId: string) {
+export async function getUserByEmail(email: string): Promise<User | undefined> {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
+  if (!db) return undefined;
   const result = await db
     .select()
     .from(users)
-    .where(eq(users.openId, openId))
+    .where(eq(users.email, email.toLowerCase().trim()))
     .limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
+  return result[0];
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function getUserById(id: number): Promise<User | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  return result[0];
+}
+
+export async function createUser(data: {
+  email: string;
+  name: string;
+  password: string;
+  role?: "user" | "admin";
+}): Promise<SafeUser> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const passwordHash = await bcrypt.hash(data.password, 12);
+  const insert: InsertUser = {
+    email: data.email.toLowerCase().trim(),
+    name: data.name.trim(),
+    passwordHash,
+    role: data.role ?? "user",
+  };
+
+  const result = await db.insert(users).values(insert).returning();
+  return toSafeUser(result[0]);
+}
+
+export async function verifyPassword(
+  user: User,
+  password: string
+): Promise<boolean> {
+  return bcrypt.compare(password, user.passwordHash);
+}
+
+export async function updateLastSignedIn(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(users)
+    .set({ lastSignedIn: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, id));
+}
+
+export async function countUsers(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db.select().from(users);
+  return result.length;
+}

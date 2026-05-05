@@ -2,24 +2,22 @@ import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
 import type { TrpcContext } from "./_core/context";
+import type { SafeUser } from "../drizzle/schema";
 
 type CookieCall = {
   name: string;
   options: Record<string, unknown>;
 };
 
-type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
-
 function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] } {
   const clearedCookies: CookieCall[] = [];
 
-  const user: AuthenticatedUser = {
+  const user: SafeUser = {
     id: 1,
-    openId: "sample-user",
     email: "sample@example.com",
     name: "Sample User",
-    loginMethod: "manus",
     role: "user",
+    active: true,
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
