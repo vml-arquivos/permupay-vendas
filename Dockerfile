@@ -29,8 +29,8 @@ FROM node:22-alpine AS runtime
 
 WORKDIR /app
 
-# Instalar netcat e pnpm (nc é necessário para aguardar o banco no entrypoint)
-RUN apk add --no-cache netcat-openbsd && npm install -g pnpm@10.4.1 --quiet
+# Instalar pnpm
+RUN npm install -g pnpm@10.4.1 --quiet
 
 # Copiar arquivos de dependências
 COPY package.json pnpm-lock.yaml ./
@@ -44,6 +44,9 @@ COPY --from=builder /app/dist ./dist
 
 # Copiar migrations do Drizzle (necessário para o entrypoint aplicar no boot)
 COPY --from=builder /app/drizzle ./drizzle
+
+# Copiar scripts de inicialização
+COPY --from=builder /app/scripts ./scripts
 
 # Copiar entrypoint
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
