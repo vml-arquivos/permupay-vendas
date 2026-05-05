@@ -14,14 +14,10 @@ Cole estas variáveis em **Environment Variables** da aplicação no Coolify:
 DATABASE_URL=postgres://rifas:Marcelle040410vm@xvglapzakedq4a09xjmplozb:5432/postgres
 
 # ── Autenticação JWT ──────────────────────────────────────────────────────────
-JWT_SECRET=fl4iIG18nOPbLUuDm7kiKkv+ms2A+3T4UOGb0LPmAcHSrhbks2KmrlSfUQrt+tMPyNHNUcltLwUEfhU2LDN8LQ==
-
-# ── Aplicação ─────────────────────────────────────────────────────────────────
+JWT_SECRET=fl4iIG18nOPbLUuDm7kiKkv+ms2A+3T4UOGb0LPmAcHSrhbks2KmrlSfUQrt+tMPyNHNUcltLwUEfhU2LDN# ── Aplicação ─────────────────────────────────────────────────────────────────────────────
 NODE_ENV=production
-PORT=3000
+PORT=4000
 VITE_APP_TITLE=PermuPay Vendas
-```
-
 ---
 
 ## ⚠️ Passo Crítico: Conectar à Rede Docker do Banco

@@ -53,15 +53,15 @@ COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x docker-entrypoint.sh
 
 # Expor porta da aplicação
-EXPOSE 3000
+EXPOSE 4000
 
 # Variáveis de ambiente padrão (sobrescreva no Coolify via Environment Variables)
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=4000
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD wget -qO- http://localhost:3000/ || exit 1
+  CMD wget -qO- http://localhost:4000/ || exit 1
 
 # Entrypoint: aplica migrations e inicia o servidor
 ENTRYPOINT ["./docker-entrypoint.sh"]
