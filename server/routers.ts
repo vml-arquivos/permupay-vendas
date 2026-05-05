@@ -7,8 +7,30 @@ import * as db from "./db";
 import { sdk } from "./_core/sdk";
 import { ONE_YEAR_MS } from "@shared/const";
 
+
+
+const productInput = z.object({name:z.string().min(1),category:z.enum(["CELULAR","ELETRONICO","PERFUME","OUTRO"]),ncm:z.string().optional(),costPrice:z.number().min(0),packagingCost:z.number().min(0),inboundShippingCost:z.number().min(0),operationalCost:z.number().min(0),desiredMarginRate:z.number().min(0),taxRegime:z.enum(["SIMPLES_NACIONAL","LUCRO_PRESUMIDO","LUCRO_REAL","MANUAL"]),estimatedTaxRate:z.number().min(0),notes:z.string().optional(),active:z.boolean().optional()});
+
 export const appRouter = router({
   system: systemRouter,
+
+
+  products: router({
+    create: publicProcedure.input(productInput).mutation(({input,ctx})=>db.createProduct({...input,userId:ctx.user?.id})),
+    list: publicProcedure.query(({ctx})=>db.listProducts(ctx.user?.id)),
+    byId: publicProcedure.input(z.object({id:z.number()})).query(({input})=>db.getProductById(input.id)),
+    update: publicProcedure.input(z.object({id:z.number(),data:productInput.partial()})).mutation(({input})=>db.updateProduct(input.id,input.data)),
+    deactivate: publicProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.deactivateProduct(input.id)),
+    duplicate: publicProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.duplicateProduct(input.id)),
+  }),
+  simulations: router({
+    create: publicProcedure.input(z.any()).mutation(({input,ctx})=>db.createSimulation({...input,userId:ctx.user?.id})),
+    list: publicProcedure.query(({ctx})=>db.listSimulations(ctx.user?.id)),
+    byId: publicProcedure.input(z.object({id:z.number()})).query(({input})=>db.getSimulationById(input.id)),
+    delete: publicProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.deleteSimulation(input.id)),
+    duplicate: publicProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.duplicateSimulation(input.id)),
+  }),
+  dashboard: publicProcedure.query(({ctx})=>db.getDashboardData(ctx.user?.id)),
 
   auth: router({
     // Retorna o usuário autenticado (ou null)

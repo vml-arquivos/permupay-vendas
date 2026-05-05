@@ -1,4 +1,6 @@
 import { useState, useCallback } from "react";
+import { trpc } from "@/lib/trpc";
+import { Link } from "wouter";
 import {
   calculatePricing,
   isPricingError,
@@ -119,13 +121,13 @@ function parseNum(val: string): number {
 
 function diagnosticConfig(status: string) {
   switch (status) {
-    case "APROVADO":
+    case "SAUDAVEL":
       return {
         color: "bg-success/10 text-success border-success/30",
         icon: <CheckCircle2 className="w-3.5 h-3.5" />,
         dot: "bg-success",
       };
-    case "ATENÇÃO":
+    case "ATENCAO":
       return {
         color: "bg-warning/10 text-warning-foreground border-warning/30",
         icon: <AlertCircle className="w-3.5 h-3.5" />,
@@ -137,7 +139,7 @@ function diagnosticConfig(status: string) {
         icon: <AlertTriangle className="w-3.5 h-3.5" />,
         dot: "bg-orange-500",
       };
-    case "PREJUÍZO":
+    case "PREJUIZO":
       return {
         color: "bg-danger/10 text-danger border-danger/30",
         icon: <XCircle className="w-3.5 h-3.5" />,
@@ -385,6 +387,9 @@ export default function PricingSimulator() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showBoleto, setShowBoleto] = useState(true);
   const [showCard, setShowCard] = useState(true);
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const productsQuery = trpc.products.list.useQuery();
+  const saveSimulation = trpc.simulations.create.useMutation();
 
   const set = useCallback(
     (field: keyof FormState) => (value: string | boolean) => {
@@ -513,7 +518,7 @@ export default function PricingSimulator() {
               Simulador de Precificação
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Calcule o preço ideal de venda por forma de pagamento, considerando custos, impostos, taxas e margem desejada.
+              Calcule o preço ideal por forma de pagamento, separando tributação estimada da operação e custos financeiros.
             </p>
           </div>
 
@@ -666,11 +671,7 @@ export default function PricingSimulator() {
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                     {[
-                      { label: "Pix / À Vista", field: "taxCash" as const },
-                      { label: "Boleto", field: "taxBoleto" as const },
-                      { label: "Débito", field: "taxDebit" as const },
-                      { label: "Créd. à Vista", field: "taxCreditCash" as const },
-                      { label: "Créd. Parc.", field: "taxCreditInstallment" as const },
+                      { label: "Alíquota tributária estimada da operação", field: "taxCash" as const },
                     ].map(({ label, field }) => (
                       <FormField key={field} label={label}>
                         <NumericInput

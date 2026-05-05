@@ -1,0 +1,2 @@
+import { Link } from 'wouter';import { trpc } from '@/lib/trpc';
+export default function Dashboard(){const {data}:any=trpc.dashboard.useQuery();if(!data)return null;return <div className='p-6 space-y-3'><h1 className='text-xl font-bold'>Dashboard</h1><div>Total produtos: {data.totalProducts} | Ativos: {data.activeProducts} | Simulações: {data.totalSimulations} | Atenção: {data.attentionCount} | Saudáveis: {data.healthyCount}</div><div>Últimas 5:{data.recentSimulations.map((s:any)=><div key={s.id}><Link href={`/simulacoes/${s.id}`}>{s.name}</Link></div>)}</div></div>}
