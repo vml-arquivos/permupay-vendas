@@ -1,9 +1,9 @@
-import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { formatCurrency, formatPercent } from "../../../shared/pricingCalculator";
 import { Button } from "@/components/ui/button";
 import { Download, Eye, Trash2, AlertCircle } from "lucide-react";
+import * as XLSX from "xlsx";
 
 export default function SimulationsExport() {
   const { data: simulations = [] } = trpc.simulations.list.useQuery();
@@ -20,66 +20,36 @@ export default function SimulationsExport() {
       return;
     }
 
-    // Preparar dados para Excel
-    const rows: any[] = [];
-    
-    // Cabeçalho
-    rows.push([
-      "Nome da Simulação",
-      "Produto",
-      "Categoria",
-      "Preço de Custo",
-      "Margem Desejada (%)",
-      "Preço Recomendado",
-      "Melhor Forma de Pagamento",
-      "Pior Forma de Pagamento",
-      "Diagnóstico",
-      "Data de Criação",
-    ]);
-
-    // Dados
-    simulations.forEach((sim: any) => {
+    // Montar linhas da planilha
+    const rows = simulations.map((sim: any) => {
       const product = sim.productSnapshot || {};
-      const createdAt = new Date(sim.createdAt).toLocaleDateString("pt-BR");
-      
-      rows.push([
-        sim.name,
-        product.productName || "—",
-        product.category || "—",
-        formatCurrency(product.costPrice || 0),
-        formatPercent(sim.desiredMarginRate || 0),
-        formatCurrency(sim.recommendedPrice || 0),
-        sim.bestPaymentMethod || "—",
-        sim.worstPaymentMethod || "—",
-        sim.diagnosis || "—",
-        createdAt,
-      ]);
+      return {
+        "Nome da Simulação": sim.name,
+        "Produto": product.productName || "—",
+        "Categoria": product.category || "—",
+        "Preço de Custo": product.costPrice || 0,
+        "Margem Desejada (%)": (sim.desiredMarginRate || 0) * 100,
+        "Preço Recomendado": sim.recommendedPrice || 0,
+        "Preço Mínimo": sim.minimumBreakEvenPrice || 0,
+        "Melhor Forma de Pagamento": sim.bestPaymentMethod || "—",
+        "Pior Forma de Pagamento": sim.worstPaymentMethod || "—",
+        "Diagnóstico": sim.diagnosis || "—",
+        "Data de Criação": new Date(sim.createdAt).toLocaleDateString("pt-BR"),
+      };
     });
 
-    // Criar CSV
-    const csv = rows
-      .map((row) =>
-        row
-          .map((cell: any) => {
-            const str = String(cell);
-            return str.includes(",") || str.includes('"')
-              ? `"${str.replace(/"/g, '""')}"`
-              : str;
-          })
-          .join(",")
-      )
-      .join("\n");
+    const ws = XLSX.utils.json_to_sheet(rows);
 
-    // Download
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `simulacoes-${new Date().toISOString().split("T")[0]}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Larguras das colunas
+    ws["!cols"] = [
+      { wch: 30 }, { wch: 25 }, { wch: 20 }, { wch: 16 }, { wch: 18 },
+      { wch: 18 }, { wch: 16 }, { wch: 28 }, { wch: 26 }, { wch: 14 }, { wch: 18 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Simulações");
+
+    XLSX.writeFile(wb, `simulacoes-${new Date().toISOString().split("T")[0]}.xlsx`);
   };
 
   return (
@@ -101,7 +71,7 @@ export default function SimulationsExport() {
                 className="gap-2"
               >
                 <Download className="w-4 h-4" />
-                Exportar para CSV
+                Exportar para Excel
               </Button>
               <Link href="/simulador">
                 <Button className="gap-2">Nova Simulação</Button>
