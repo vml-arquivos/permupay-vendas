@@ -10,12 +10,13 @@ import ProductForm from "./pages/ProductForm";
 import Simulations from "./pages/Simulations";
 import SimulationDetail from "./pages/SimulationDetail";
 import Dashboard from "./pages/Dashboard";
+import Home from "./pages/Home";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Dashboard} />
+      <Route path={"/"} component={Home} />
       <Route path={"/dashboard"} component={Dashboard} />
       <Route path={"/produtos"} component={Products} />
       <Route path={"/produtos/novo"} component={()=><ProductForm />} />
