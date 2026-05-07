@@ -9,6 +9,7 @@ import Products from "./pages/Products";
 import ProductForm from "./pages/ProductForm";
 import Simulations from "./pages/Simulations";
 import SimulationDetail from "./pages/SimulationDetail";
+import SimulationsExport from "./pages/SimulationsExport";
 import Dashboard from "./pages/Dashboard";
 import Home from "./pages/Home";
 
@@ -23,6 +24,7 @@ function Router() {
       <Route path={"/produtos/:id/editar"} component={(p:any)=><ProductForm id={Number(p.id)} />} />
       <Route path={"/simulador"} component={PricingSimulator} />
       <Route path={"/simulacoes"} component={Simulations} />
+      <Route path={"/simulacoes/exportar"} component={SimulationsExport} />
       <Route path={"/simulacoes/:id"} component={(p:any)=><SimulationDetail id={Number(p.id)} />} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}

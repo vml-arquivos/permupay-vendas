@@ -330,9 +330,7 @@ function ResultCard({
             {formatCurrency(result.suggestedPrice)}
           </span>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Psicológico: <span className="font-medium text-foreground">{formatCurrency(result.psychologicalPrice)}</span>
-        </p>
+
       </div>
 
       <div className="mt-4 pt-4 border-t border-border space-y-2">
@@ -403,8 +401,17 @@ export default function PricingSimulator() {
   const [showBoleto, setShowBoleto] = useState(true);
   const [showCard, setShowCard] = useState(true);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [simulationName, setSimulationName] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
   const productsQuery = trpc.products.list.useQuery();
-  const saveSimulation = trpc.simulations.create.useMutation();
+  const utils = trpc.useUtils();
+  const saveSimulation = trpc.simulations.create.useMutation({
+    onSuccess: () => {
+      utils.simulations.list.invalidate();
+      setSimulationName("");
+      setIsSaving(false);
+    },
+  });
 
   const set = useCallback(
     (field: keyof FormState) => (value: string | boolean) => {
@@ -495,6 +502,36 @@ export default function PricingSimulator() {
     setResult(null);
     setError(null);
   }, []);
+
+  const handleSaveSimulation = useCallback(async () => {
+    if (!result) return;
+    if (!simulationName.trim()) {
+      setError("Informe um nome para a simulacao.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const bestResult = result.results.find((r) => r.method === result.bestMethod);
+      await saveSimulation.mutateAsync({
+        name: simulationName.trim(),
+        productSnapshot: result.input,
+        taxSnapshot: result.input.taxRates,
+        paymentSnapshot: result.input.card,
+        resultSnapshot: result,
+        bestPaymentMethod: result.bestMethod,
+        worstPaymentMethod: result.worstMethod,
+        recommendedPrice: bestResult?.suggestedPrice || 0,
+        minimumBreakEvenPrice: result.promotionMinPrice,
+        promotionFloorPrice: result.promotionMinPrice,
+        desiredMarginRate: result.input.desiredMarginRate,
+        diagnosis: bestResult?.diagnostic || "SAUDAVEL",
+      });
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || "Erro ao salvar simulacao.");
+      setIsSaving(false);
+    }
+  }, [result, simulationName, saveSimulation]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -1114,7 +1151,7 @@ export default function PricingSimulator() {
                           Lucro Bruto
                         </th>
                         <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Markup
+                          Margem sobre Custo
                         </th>
                         <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
                           Diagnóstico
@@ -1189,7 +1226,7 @@ export default function PricingSimulator() {
                             </td>
                             <td className="px-4 py-3 text-right whitespace-nowrap">
                               <span className="text-xs text-foreground tabular-nums">
-                                {formatPercent(r.markup)}
+                                {formatPercent(r.marginPercentageOnCost)}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-center whitespace-nowrap">
@@ -1205,6 +1242,33 @@ export default function PricingSimulator() {
                       })}
                     </tbody>
                   </table>
+                </div>
+              </div>
+
+              {/* Seção de salvar simulação */}
+              <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-3">Salvar Simulação</h3>
+                  <p className="text-xs text-muted-foreground mb-4">Salve este cálculo para referência futura e geração de relatórios.</p>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs font-medium text-foreground/80">Nome da Simulação</Label>
+                    <Input
+                      type="text"
+                      placeholder="Ex: iPhone 15 Pro - Margem 30%"
+                      value={simulationName}
+                      onChange={(e) => setSimulationName(e.target.value)}
+                      className="h-9 text-sm mt-1.5"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleSaveSimulation}
+                    disabled={isSaving || !simulationName.trim()}
+                    className="w-full h-10 text-sm font-semibold"
+                  >
+                    {isSaving ? "Salvando..." : "Salvar Simulação"}
+                  </Button>
                 </div>
               </div>
 

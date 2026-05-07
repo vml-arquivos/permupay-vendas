@@ -78,14 +78,13 @@ export interface PaymentResult {
   totalFees: number;
   totalInterest: number;
   netProfit: number;
-  realMarginRate: number;   // % real
-  markup: number;           // %
+  realMarginRate: number;   // % real sobre o preço final
+  marginPercentageOnCost: number; // % de margem sobre preço de custo (antes era "markup")
   diagnostic: DiagnosticStatus;
-  psychologicalPrice: number;
   minPriceNoLoss: number;
   minPriceWithMargin: number;
   
-  // Novos campos de detalhamento
+  // Campos de detalhamento
   baseCost: number;         // Preço de custo original
   marginValue: number;      // Valor da margem de lucro (costPrice * margin%)
   subtotalWithMargin: number; // costPrice + marginValue
@@ -331,7 +330,7 @@ function calculatePix(input: PricingInput, costPrice: number, totalCost: number)
   const totalCosts = totalCost + totalTax;
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
+  const marginPercentageOnCost = ((suggestedPrice - costPrice) / costPrice) * 100;
   
   return {
     method: "PIX",
@@ -344,7 +343,7 @@ function calculatePix(input: PricingInput, costPrice: number, totalCost: number)
     totalInterest: 0,
     netProfit,
     realMarginRate,
-    markup,
+    marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - taxRate),
@@ -385,7 +384,7 @@ function calculateBoleto(input: PricingInput, costPrice: number, totalCost: numb
   const totalCosts = totalCost + totalTax + totalFees + (boleto.customerPaysInterest ? 0 : totalInterest);
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
+  const marginPercentageOnCost = ((suggestedPrice - costPrice) / costPrice) * 100;
   
   return {
     method: "BOLETO",
@@ -398,7 +397,7 @@ function calculateBoleto(input: PricingInput, costPrice: number, totalCost: numb
     totalInterest,
     netProfit,
     realMarginRate,
-    markup,
+    marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - taxRate - riskRate),
@@ -427,7 +426,7 @@ function calculateDebit(input: PricingInput, costPrice: number, totalCost: numbe
   const totalCosts = totalCost + totalTax + totalFees;
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
+  const marginPercentageOnCost = ((suggestedPrice - costPrice) / costPrice) * 100;
   
   return {
     method: "DEBITO",
@@ -440,7 +439,7 @@ function calculateDebit(input: PricingInput, costPrice: number, totalCost: numbe
     totalInterest: 0,
     netProfit,
     realMarginRate,
-    markup,
+    marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - (taxRate + feeRate)),
@@ -469,7 +468,7 @@ function calculateCreditCash(input: PricingInput, costPrice: number, totalCost: 
   const totalCosts = totalCost + totalTax + totalFees;
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
+  const marginPercentageOnCost = ((suggestedPrice - costPrice) / costPrice) * 100;
   
   return {
     method: "CREDITO_A_VISTA",
@@ -482,7 +481,7 @@ function calculateCreditCash(input: PricingInput, costPrice: number, totalCost: 
     totalInterest: 0,
     netProfit,
     realMarginRate,
-    markup,
+    marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - (taxRate + feeRate)),
@@ -524,7 +523,7 @@ function calculateCreditInstallment(input: PricingInput, costPrice: number, tota
   const totalCosts = totalCost + totalTax + totalFees + (card.customerPaysInterest ? 0 : totalInterest);
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
+  const marginPercentageOnCost = ((suggestedPrice - costPrice) / costPrice) * 100;
   
   return {
     method: "CREDITO_PARCELADO",
@@ -537,7 +536,7 @@ function calculateCreditInstallment(input: PricingInput, costPrice: number, tota
     totalInterest,
     netProfit,
     realMarginRate,
-    markup,
+    marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - (taxRate + feeRate + anticipationRate)),
