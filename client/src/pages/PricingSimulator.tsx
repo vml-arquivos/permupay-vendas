@@ -335,34 +335,49 @@ function ResultCard({
         </p>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-3">
-        <div>
-          <p className="text-xs text-muted-foreground">Lucro líquido</p>
-          <p
-            className={`text-sm font-semibold ${
-              result.netProfit >= 0 ? "text-success" : "text-danger"
-            }`}
-          >
-            {formatCurrency(result.netProfit)}
-          </p>
+      <div className="mt-4 pt-4 border-t border-border space-y-2">
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">Preço de Custo:</span>
+          <span className="font-medium">{formatCurrency(result.baseCost)}</span>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Margem real</p>
-          <p className="text-sm font-semibold text-foreground">
-            {formatPercent(result.realMarginRate)}
-          </p>
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">Margem de Lucro:</span>
+          <span className="font-medium text-success">+{formatCurrency(result.marginValue)}</span>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Imposto</p>
-          <p className="text-sm font-medium text-foreground">
-            {formatCurrency(result.totalTax)}
-          </p>
+        <div className="flex justify-between text-xs border-t border-dashed pt-1">
+          <span className="font-semibold">Subtotal (Custo + Margem):</span>
+          <span className="font-semibold">{formatCurrency(result.subtotalWithMargin)}</span>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Markup</p>
-          <p className="text-sm font-medium text-foreground">
-            {formatPercent(result.markup)}
-          </p>
+        
+        <div className="pt-2 space-y-1">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Despesas Adicionais</p>
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Impostos:</span>
+            <span className="font-medium">{formatCurrency(result.totalTax)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Taxas/Juros:</span>
+            <span className="font-medium">{formatCurrency(result.totalFees + result.totalInterest)}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Outros Custos:</span>
+            <span className="font-medium">{formatCurrency(result.otherCosts)}</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
+          <div>
+            <p className="text-xs text-muted-foreground">Lucro líquido</p>
+            <p className={`text-sm font-semibold ${result.netProfit >= 0 ? "text-success" : "text-danger"}`}>
+              {formatCurrency(result.netProfit)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Margem real</p>
+            <p className="text-sm font-semibold text-foreground">
+              {formatPercent(result.realMarginRate)}
+            </p>
+          </div>
         </div>
       </div>
 

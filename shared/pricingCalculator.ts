@@ -84,6 +84,12 @@ export interface PaymentResult {
   psychologicalPrice: number;
   minPriceNoLoss: number;
   minPriceWithMargin: number;
+  
+  // Novos campos de detalhamento
+  baseCost: number;         // Preço de custo original
+  marginValue: number;      // Valor da margem de lucro (costPrice * margin%)
+  subtotalWithMargin: number; // costPrice + marginValue
+  otherCosts: number;       // packaging + shipping + operational
 }
 
 export interface PricingResult {
@@ -312,37 +318,21 @@ export function validatePricingInput(input: PricingInput): PricingError | null {
 
 /**
  * Calcula o preço para Pix / À Vista
- * 
- * Fórmula: preço = custo + (custo × margem%) + (preço × imposto%)
- * Reorganizado: preço = (custo × (1 + margem%)) / (1 - imposto%)
  */
 function calculatePix(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { taxRates, desiredMarginRate } = input;
-  
-  // Lucro desejado em valor absoluto (sobre o custo)
-  const desiredProfit = costPrice * (desiredMarginRate / 100);
-  
-  // Preço base = custo + lucro desejado
-  const priceBase = costPrice + desiredProfit;
-  
-  // Imposto sobre o preço final
+  const marginValue = costPrice * (desiredMarginRate / 100);
+  const priceBase = costPrice + marginValue;
   const taxRate = taxRates.cash / 100;
-  
-  // Preço final = (preço base) / (1 - taxa de imposto)
   const suggestedPrice = priceBase / (1 - taxRate);
   
   const totalTax = suggestedPrice * taxRate;
+  const otherCosts = totalCost - costPrice;
   const totalCosts = totalCost + totalTax;
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
   const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
   
-  // Preço mínimo sem prejuízo (apenas impostos, sem margem)
-  const minPriceNoLoss = totalCost / (1 - taxRate);
-  
-  // Preço mínimo com margem desejada
-  const minPriceWithMargin = suggestedPrice;
-
   return {
     method: "PIX",
     methodLabel: PAYMENT_METHOD_LABELS.PIX,
@@ -357,8 +347,12 @@ function calculatePix(input: PricingInput, costPrice: number, totalCost: number)
     markup,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
-    minPriceNoLoss,
-    minPriceWithMargin,
+    minPriceNoLoss: totalCost / (1 - taxRate),
+    minPriceWithMargin: suggestedPrice,
+    baseCost: costPrice,
+    marginValue,
+    subtotalWithMargin: priceBase,
+    otherCosts,
   };
 }
 
@@ -367,50 +361,37 @@ function calculatePix(input: PricingInput, costPrice: number, totalCost: number)
  */
 function calculateBoleto(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { boleto, taxRates, desiredMarginRate } = input;
-
-  // Lucro desejado em valor absoluto (sobre o custo)
-  const desiredProfit = costPrice * (desiredMarginRate / 100);
-  
-  // Preço base = custo + lucro desejado
-  const priceBase = costPrice + desiredProfit;
-  
-  // Taxas em percentual
+  const marginValue = costPrice * (desiredMarginRate / 100);
+  const priceBase = costPrice + marginValue;
   const taxRate = taxRates.boleto / 100;
   const riskRate = boleto.defaultRiskRate / 100;
   
-  // Preço sem juros = (preço base + taxa fixa) / (1 - taxa% - risco%)
   const priceWithoutInterest = (priceBase + boleto.fixedFee) / (1 - taxRate - riskRate);
   
-  // Aplicar juros compostos
   let suggestedPrice: number;
   let totalInterest: number;
 
   if (boleto.customerPaysInterest) {
-    // Juros repassado ao cliente: preço sem juros, cliente paga a mais
     suggestedPrice = priceWithoutInterest;
     totalInterest = compoundInterest(priceWithoutInterest, boleto.monthlyInterestRate, boleto.months) - priceWithoutInterest;
   } else {
-    // Juros embutido no preço: empresa absorve os juros
     suggestedPrice = compoundInterest(priceWithoutInterest, boleto.monthlyInterestRate, boleto.months);
     totalInterest = suggestedPrice - priceWithoutInterest;
   }
 
   const totalTax = suggestedPrice * taxRate;
   const totalFees = boleto.fixedFee + suggestedPrice * riskRate;
+  const otherCosts = totalCost - costPrice;
   const totalCosts = totalCost + totalTax + totalFees + (boleto.customerPaysInterest ? 0 : totalInterest);
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
   const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
-  const installmentValue = suggestedPrice / boleto.months;
   
-  const minPriceNoLoss = totalCost / (1 - taxRate - riskRate);
-  const minPriceWithMargin = suggestedPrice;
-
   return {
     method: "BOLETO",
     methodLabel: PAYMENT_METHOD_LABELS.BOLETO,
     suggestedPrice,
-    installmentValue,
+    installmentValue: suggestedPrice / boleto.months,
     installments: boleto.months,
     totalTax,
     totalFees,
@@ -420,8 +401,12 @@ function calculateBoleto(input: PricingInput, costPrice: number, totalCost: numb
     markup,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
-    minPriceNoLoss,
-    minPriceWithMargin,
+    minPriceNoLoss: totalCost / (1 - taxRate - riskRate),
+    minPriceWithMargin: suggestedPrice,
+    baseCost: costPrice,
+    marginValue,
+    subtotalWithMargin: priceBase,
+    otherCosts,
   };
 }
 
@@ -430,30 +415,20 @@ function calculateBoleto(input: PricingInput, costPrice: number, totalCost: numb
  */
 function calculateDebit(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { card, taxRates, desiredMarginRate } = input;
-
-  // Lucro desejado em valor absoluto (sobre o custo)
-  const desiredProfit = costPrice * (desiredMarginRate / 100);
-  
-  // Preço base = custo + lucro desejado
-  const priceBase = costPrice + desiredProfit;
-  
-  // Taxas em percentual
+  const marginValue = costPrice * (desiredMarginRate / 100);
+  const priceBase = costPrice + marginValue;
   const taxRate = taxRates.debit / 100;
   const feeRate = card.debitFeeRate / 100;
-  
-  // Preço = (preço base) / (1 - taxa% - taxa cartão%)
   const suggestedPrice = priceBase / (1 - taxRate - feeRate);
   
   const totalTax = suggestedPrice * taxRate;
   const totalFees = suggestedPrice * feeRate;
+  const otherCosts = totalCost - costPrice;
   const totalCosts = totalCost + totalTax + totalFees;
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
   const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
   
-  const minPriceNoLoss = totalCost / (1 - (taxRate + feeRate));
-  const minPriceWithMargin = suggestedPrice;
-
   return {
     method: "DEBITO",
     methodLabel: PAYMENT_METHOD_LABELS.DEBITO,
@@ -468,8 +443,12 @@ function calculateDebit(input: PricingInput, costPrice: number, totalCost: numbe
     markup,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
-    minPriceNoLoss,
-    minPriceWithMargin,
+    minPriceNoLoss: totalCost / (1 - (taxRate + feeRate)),
+    minPriceWithMargin: suggestedPrice,
+    baseCost: costPrice,
+    marginValue,
+    subtotalWithMargin: priceBase,
+    otherCosts,
   };
 }
 
@@ -478,30 +457,20 @@ function calculateDebit(input: PricingInput, costPrice: number, totalCost: numbe
  */
 function calculateCreditCash(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { card, taxRates, desiredMarginRate } = input;
-
-  // Lucro desejado em valor absoluto (sobre o custo)
-  const desiredProfit = costPrice * (desiredMarginRate / 100);
-  
-  // Preço base = custo + lucro desejado
-  const priceBase = costPrice + desiredProfit;
-  
-  // Taxas em percentual
+  const marginValue = costPrice * (desiredMarginRate / 100);
+  const priceBase = costPrice + marginValue;
   const taxRate = taxRates.creditCash / 100;
   const feeRate = card.creditCashFeeRate / 100;
-  
-  // Preço = (preço base) / (1 - taxa% - taxa cartão%)
   const suggestedPrice = priceBase / (1 - taxRate - feeRate);
   
   const totalTax = suggestedPrice * taxRate;
   const totalFees = suggestedPrice * feeRate;
+  const otherCosts = totalCost - costPrice;
   const totalCosts = totalCost + totalTax + totalFees;
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
   const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
   
-  const minPriceNoLoss = totalCost / (1 - (taxRate + feeRate));
-  const minPriceWithMargin = suggestedPrice;
-
   return {
     method: "CREDITO_A_VISTA",
     methodLabel: PAYMENT_METHOD_LABELS.CREDITO_A_VISTA,
@@ -516,8 +485,12 @@ function calculateCreditCash(input: PricingInput, costPrice: number, totalCost: 
     markup,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
-    minPriceNoLoss,
-    minPriceWithMargin,
+    minPriceNoLoss: totalCost / (1 - (taxRate + feeRate)),
+    minPriceWithMargin: suggestedPrice,
+    baseCost: costPrice,
+    marginValue,
+    subtotalWithMargin: priceBase,
+    otherCosts,
   };
 }
 
@@ -526,51 +499,38 @@ function calculateCreditCash(input: PricingInput, costPrice: number, totalCost: 
  */
 function calculateCreditInstallment(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { card, taxRates, desiredMarginRate } = input;
-
-  // Lucro desejado em valor absoluto (sobre o custo)
-  const desiredProfit = costPrice * (desiredMarginRate / 100);
-  
-  // Preço base = custo + lucro desejado
-  const priceBase = costPrice + desiredProfit;
-  
-  // Taxas em percentual
+  const marginValue = costPrice * (desiredMarginRate / 100);
+  const priceBase = costPrice + marginValue;
   const taxRate = taxRates.creditInstallment / 100;
   const feeRate = card.creditInstallmentFeeRate / 100;
   const anticipationRate = card.anticipationRate / 100;
   
-  // Preço sem juros = (preço base) / (1 - taxa% - taxa cartão% - antecipação%)
   const priceWithoutInterest = priceBase / (1 - taxRate - feeRate - anticipationRate);
   
-  // Aplicar juros compostos
   let suggestedPrice: number;
   let totalInterest: number;
 
   if (card.customerPaysInterest) {
-    // Juros repassado ao cliente
     suggestedPrice = priceWithoutInterest;
     totalInterest = compoundInterest(priceWithoutInterest, card.monthlyInterestRate, card.installments) - priceWithoutInterest;
   } else {
-    // Juros embutido no preço
     suggestedPrice = compoundInterest(priceWithoutInterest, card.monthlyInterestRate, card.installments);
     totalInterest = suggestedPrice - priceWithoutInterest;
   }
 
   const totalTax = suggestedPrice * taxRate;
   const totalFees = suggestedPrice * (feeRate + anticipationRate);
+  const otherCosts = totalCost - costPrice;
   const totalCosts = totalCost + totalTax + totalFees + (card.customerPaysInterest ? 0 : totalInterest);
   const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
   const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
-  const installmentValue = suggestedPrice / card.installments;
   
-  const minPriceNoLoss = totalCost / (1 - (taxRate + feeRate + anticipationRate));
-  const minPriceWithMargin = suggestedPrice;
-
   return {
     method: "CREDITO_PARCELADO",
     methodLabel: PAYMENT_METHOD_LABELS.CREDITO_PARCELADO,
     suggestedPrice,
-    installmentValue,
+    installmentValue: suggestedPrice / card.installments,
     installments: card.installments,
     totalTax,
     totalFees,
@@ -580,8 +540,12 @@ function calculateCreditInstallment(input: PricingInput, costPrice: number, tota
     markup,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
-    minPriceNoLoss,
-    minPriceWithMargin,
+    minPriceNoLoss: totalCost / (1 - (taxRate + feeRate + anticipationRate)),
+    minPriceWithMargin: suggestedPrice,
+    baseCost: costPrice,
+    marginValue,
+    subtotalWithMargin: priceBase,
+    otherCosts,
   };
 }
 
@@ -593,21 +557,16 @@ function calculateCreditInstallment(input: PricingInput, costPrice: number, tota
 export function calculatePricing(
   input: PricingInput
 ): PricingResult | PricingError {
-  // Validar entrada
   const validationError = validatePricingInput(input);
-  if (validationError) {
-    return validationError;
-  }
+  if (validationError) return validationError;
 
-  // Separar custo de produto do custo total
-  const costPrice = input.costPrice; // Apenas o preço de custo
+  const costPrice = input.costPrice;
   const totalCost =
     input.costPrice +
     input.packagingCost +
     input.inboundShippingCost +
-    input.operationalCost; // Custo total com todos os adicionais
+    input.operationalCost;
 
-  // Calcular todas as formas de pagamento
   const results: PaymentResult[] = [
     calculatePix(input, costPrice, totalCost),
     calculateBoleto(input, costPrice, totalCost),
@@ -616,22 +575,9 @@ export function calculatePricing(
     calculateCreditInstallment(input, costPrice, totalCost),
   ];
 
-  // Determinar melhor e pior forma de pagamento (por margem real)
   const sorted = [...results].sort((a, b) => b.realMarginRate - a.realMarginRate);
   const bestMethod = sorted[0]!.method;
   const worstMethod = sorted[sorted.length - 1]!.method;
-
-  // Preço mínimo para promoção (menor preço sem prejuízo entre todos os métodos)
-  const promotionMinPrice = Math.min(...results.map((r) => r.minPriceNoLoss));
-
-  // Verificar se o produto é saudável (pelo menos um método com APROVADO)
-  const hasUnhealthyProduct = results.every(
-    (r) => r.diagnostic === "PREJUIZO" || r.diagnostic === "RISCO"
-  );
-
-  const unhealthyAlert = hasUnhealthyProduct
-    ? "Atenção: este produto apresenta margem crítica ou prejuízo em todas as formas de pagamento. Revise os custos, taxas financeiras e margem desejada."
-    : undefined;
 
   return {
     input,
@@ -639,9 +585,11 @@ export function calculatePricing(
     results,
     bestMethod,
     worstMethod,
-    promotionMinPrice,
-    hasUnhealthyProduct,
-    unhealthyAlert,
+    promotionMinPrice: Math.min(...results.map((r) => r.minPriceNoLoss)),
+    hasUnhealthyProduct: results.every((r) => r.diagnostic === "PREJUIZO" || r.diagnostic === "RISCO"),
+    unhealthyAlert: results.every((r) => r.diagnostic === "PREJUIZO" || r.diagnostic === "RISCO")
+      ? "Atenção: este produto apresenta margem crítica ou prejuízo em todas as formas de pagamento. Revise os custos, taxas financeiras e margem desejada."
+      : undefined,
   };
 }
 
