@@ -8,6 +8,13 @@
       "when": 1778007905533,
       "tag": "0000_green_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778169704308,
+      "tag": "0001_shallow_robbie_robertson",
+      "breakpoints": true
     }
   ]
 }
