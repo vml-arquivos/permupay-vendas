@@ -373,7 +373,7 @@ function ResultCard({
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Margem real</p>
+            <p className="text-xs text-muted-foreground">Lucro Bruto</p>
             <p className="text-sm font-semibold text-foreground">
               {formatPercent(result.realMarginRate)}
             </p>
@@ -1111,7 +1111,7 @@ export default function PricingSimulator() {
                           Lucro Líquido
                         </th>
                         <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Margem Real
+                          Lucro Bruto
                         </th>
                         <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
                           Markup
