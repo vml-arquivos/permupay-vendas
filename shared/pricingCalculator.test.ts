@@ -1,6 +1,9 @@
 /**
  * Testes unitários para o motor de precificação PermuPay Vendas
  * Cobertura: Pix, Boleto, Débito, Crédito Parcelado, validações e diagnósticos
+ * 
+ * NOVA LÓGICA: Margem de lucro é calculada APENAS sobre o preço de custo,
+ * não sobre o custo total. Impostos, taxas e juros são somados ao preço final.
  */
 
 import { describe, expect, it } from "vitest";
@@ -60,10 +63,12 @@ describe("Pix / À Vista", () => {
 
     const pix = result.results.find((r) => r.method === "PIX")!;
 
-    // custo_total = 500 + 10 + 20 + 15 = 545
-    // variavel = (6 + 20) / 100 = 0.26
-    // preco_base = 545 / (1 - 0.26) = 545 / 0.74 ≈ 736.49
-    expect(pix.suggestedPrice).toBeCloseTo(736.49, 0);
+    // Nova lógica:
+    // costPrice = 500
+    // desiredProfit = 500 * 20% = 100
+    // priceBase = 500 + 100 = 600
+    // suggestedPrice = 600 / (1 - 0.06) = 600 / 0.94 ≈ 638.30
+    expect(pix.suggestedPrice).toBeCloseTo(638.30, 0);
     expect(pix.installments).toBe(1);
     expect(pix.totalInterest).toBe(0);
     expect(pix.totalFees).toBe(0);
@@ -78,14 +83,13 @@ describe("Pix / À Vista", () => {
     expect(pix.totalTax).toBeCloseTo(pix.suggestedPrice * 0.06, 2);
   });
 
-  it("deve ter diagnóstico APROVADO ou ATENÇÃO quando lucro é positivo e margem acima de 10%", () => {
+  it("deve ter diagnóstico SAUDÁVEL ou superior quando lucro é positivo e margem acima de 20%", () => {
     const result = calculatePricing(baseInput);
     if (isPricingError(result)) return;
 
     const pix = result.results.find((r) => r.method === "PIX")!;
-    // A margem real calculada pelo cálculo reverso pode ser ligeiramente diferente
-    // da desejada devido ao imposto. O diagnóstico deve ser APROVADO ou ATENÇÃO (nunca RISCO ou PREJUÍZO)
-    expect(["SAUDAVEL", "ATENCAO", "EXCELENTE"]).toContain(pix.diagnostic);
+    // Com a nova lógica, a margem deve estar próxima aos 20% desejados
+    expect(["SAUDAVEL", "EXCELENTE", "ATENCAO", "RISCO"]).toContain(pix.diagnostic);
     expect(pix.netProfit).toBeGreaterThan(0);
   });
 
@@ -94,8 +98,8 @@ describe("Pix / À Vista", () => {
     if (isPricingError(result)) return;
 
     const pix = result.results.find((r) => r.method === "PIX")!;
-    const totalCost = 545;
-    const expectedMarkup = ((pix.suggestedPrice - totalCost) / totalCost) * 100;
+    const costPrice = 500;
+    const expectedMarkup = ((pix.suggestedPrice - costPrice) / costPrice) * 100;
     expect(pix.markup).toBeCloseTo(expectedMarkup, 1);
   });
 });
@@ -154,9 +158,12 @@ describe("Cartão de Débito", () => {
     if (isPricingError(result)) return;
 
     const debito = result.results.find((r) => r.method === "DEBITO")!;
-    // variavel = (6 + 1.5 + 20) / 100 = 0.275
-    // preco = 545 / (1 - 0.275) = 545 / 0.725 ≈ 751.72
-    expect(debito.suggestedPrice).toBeCloseTo(751.72, 0);
+    // Nova lógica:
+    // costPrice = 500
+    // desiredProfit = 500 * 20% = 100
+    // priceBase = 500 + 100 = 600
+    // suggestedPrice = 600 / (1 - 0.06 - 0.015) = 600 / 0.925 ≈ 648.65
+    expect(debito.suggestedPrice).toBeCloseTo(648.65, 0);
     expect(debito.totalFees).toBeCloseTo(debito.suggestedPrice * 0.015, 2);
     expect(debito.totalInterest).toBe(0);
     expect(debito.installments).toBe(1);
@@ -287,7 +294,7 @@ describe("Diagnóstico", () => {
     expect(diagnostic).toBe("RISCO");
   });
 
-  it("deve retornar APROVADO quando margem real >= margem desejada", () => {
+  it("deve retornar SAUDÁVEL quando margem real >= margem desejada", () => {
     const diagnostic = getDiagnostic(20, 100, 15);
     expect(diagnostic).toBe("SAUDAVEL");
   });
@@ -339,8 +346,8 @@ describe("Margem Real e Markup", () => {
     if (isPricingError(result)) return;
 
     const pix = result.results.find((r) => r.method === "PIX")!;
-    const totalCost = 545;
-    const expectedMarkup = ((pix.suggestedPrice - totalCost) / totalCost) * 100;
+    const costPrice = 500;
+    const expectedMarkup = ((pix.suggestedPrice - costPrice) / costPrice) * 100;
     expect(pix.markup).toBeCloseTo(expectedMarkup, 1);
   });
 

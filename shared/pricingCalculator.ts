@@ -196,7 +196,8 @@ export function compoundInterest(base: number, monthlyRate: number, periods: num
 /**
  * Determina diagnóstico com base na margem real e lucro
  *
- * APROVADO  — margem real >= margem desejada (ou >= 10% se desejada não informada)
+ * EXCELENTE — margem real >= margem desejada + 10%
+ * SAUDÁVEL  — margem real >= margem desejada (mas < desejada + 10%)
  * ATENÇÃO  — margem real abaixo da desejada, mas acima de 10%
  * RISCO    — margem real menor que 10% (mas lucro positivo)
  * PREJUÍZO — lucro líquido negativo
@@ -311,18 +312,36 @@ export function validatePricingInput(input: PricingInput): PricingError | null {
 
 /**
  * Calcula o preço para Pix / À Vista
+ * 
+ * Fórmula: preço = custo + (custo × margem%) + (preço × imposto%)
+ * Reorganizado: preço = (custo × (1 + margem%)) / (1 - imposto%)
  */
-function calculatePix(input: PricingInput, totalCost: number): PaymentResult {
-  const variableSum =
-    (input.taxRates.cash + input.desiredMarginRate) / 100;
-
-  const suggestedPrice = totalCost / (1 - variableSum);
-  const totalTax = suggestedPrice * (input.taxRates.cash / 100);
-  const netProfit = suggestedPrice - totalCost - totalTax;
+function calculatePix(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
+  const { taxRates, desiredMarginRate } = input;
+  
+  // Lucro desejado em valor absoluto (sobre o custo)
+  const desiredProfit = costPrice * (desiredMarginRate / 100);
+  
+  // Preço base = custo + lucro desejado
+  const priceBase = costPrice + desiredProfit;
+  
+  // Imposto sobre o preço final
+  const taxRate = taxRates.cash / 100;
+  
+  // Preço final = (preço base) / (1 - taxa de imposto)
+  const suggestedPrice = priceBase / (1 - taxRate);
+  
+  const totalTax = suggestedPrice * taxRate;
+  const totalCosts = totalCost + totalTax;
+  const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - totalCost) / totalCost) * 100;
-  const minPriceNoLoss = totalCost / (1 - input.taxRates.cash / 100);
-  const minPriceWithMargin = totalCost / (1 - variableSum);
+  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
+  
+  // Preço mínimo sem prejuízo (apenas impostos, sem margem)
+  const minPriceNoLoss = totalCost / (1 - taxRate);
+  
+  // Preço mínimo com margem desejada
+  const minPriceWithMargin = suggestedPrice;
 
   return {
     method: "PIX",
@@ -336,7 +355,7 @@ function calculatePix(input: PricingInput, totalCost: number): PaymentResult {
     netProfit,
     realMarginRate,
     markup,
-    diagnostic: getDiagnostic(realMarginRate, netProfit, input.desiredMarginRate),
+    diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss,
     minPriceWithMargin,
@@ -346,40 +365,46 @@ function calculatePix(input: PricingInput, totalCost: number): PaymentResult {
 /**
  * Calcula o preço para Boleto Bancário
  */
-function calculateBoleto(input: PricingInput, totalCost: number): PaymentResult {
+function calculateBoleto(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { boleto, taxRates, desiredMarginRate } = input;
 
-  // Custo total incluindo taxa fixa do boleto
-  const totalCostWithFee = totalCost + boleto.fixedFee;
-
-  const variableSum =
-    (taxRates.boleto + boleto.defaultRiskRate + desiredMarginRate) / 100;
-
-  // Preço base (sem juros)
-  const priceBase = totalCostWithFee / (1 - variableSum);
-
-  // Preço final com juros compostos
+  // Lucro desejado em valor absoluto (sobre o custo)
+  const desiredProfit = costPrice * (desiredMarginRate / 100);
+  
+  // Preço base = custo + lucro desejado
+  const priceBase = costPrice + desiredProfit;
+  
+  // Taxas em percentual
+  const taxRate = taxRates.boleto / 100;
+  const riskRate = boleto.defaultRiskRate / 100;
+  
+  // Preço sem juros = (preço base + taxa fixa) / (1 - taxa% - risco%)
+  const priceWithoutInterest = (priceBase + boleto.fixedFee) / (1 - taxRate - riskRate);
+  
+  // Aplicar juros compostos
   let suggestedPrice: number;
   let totalInterest: number;
 
   if (boleto.customerPaysInterest) {
-    // Juros repassado ao cliente: preço base sem juros, cliente paga a mais
-    suggestedPrice = priceBase;
-    totalInterest = compoundInterest(priceBase, boleto.monthlyInterestRate, boleto.months) - priceBase;
+    // Juros repassado ao cliente: preço sem juros, cliente paga a mais
+    suggestedPrice = priceWithoutInterest;
+    totalInterest = compoundInterest(priceWithoutInterest, boleto.monthlyInterestRate, boleto.months) - priceWithoutInterest;
   } else {
     // Juros embutido no preço: empresa absorve os juros
-    suggestedPrice = compoundInterest(priceBase, boleto.monthlyInterestRate, boleto.months);
-    totalInterest = suggestedPrice - priceBase;
+    suggestedPrice = compoundInterest(priceWithoutInterest, boleto.monthlyInterestRate, boleto.months);
+    totalInterest = suggestedPrice - priceWithoutInterest;
   }
 
-  const totalTax = suggestedPrice * (taxRates.boleto / 100);
-  const totalFees = boleto.fixedFee + suggestedPrice * (boleto.defaultRiskRate / 100);
-  const netProfit = suggestedPrice - totalCostWithFee - totalTax - (boleto.customerPaysInterest ? 0 : totalInterest);
+  const totalTax = suggestedPrice * taxRate;
+  const totalFees = boleto.fixedFee + suggestedPrice * riskRate;
+  const totalCosts = totalCost + totalTax + totalFees + (boleto.customerPaysInterest ? 0 : totalInterest);
+  const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - totalCost) / totalCost) * 100;
+  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
   const installmentValue = suggestedPrice / boleto.months;
-  const minPriceNoLoss = totalCostWithFee / (1 - taxRates.boleto / 100);
-  const minPriceWithMargin = totalCostWithFee / (1 - variableSum);
+  
+  const minPriceNoLoss = totalCost / (1 - taxRate - riskRate);
+  const minPriceWithMargin = suggestedPrice;
 
   return {
     method: "BOLETO",
@@ -403,20 +428,31 @@ function calculateBoleto(input: PricingInput, totalCost: number): PaymentResult 
 /**
  * Calcula o preço para Cartão de Débito
  */
-function calculateDebit(input: PricingInput, totalCost: number): PaymentResult {
+function calculateDebit(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { card, taxRates, desiredMarginRate } = input;
 
-  const variableSum =
-    (taxRates.debit + card.debitFeeRate + desiredMarginRate) / 100;
-
-  const suggestedPrice = totalCost / (1 - variableSum);
-  const totalTax = suggestedPrice * (taxRates.debit / 100);
-  const totalFees = suggestedPrice * (card.debitFeeRate / 100);
-  const netProfit = suggestedPrice - totalCost - totalTax - totalFees;
+  // Lucro desejado em valor absoluto (sobre o custo)
+  const desiredProfit = costPrice * (desiredMarginRate / 100);
+  
+  // Preço base = custo + lucro desejado
+  const priceBase = costPrice + desiredProfit;
+  
+  // Taxas em percentual
+  const taxRate = taxRates.debit / 100;
+  const feeRate = card.debitFeeRate / 100;
+  
+  // Preço = (preço base) / (1 - taxa% - taxa cartão%)
+  const suggestedPrice = priceBase / (1 - taxRate - feeRate);
+  
+  const totalTax = suggestedPrice * taxRate;
+  const totalFees = suggestedPrice * feeRate;
+  const totalCosts = totalCost + totalTax + totalFees;
+  const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - totalCost) / totalCost) * 100;
-  const minPriceNoLoss = totalCost / (1 - (taxRates.debit + card.debitFeeRate) / 100);
-  const minPriceWithMargin = totalCost / (1 - variableSum);
+  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
+  
+  const minPriceNoLoss = totalCost / (1 - (taxRate + feeRate));
+  const minPriceWithMargin = suggestedPrice;
 
   return {
     method: "DEBITO",
@@ -440,20 +476,31 @@ function calculateDebit(input: PricingInput, totalCost: number): PaymentResult {
 /**
  * Calcula o preço para Crédito à Vista
  */
-function calculateCreditCash(input: PricingInput, totalCost: number): PaymentResult {
+function calculateCreditCash(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { card, taxRates, desiredMarginRate } = input;
 
-  const variableSum =
-    (taxRates.creditCash + card.creditCashFeeRate + desiredMarginRate) / 100;
-
-  const suggestedPrice = totalCost / (1 - variableSum);
-  const totalTax = suggestedPrice * (taxRates.creditCash / 100);
-  const totalFees = suggestedPrice * (card.creditCashFeeRate / 100);
-  const netProfit = suggestedPrice - totalCost - totalTax - totalFees;
+  // Lucro desejado em valor absoluto (sobre o custo)
+  const desiredProfit = costPrice * (desiredMarginRate / 100);
+  
+  // Preço base = custo + lucro desejado
+  const priceBase = costPrice + desiredProfit;
+  
+  // Taxas em percentual
+  const taxRate = taxRates.creditCash / 100;
+  const feeRate = card.creditCashFeeRate / 100;
+  
+  // Preço = (preço base) / (1 - taxa% - taxa cartão%)
+  const suggestedPrice = priceBase / (1 - taxRate - feeRate);
+  
+  const totalTax = suggestedPrice * taxRate;
+  const totalFees = suggestedPrice * feeRate;
+  const totalCosts = totalCost + totalTax + totalFees;
+  const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - totalCost) / totalCost) * 100;
-  const minPriceNoLoss = totalCost / (1 - (taxRates.creditCash + card.creditCashFeeRate) / 100);
-  const minPriceWithMargin = totalCost / (1 - variableSum);
+  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
+  
+  const minPriceNoLoss = totalCost / (1 - (taxRate + feeRate));
+  const minPriceWithMargin = suggestedPrice;
 
   return {
     method: "CREDITO_A_VISTA",
@@ -477,45 +524,47 @@ function calculateCreditCash(input: PricingInput, totalCost: number): PaymentRes
 /**
  * Calcula o preço para Crédito Parcelado
  */
-function calculateCreditInstallment(input: PricingInput, totalCost: number): PaymentResult {
+function calculateCreditInstallment(input: PricingInput, costPrice: number, totalCost: number): PaymentResult {
   const { card, taxRates, desiredMarginRate } = input;
 
-  const variableSum =
-    (taxRates.creditInstallment +
-      card.creditInstallmentFeeRate +
-      card.anticipationRate +
-      desiredMarginRate) /
-    100;
-
-  // Preço base sem juros
-  const priceBase = totalCost / (1 - variableSum);
-
-  // Juros compostos para parcelamento
+  // Lucro desejado em valor absoluto (sobre o custo)
+  const desiredProfit = costPrice * (desiredMarginRate / 100);
+  
+  // Preço base = custo + lucro desejado
+  const priceBase = costPrice + desiredProfit;
+  
+  // Taxas em percentual
+  const taxRate = taxRates.creditInstallment / 100;
+  const feeRate = card.creditInstallmentFeeRate / 100;
+  const anticipationRate = card.anticipationRate / 100;
+  
+  // Preço sem juros = (preço base) / (1 - taxa% - taxa cartão% - antecipação%)
+  const priceWithoutInterest = priceBase / (1 - taxRate - feeRate - anticipationRate);
+  
+  // Aplicar juros compostos
   let suggestedPrice: number;
   let totalInterest: number;
 
   if (card.customerPaysInterest) {
-    // Empresa absorve os juros: preço base, cliente paga parcelas com juros
-    suggestedPrice = priceBase;
-    totalInterest = compoundInterest(priceBase, card.monthlyInterestRate, card.installments) - priceBase;
+    // Juros repassado ao cliente
+    suggestedPrice = priceWithoutInterest;
+    totalInterest = compoundInterest(priceWithoutInterest, card.monthlyInterestRate, card.installments) - priceWithoutInterest;
   } else {
-    // Juros repassado ao cliente: preço total inclui juros
-    suggestedPrice = compoundInterest(priceBase, card.monthlyInterestRate, card.installments);
-    totalInterest = suggestedPrice - priceBase;
+    // Juros embutido no preço
+    suggestedPrice = compoundInterest(priceWithoutInterest, card.monthlyInterestRate, card.installments);
+    totalInterest = suggestedPrice - priceWithoutInterest;
   }
 
-  const totalTax = suggestedPrice * (taxRates.creditInstallment / 100);
-  const totalFees =
-    suggestedPrice * (card.creditInstallmentFeeRate / 100) +
-    suggestedPrice * (card.anticipationRate / 100);
-  const netProfit = suggestedPrice - totalCost - totalTax - totalFees - (card.customerPaysInterest ? 0 : totalInterest);
+  const totalTax = suggestedPrice * taxRate;
+  const totalFees = suggestedPrice * (feeRate + anticipationRate);
+  const totalCosts = totalCost + totalTax + totalFees + (card.customerPaysInterest ? 0 : totalInterest);
+  const netProfit = suggestedPrice - totalCosts;
   const realMarginRate = (netProfit / suggestedPrice) * 100;
-  const markup = ((suggestedPrice - totalCost) / totalCost) * 100;
+  const markup = ((suggestedPrice - costPrice) / costPrice) * 100;
   const installmentValue = suggestedPrice / card.installments;
-  const minPriceNoLoss =
-    totalCost /
-    (1 - (taxRates.creditInstallment + card.creditInstallmentFeeRate + card.anticipationRate) / 100);
-  const minPriceWithMargin = totalCost / (1 - variableSum);
+  
+  const minPriceNoLoss = totalCost / (1 - (taxRate + feeRate + anticipationRate));
+  const minPriceWithMargin = suggestedPrice;
 
   return {
     method: "CREDITO_PARCELADO",
@@ -536,33 +585,35 @@ function calculateCreditInstallment(input: PricingInput, totalCost: number): Pay
   };
 }
 
-// ─── Função Principal ─────────────────────────────────────────────────────────
+// ─── Função Principal de Cálculo ───────────────────────────────────────────────
 
 /**
- * Executa o cálculo completo de precificação para todas as formas de pagamento.
- * Retorna PricingError se os dados de entrada forem inválidos.
+ * Calcula a precificação completa para um produto
  */
 export function calculatePricing(
   input: PricingInput
 ): PricingResult | PricingError {
   // Validar entrada
   const validationError = validatePricingInput(input);
-  if (validationError) return validationError;
+  if (validationError) {
+    return validationError;
+  }
 
-  // Custo total do produto
+  // Separar custo de produto do custo total
+  const costPrice = input.costPrice; // Apenas o preço de custo
   const totalCost =
     input.costPrice +
     input.packagingCost +
     input.inboundShippingCost +
-    input.operationalCost;
+    input.operationalCost; // Custo total com todos os adicionais
 
   // Calcular todas as formas de pagamento
   const results: PaymentResult[] = [
-    calculatePix(input, totalCost),
-    calculateBoleto(input, totalCost),
-    calculateDebit(input, totalCost),
-    calculateCreditCash(input, totalCost),
-    calculateCreditInstallment(input, totalCost),
+    calculatePix(input, costPrice, totalCost),
+    calculateBoleto(input, costPrice, totalCost),
+    calculateDebit(input, costPrice, totalCost),
+    calculateCreditCash(input, costPrice, totalCost),
+    calculateCreditInstallment(input, costPrice, totalCost),
   ];
 
   // Determinar melhor e pior forma de pagamento (por margem real)
