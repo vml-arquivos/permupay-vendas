@@ -3,8 +3,20 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 
+const FRIENDLY_ERROR_MESSAGE = "Não foi possível processar sua solicitação agora. Tente novamente.";
+
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  errorFormatter({ shape }) {
+    if (shape.data.code === "INTERNAL_SERVER_ERROR") {
+      return {
+        ...shape,
+        message: FRIENDLY_ERROR_MESSAGE,
+      };
+    }
+
+    return shape;
+  },
 });
 
 export const router = t.router;

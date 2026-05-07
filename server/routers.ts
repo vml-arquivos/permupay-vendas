@@ -17,17 +17,17 @@ export const appRouter = router({
 
   products: router({
     create: protectedProcedure.input(productInput).mutation(({input,ctx})=>db.createProduct({...input,userId:ctx.user.id})),
-    list: protectedProcedure.query(({ctx})=>db.listProducts(ctx.user.id)),
+    list: publicProcedure.query(() => db.listProducts(undefined)),
     byId: protectedProcedure.input(z.object({id:z.number()})).query(({input})=>db.getProductById(input.id)),
     update: protectedProcedure.input(z.object({id:z.number(),data:productInput.partial()})).mutation(({input})=>db.updateProduct(input.id,input.data)),
     deactivate: protectedProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.deactivateProduct(input.id)),
     duplicate: protectedProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.duplicateProduct(input.id)),
   }),
   simulations: router({
-    create: protectedProcedure.input(z.any()).mutation(({input,ctx})=>db.createSimulation({...input,userId:ctx.user.id})),
+    create: publicProcedure.input(z.any()).mutation(({ input }) => db.createSimulation(input)),
     list: protectedProcedure.query(({ctx})=>db.listSimulations(ctx.user.id)),
-    byId: publicProcedure.input(z.object({id:z.number()})).query(({input})=>db.getSimulationById(input.id)),
-    delete: publicProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.deleteSimulation(input.id)),
+    byId: protectedProcedure.input(z.object({id:z.number()})).query(({input})=>db.getSimulationById(input.id)),
+    delete: protectedProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.deleteSimulation(input.id)),
     duplicate: protectedProcedure.input(z.object({id:z.number()})).mutation(({input})=>db.duplicateSimulation(input.id)),
   }),
   dashboard: protectedProcedure.query(({ctx})=>db.getDashboardData(ctx.user.id)),
