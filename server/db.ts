@@ -115,14 +115,14 @@ export async function listProducts(userId?: number) {
   }
 }
 
-export async function getProductById(id: number) {
+export async function getProductById(id: number, userId?: number) {
   const db = await getDb();
   if (!db) return undefined;
   try {
     const r = await db
       .select()
       .from(products)
-      .where(eq(products.id, id))
+      .where(and(eq(products.id, id), userId ? eq(products.userId, userId) : undefined as any))
       .limit(1);
     return r[0];
   } catch (error) {
@@ -166,7 +166,7 @@ export async function createProduct(data: any) {
   }
 }
 
-export async function updateProduct(id: number, data: any) {
+export async function updateProduct(id: number, data: any, userId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -192,7 +192,7 @@ export async function updateProduct(id: number, data: any) {
     const [r] = await db
       .update(products)
       .set(updateData)
-      .where(eq(products.id, id))
+      .where(and(eq(products.id, id), userId ? eq(products.userId, userId) : undefined as any))
       .returning();
     return r;
   } catch (error) {
@@ -201,12 +201,12 @@ export async function updateProduct(id: number, data: any) {
   }
 }
 
-export async function deactivateProduct(id: number) {
-  return updateProduct(id, { active: false });
+export async function deactivateProduct(id: number, userId?: number) {
+  return updateProduct(id, { active: false }, userId);
 }
 
-export async function duplicateProduct(id: number) {
-  const p = await getProductById(id);
+export async function duplicateProduct(id: number, userId?: number) {
+  const p = await getProductById(id, userId);
   if (!p) throw new Error("Produto não encontrado");
   const { id: _, createdAt, updatedAt, ...rest } = p as any;
   return createProduct({ ...rest, name: `${p.name} (Cópia)` });
@@ -265,14 +265,14 @@ export async function listSimulations(userId?: number) {
   }
 }
 
-export async function getSimulationById(id: number) {
+export async function getSimulationById(id: number, userId?: number) {
   const db = await getDb();
   if (!db) return undefined;
   try {
     const r = await db
       .select()
       .from(pricingSimulations)
-      .where(eq(pricingSimulations.id, id))
+      .where(and(eq(pricingSimulations.id, id), userId ? eq(pricingSimulations.userId, userId) : undefined as any))
       .limit(1);
     return r[0];
   } catch (error) {
@@ -281,19 +281,19 @@ export async function getSimulationById(id: number) {
   }
 }
 
-export async function deleteSimulation(id: number) {
+export async function deleteSimulation(id: number, userId?: number) {
   const db = await getDb();
   if (!db) return;
   try {
-    await db.delete(pricingSimulations).where(eq(pricingSimulations.id, id));
+    await db.delete(pricingSimulations).where(and(eq(pricingSimulations.id, id), userId ? eq(pricingSimulations.userId, userId) : undefined as any));
   } catch (error) {
     console.error("[DB] Erro ao deletar simulação:", error);
     throw error;
   }
 }
 
-export async function duplicateSimulation(id: number) {
-  const s = await getSimulationById(id);
+export async function duplicateSimulation(id: number, userId?: number) {
+  const s = await getSimulationById(id, userId);
   if (!s) throw new Error("Simulação não encontrada");
   const { id: _, createdAt, updatedAt, ...rest } = s as any;
   return createSimulation({ ...rest, name: `${s.name} (Cópia)` });

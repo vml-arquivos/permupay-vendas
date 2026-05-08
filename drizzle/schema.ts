@@ -14,6 +14,7 @@ import {
 export const roleEnum = pgEnum("permupay_role", ["user", "admin"]);
 export const productCategoryEnum = pgEnum("permupay_product_category", ["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"]);
 export const taxRegimeEnum = pgEnum("permupay_tax_regime", ["SIMPLES_NACIONAL", "LUCRO_PRESUMIDO", "LUCRO_REAL", "MANUAL"]);
+export const marginModeEnum = pgEnum("permupay_margin_mode", ["PERCENT", "VALUE"]);
 
 export const users = pgTable("permupay_users", {
   id: serial("id").primaryKey(), email: varchar("email", { length: 320 }).notNull().unique(), name: text("name").notNull(),
@@ -26,7 +27,7 @@ export const products = pgTable("permupay_products", {
   userId: integer("user_id").references(() => users.id),
   name: text("name").notNull(), category: productCategoryEnum("category").notNull(), ncm: text("ncm"),
   costPrice: real("cost_price").notNull().default(0), packagingCost: real("packaging_cost").notNull().default(0), inboundShippingCost: real("inbound_shipping_cost").notNull().default(0), operationalCost: real("operational_cost").notNull().default(0),
-  desiredMarginRate: real("desired_margin_rate").notNull().default(0), taxRegime: taxRegimeEnum("tax_regime").notNull().default("SIMPLES_NACIONAL"), estimatedTaxRate: real("estimated_tax_rate").notNull().default(0),
+  desiredMarginRate: real("desired_margin_rate").notNull().default(0), desiredMarginValue: real("desired_margin_value").notNull().default(0), marginMode: marginModeEnum("margin_mode").notNull().default("PERCENT"), taxRegime: taxRegimeEnum("tax_regime").notNull().default("SIMPLES_NACIONAL"), estimatedTaxRate: real("estimated_tax_rate").notNull().default(0),
   notes: text("notes"), active: boolean("active").notNull().default(true), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
