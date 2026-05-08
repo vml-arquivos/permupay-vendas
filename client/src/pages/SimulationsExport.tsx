@@ -6,10 +6,10 @@ import { Download, Eye, Trash2, AlertCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 
 export default function SimulationsExport() {
+  const utils = trpc.useUtils();
   const { data: simulations = [] } = trpc.simulations.list.useQuery();
   const deleteSimulation = trpc.simulations.delete.useMutation({
     onSuccess: () => {
-      const utils = trpc.useUtils();
       utils.simulations.list.invalidate();
     },
   });
