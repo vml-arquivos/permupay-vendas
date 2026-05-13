@@ -15,6 +15,20 @@
       "when": 1778169704308,
       "tag": "0001_shallow_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778300000000,
+      "tag": "0002_fix_products_and_simulations_compat",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778400000000,
+      "tag": "0003_add_simulation_net_fields",
+      "breakpoints": true
     }
   ]
 }

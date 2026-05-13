@@ -72,6 +72,7 @@ export interface PaymentResult {
   method: PaymentMethod;
   methodLabel: string;
   suggestedPrice: number;
+  psychologicalPrice: number;
   installmentValue: number;
   installments: number;
   totalTax: number;
@@ -80,6 +81,7 @@ export interface PaymentResult {
   netProfit: number;
   realMarginRate: number;   // % real sobre o preço final
   marginPercentageOnCost: number; // % de margem sobre preço de custo (antes era "markup")
+  markup: number;
   diagnostic: DiagnosticStatus;
   minPriceNoLoss: number;
   minPriceWithMargin: number;
@@ -344,6 +346,7 @@ function calculatePix(input: PricingInput, costPrice: number, totalCost: number)
     netProfit,
     realMarginRate,
     marginPercentageOnCost,
+    markup: marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - taxRate),
@@ -398,6 +401,7 @@ function calculateBoleto(input: PricingInput, costPrice: number, totalCost: numb
     netProfit,
     realMarginRate,
     marginPercentageOnCost,
+    markup: marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - taxRate - riskRate),
@@ -440,6 +444,7 @@ function calculateDebit(input: PricingInput, costPrice: number, totalCost: numbe
     netProfit,
     realMarginRate,
     marginPercentageOnCost,
+    markup: marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - (taxRate + feeRate)),
@@ -482,6 +487,7 @@ function calculateCreditCash(input: PricingInput, costPrice: number, totalCost: 
     netProfit,
     realMarginRate,
     marginPercentageOnCost,
+    markup: marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - (taxRate + feeRate)),
@@ -537,6 +543,7 @@ function calculateCreditInstallment(input: PricingInput, costPrice: number, tota
     netProfit,
     realMarginRate,
     marginPercentageOnCost,
+    markup: marginPercentageOnCost,
     diagnostic: getDiagnostic(realMarginRate, netProfit, desiredMarginRate),
     psychologicalPrice: psychologicalPrice(suggestedPrice),
     minPriceNoLoss: totalCost / (1 - (taxRate + feeRate + anticipationRate)),
