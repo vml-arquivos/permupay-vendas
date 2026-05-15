@@ -15,7 +15,8 @@ import SimulationDetail from "./pages/SimulationDetail";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      {/* Rota raiz "/" agora abre o simulador público para evitar erro 401 */}
+      <Route path="/" component={PricingSimulator} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/produtos" component={Products} />
       <Route path="/produtos/novo">{() => <ProductForm />}</Route>
