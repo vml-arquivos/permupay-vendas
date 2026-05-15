@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
   calculatePricing,
   isPricingError,
@@ -415,14 +416,18 @@ export default function PricingSimulator() {
   const [showCard, setShowCard] = useState(true);
   const [simulationName, setSimulationName] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const { user } = useAuth();
   const searchParams = new URLSearchParams(location.split("?")[1] || "");
   const productId = searchParams.get("productId");
 
-  const productsQuery = trpc.products.list.useQuery();
+  const productsQuery = trpc.products.list.useQuery(undefined, {
+    enabled: !!user,
+    retry: false,
+  });
   const productByIdQuery = trpc.products.byId.useQuery(
     { id: Number(productId) },
-    { enabled: !!productId }
+    { enabled: !!productId && !!user }
   );
 
   const utils = trpc.useUtils();
@@ -583,6 +588,13 @@ export default function PricingSimulator() {
 
   const handleSaveSimulation = useCallback(async () => {
     if (!result) return;
+    
+    // Verificar se usuário está logado
+    if (!user) {
+      setError("Faça login para salvar produtos e simulações.");
+      return;
+    }
+    
     if (!simulationName.trim()) {
       setError("Informe um nome para a simulação.");
       return;
@@ -617,7 +629,7 @@ export default function PricingSimulator() {
       setError(err.message || "Erro ao salvar simulação.");
       setIsSaving(false);
     }
-  }, [result, simulationName, saveSimulation, form, derivedFinalUnitCostBrl]);
+  }, [result, simulationName, saveSimulation, form, derivedFinalUnitCostBrl, user]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -1197,29 +1209,44 @@ export default function PricingSimulator() {
 
               {/* Salvar Simulação */}
               <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                <div className="flex flex-col sm:flex-row gap-4 items-end">
-                  <div className="flex-1 w-full space-y-1.5">
-                    <Label className="text-xs font-medium">Nome da simulação para salvar</Label>
-                    <Input
-                      value={simulationName}
-                      onChange={(e) => setSimulationName(e.target.value)}
-                      placeholder="Ex: iPhone 15 Pro - Lote Março"
-                      className="h-10"
-                    />
+                {!user ? (
+                  <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Faça login para salvar simulações</p>
+                      <p className="text-xs text-muted-foreground mt-1">Crie uma conta ou entre para salvar suas simulações e acessar o histórico.</p>
+                    </div>
+                    <Button
+                      onClick={() => setLocation(`/login?redirect=${encodeURIComponent(location)}`)}
+                      className="w-full sm:w-auto h-10 px-8"
+                    >
+                      Entrar agora
+                    </Button>
                   </div>
-                  <Button
-                    onClick={handleSaveSimulation}
-                    disabled={isSaving}
-                    className="w-full sm:w-auto h-10 px-8"
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-4 items-end">
+                    <div className="flex-1 w-full space-y-1.5">
+                      <Label className="text-xs font-medium">Nome da simulação para salvar</Label>
+                      <Input
+                        value={simulationName}
+                        onChange={(e) => setSimulationName(e.target.value)}
+                        placeholder="Ex: iPhone 15 Pro - Lote Março"
+                        className="h-10"
+                      />
+                    </div>
+                    <Button
+                      onClick={handleSaveSimulation}
+                      disabled={isSaving}
+                      className="w-full sm:w-auto h-10 px-8"
                   >
                     {isSaving ? (
                       <RefreshCcw className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-4 h-4 mr-2" />
-                    )}
-                    Salvar Simulação
-                  </Button>
-                </div>
+                      ) : (
+                        <Sparkles className="w-4 h-4 mr-2" />
+                      )}
+                      Salvar Simulação
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}

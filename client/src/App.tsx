@@ -11,20 +11,60 @@ import Products from "./pages/Products";
 import ProductForm from "./pages/ProductForm";
 import SimulationsExport from "./pages/SimulationsExport";
 import SimulationDetail from "./pages/SimulationDetail";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 function Router() {
   return (
     <Switch>
       {/* Rota raiz "/" agora abre o simulador público para evitar erro 401 */}
       <Route path="/" component={PricingSimulator} />
-      <Route path="/dashboard" component={Dashboard} />
-      <Route path="/produtos" component={Products} />
-      <Route path="/produtos/novo">{() => <ProductForm />}</Route>
-      <Route path="/produtos/:id/editar">{(params: any) => <ProductForm id={Number(params.id)} />}</Route>
       <Route path="/simulador" component={PricingSimulator} />
-      <Route path="/simulacoes" component={SimulationsExport} />
-      <Route path="/simulacoes/:id">{(params: any) => <SimulationDetail id={Number(params.id)} />}</Route>
       <Route path="/login" component={Login} />
+      
+      {/* Rotas protegidas */}
+      <Route path="/dashboard">
+        {() => (
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/produtos">
+        {() => (
+          <ProtectedRoute>
+            <Products />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/produtos/novo">
+        {() => (
+          <ProtectedRoute>
+            <ProductForm />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/produtos/:id/editar">
+        {(params: any) => (
+          <ProtectedRoute>
+            <ProductForm id={Number(params.id)} />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/simulacoes">
+        {() => (
+          <ProtectedRoute>
+            <SimulationsExport />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/simulacoes/:id">
+        {(params: any) => (
+          <ProtectedRoute>
+            <SimulationDetail id={Number(params.id)} />
+          </ProtectedRoute>
+        )}
+      </Route>
+      
       <Route component={NotFound} />
     </Switch>
   );
