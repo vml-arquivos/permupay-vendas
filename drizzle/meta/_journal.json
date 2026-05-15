@@ -27,7 +27,7 @@
       "idx": 3,
       "version": "7",
       "when": 1778400000000,
-      "tag": "0003_add_simulation_net_fields",
+      "tag": "0003_add_usd_cost_and_stock",
       "breakpoints": true
     }
   ]

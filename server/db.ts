@@ -98,6 +98,33 @@ export async function countUsers(): Promise<number> {
   return result.length;
 }
 
+// ─── Helpers de cálculo de custo ──────────────────────────────────────────────
+
+/**
+ * Calcula o custo em BRL baseado na moeda e cotação
+ */
+function calculateCostPriceBrl(data: any): number {
+  if (data.costCurrency === "USD") {
+    if (!data.usdExchangeRate || data.usdExchangeRate <= 0) {
+      throw new Error("Cotação do dólar deve ser maior que zero para moeda USD");
+    }
+    return Number(data.costPriceUsd || 0) * Number(data.usdExchangeRate || 0);
+  }
+  return Number(data.costPrice || 0);
+}
+
+/**
+ * Calcula o custo final unitário
+ */
+function calculateFinalUnitCost(costPriceBrl: number, data: any): number {
+  return (
+    costPriceBrl +
+    Number(data.packagingCost || 0) +
+    Number(data.inboundShippingCost || 0) +
+    Number(data.operationalCost || 0)
+  );
+}
+
 // ─── Funções de Produtos ──────────────────────────────────────────────────────
 
 export async function listProducts(userId?: number) {
@@ -141,6 +168,44 @@ export async function createProduct(data: any) {
       throw new Error("Nome e categoria são obrigatórios");
     }
 
+    // Validações de moeda e cotação
+    const costCurrency = data.costCurrency || "BRL";
+    if (!["BRL", "USD"].includes(costCurrency)) {
+      throw new Error("Moeda deve ser BRL ou USD");
+    }
+
+    if (costCurrency === "USD") {
+      const exchangeRate = Number(data.usdExchangeRate || 0);
+      if (exchangeRate <= 0) {
+        throw new Error("Cotação do dólar deve ser maior que zero para moeda USD");
+      }
+    }
+
+    // Validações de valores não negativos
+    const costPriceUsd = Number(data.costPriceUsd || 0);
+    const usdExchangeRate = Number(data.usdExchangeRate || 0);
+    const stockQuantity = Number(data.stockQuantity || 0);
+    const minimumStock = Number(data.minimumStock || 0);
+
+    if (costPriceUsd < 0) {
+      throw new Error("Preço em dólar não pode ser negativo");
+    }
+    if (usdExchangeRate < 0) {
+      throw new Error("Cotação do dólar não pode ser negativa");
+    }
+    if (stockQuantity < 0) {
+      throw new Error("Estoque não pode ser negativo");
+    }
+    if (minimumStock < 0) {
+      throw new Error("Estoque mínimo não pode ser negativo");
+    }
+
+    // Calcular custo em BRL
+    const costPriceBrl = calculateCostPriceBrl({ ...data, costCurrency });
+
+    // Calcular custo final unitário
+    const finalUnitCostBrl = calculateFinalUnitCost(costPriceBrl, data);
+
     // Garantir que os números estejam corretos
     const productData = {
       name: String(data.name).trim(),
@@ -156,6 +221,14 @@ export async function createProduct(data: any) {
       notes: data.notes ? String(data.notes).trim() : null,
       userId: data.userId ? Number(data.userId) : null,
       active: data.active !== false,
+      costCurrency,
+      costPriceUsd,
+      usdExchangeRate,
+      costPriceBrl,
+      stockQuantity,
+      minimumStock,
+      averageCostBrl: costPriceBrl,
+      finalUnitCostBrl,
     };
 
     const [r] = await db.insert(products).values(productData).returning();
@@ -175,6 +248,46 @@ export async function updateProduct(id: number, data: any, userId?: number) {
       updatedAt: new Date(),
     };
 
+    // Validações de moeda e cotação
+    if (data.costCurrency !== undefined) {
+      if (!["BRL", "USD"].includes(data.costCurrency)) {
+        throw new Error("Moeda deve ser BRL ou USD");
+      }
+      updateData.costCurrency = data.costCurrency;
+    }
+
+    if (data.usdExchangeRate !== undefined) {
+      const exchangeRate = Number(data.usdExchangeRate || 0);
+      if (exchangeRate < 0) {
+        throw new Error("Cotação do dólar não pode ser negativa");
+      }
+      updateData.usdExchangeRate = exchangeRate;
+    }
+
+    if (data.costPriceUsd !== undefined) {
+      const costPriceUsd = Number(data.costPriceUsd || 0);
+      if (costPriceUsd < 0) {
+        throw new Error("Preço em dólar não pode ser negativo");
+      }
+      updateData.costPriceUsd = costPriceUsd;
+    }
+
+    if (data.stockQuantity !== undefined) {
+      const stockQuantity = Number(data.stockQuantity || 0);
+      if (stockQuantity < 0) {
+        throw new Error("Estoque não pode ser negativo");
+      }
+      updateData.stockQuantity = stockQuantity;
+    }
+
+    if (data.minimumStock !== undefined) {
+      const minimumStock = Number(data.minimumStock || 0);
+      if (minimumStock < 0) {
+        throw new Error("Estoque mínimo não pode ser negativo");
+      }
+      updateData.minimumStock = minimumStock;
+    }
+
     // Atualizar apenas campos fornecidos
     if (data.name !== undefined) updateData.name = String(data.name).trim();
     if (data.category !== undefined) updateData.category = data.category;
@@ -188,6 +301,28 @@ export async function updateProduct(id: number, data: any, userId?: number) {
     if (data.estimatedTaxRate !== undefined) updateData.estimatedTaxRate = Number(data.estimatedTaxRate) || 0;
     if (data.notes !== undefined) updateData.notes = data.notes ? String(data.notes).trim() : null;
     if (data.active !== undefined) updateData.active = data.active;
+
+    // Recalcular custo em BRL e custo final unitário se houver alterações relevantes
+    if (
+      data.costCurrency !== undefined ||
+      data.costPrice !== undefined ||
+      data.costPriceUsd !== undefined ||
+      data.usdExchangeRate !== undefined ||
+      data.packagingCost !== undefined ||
+      data.inboundShippingCost !== undefined ||
+      data.operationalCost !== undefined
+    ) {
+      // Buscar produto atual para ter valores completos
+      const current = await getProductById(id, userId);
+      if (current) {
+        const mergedData = { ...current, ...updateData };
+        const costPriceBrl = calculateCostPriceBrl(mergedData);
+        const finalUnitCostBrl = calculateFinalUnitCost(costPriceBrl, mergedData);
+        updateData.costPriceBrl = costPriceBrl;
+        updateData.averageCostBrl = costPriceBrl;
+        updateData.finalUnitCostBrl = finalUnitCostBrl;
+      }
+    }
 
     const [r] = await db
       .update(products)
