@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
-import { Link } from "wouter";
+import { useLocation } from "wouter";
 import {
   calculatePricing,
   isPricingError,
@@ -50,6 +50,7 @@ import {
   Banknote,
   Smartphone,
   Star,
+  RefreshCcw,
 } from "lucide-react";
 
 // ─── Tipos auxiliares ─────────────────────────────────────────────────────────
@@ -58,7 +59,10 @@ interface FormState {
   productName: string;
   category: ProductCategory;
   ncm: string;
-  costPrice: string;
+  costCurrency: "BRL" | "USD";
+  costPrice: string; // Preço em BRL
+  costPriceUsd: string; // Preço em USD
+  usdExchangeRate: string; // Cotação
   packagingCost: string;
   inboundShippingCost: string;
   operationalCost: string;
@@ -81,13 +85,18 @@ interface FormState {
   cardAnticipationRate: string;
   cardMonthlyRate: string;
   cardCustomerPaysInterest: boolean;
+  stockQuantity: string;
+  minimumStock: string;
 }
 
 const defaultForm: FormState = {
   productName: "",
   category: "CELULAR",
   ncm: "",
+  costCurrency: "BRL",
   costPrice: "",
+  costPriceUsd: "",
+  usdExchangeRate: "5.50",
   packagingCost: "0",
   inboundShippingCost: "0",
   operationalCost: "0",
@@ -110,11 +119,14 @@ const defaultForm: FormState = {
   cardAnticipationRate: "1.5",
   cardMonthlyRate: "1.99",
   cardCustomerPaysInterest: false,
+  stockQuantity: "0",
+  minimumStock: "0",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseNum(val: string): number {
+  if (!val) return 0;
   const n = parseFloat(val.replace(",", "."));
   return isNaN(n) ? 0 : n;
 }
@@ -255,6 +267,7 @@ function NumericInput({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder ?? "0"}
         min={min}
+        step="any"
         className={`h-9 text-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""}`}
       />
       {suffix && (
@@ -400,10 +413,18 @@ export default function PricingSimulator() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showBoleto, setShowBoleto] = useState(true);
   const [showCard, setShowCard] = useState(true);
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [simulationName, setSimulationName] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
+  const [location] = useLocation();
+  const searchParams = new URLSearchParams(location.split("?")[1] || "");
+  const productId = searchParams.get("productId");
+
   const productsQuery = trpc.products.list.useQuery();
+  const productByIdQuery = trpc.products.byId.useQuery(
+    { id: Number(productId) },
+    { enabled: !!productId }
+  );
+
   const utils = trpc.useUtils();
   const saveSimulation = trpc.simulations.create.useMutation({
     onSuccess: () => {
@@ -412,6 +433,30 @@ export default function PricingSimulator() {
       setIsSaving(false);
     },
   });
+
+  // Preencher formulário se houver um produto selecionado via URL
+  useEffect(() => {
+    if (productByIdQuery.data) {
+      const p = productByIdQuery.data;
+      setForm((prev) => ({
+        ...prev,
+        productName: p.name,
+        category: p.category as ProductCategory,
+        ncm: p.ncm || "",
+        costCurrency: (p.costCurrency as "BRL" | "USD") || "BRL",
+        costPrice: String(p.costPrice || ""),
+        costPriceUsd: String(p.costPriceUsd || ""),
+        usdExchangeRate: String(p.usdExchangeRate || "5.50"),
+        packagingCost: String(p.packagingCost || "0"),
+        inboundShippingCost: String(p.inboundShippingCost || "0"),
+        operationalCost: String(p.operationalCost || "0"),
+        desiredMarginRate: String(p.desiredMarginRate || "30"),
+        taxRegime: (p.taxRegime as TaxRegime) || "SIMPLES_NACIONAL",
+        stockQuantity: String(p.stockQuantity || "0"),
+        minimumStock: String(p.minimumStock || "0"),
+      }));
+    }
+  }, [productByIdQuery.data]);
 
   const set = useCallback(
     (field: keyof FormState) => (value: string | boolean) => {
@@ -436,6 +481,22 @@ export default function PricingSimulator() {
     []
   );
 
+  // Calcular custo em BRL derivado
+  const derivedCostPriceBrl = useMemo(() => {
+    if (form.costCurrency === "USD") {
+      return parseNum(form.costPriceUsd) * parseNum(form.usdExchangeRate);
+    }
+    return parseNum(form.costPrice);
+  }, [form.costCurrency, form.costPrice, form.costPriceUsd, form.usdExchangeRate]);
+
+  // Calcular custo final unitário
+  const derivedFinalUnitCostBrl = useMemo(() => {
+    return derivedCostPriceBrl + 
+           parseNum(form.packagingCost) + 
+           parseNum(form.inboundShippingCost) + 
+           parseNum(form.operationalCost);
+  }, [derivedCostPriceBrl, form.packagingCost, form.inboundShippingCost, form.operationalCost]);
+
   const handleCalculate = useCallback(() => {
     setError(null);
     setResult(null);
@@ -444,8 +505,25 @@ export default function PricingSimulator() {
       setError("Informe o nome do produto.");
       return;
     }
-    if (!form.costPrice || parseNum(form.costPrice) <= 0) {
-      setError("Informe um preço de custo válido (maior que zero).");
+
+    if (form.costCurrency === "USD") {
+      if (parseNum(form.costPriceUsd) < 0) {
+        setError("O preço em dólar não pode ser negativo.");
+        return;
+      }
+      if (parseNum(form.usdExchangeRate) <= 0) {
+        setError("A cotação do dólar deve ser maior que zero.");
+        return;
+      }
+    } else {
+      if (parseNum(form.costPrice) < 0) {
+        setError("O preço de custo não pode ser negativo.");
+        return;
+      }
+    }
+
+    if (parseNum(form.stockQuantity) < 0 || parseNum(form.minimumStock) < 0) {
+      setError("Os valores de estoque não podem ser negativos.");
       return;
     }
 
@@ -453,7 +531,7 @@ export default function PricingSimulator() {
       productName: form.productName.trim(),
       category: form.category,
       ncm: form.ncm.trim() || undefined,
-      costPrice: parseNum(form.costPrice),
+      costPrice: derivedCostPriceBrl,
       packagingCost: parseNum(form.packagingCost),
       inboundShippingCost: parseNum(form.inboundShippingCost),
       operationalCost: parseNum(form.operationalCost),
@@ -495,7 +573,7 @@ export default function PricingSimulator() {
     setTimeout(() => {
       document.getElementById("results-section")?.scrollIntoView({ behavior: "smooth" });
     }, 100);
-  }, [form]);
+  }, [form, derivedCostPriceBrl]);
 
   const handleReset = useCallback(() => {
     setForm(defaultForm);
@@ -506,7 +584,7 @@ export default function PricingSimulator() {
   const handleSaveSimulation = useCallback(async () => {
     if (!result) return;
     if (!simulationName.trim()) {
-      setError("Informe um nome para a simulacao.");
+      setError("Informe um nome para a simulação.");
       return;
     }
     setIsSaving(true);
@@ -514,7 +592,15 @@ export default function PricingSimulator() {
       const bestResult = result.results.find((r) => r.method === result.bestMethod);
       await saveSimulation.mutateAsync({
         name: simulationName.trim(),
-        productSnapshot: result.input,
+        productSnapshot: {
+          ...result.input,
+          costCurrency: form.costCurrency,
+          costPriceUsd: parseNum(form.costPriceUsd),
+          usdExchangeRate: parseNum(form.usdExchangeRate),
+          stockQuantity: parseNum(form.stockQuantity),
+          minimumStock: parseNum(form.minimumStock),
+          finalUnitCostBrl: derivedFinalUnitCostBrl,
+        },
         taxSnapshot: result.input.taxRates,
         paymentSnapshot: result.input.card,
         resultSnapshot: result,
@@ -528,10 +614,10 @@ export default function PricingSimulator() {
       });
       setError(null);
     } catch (err: any) {
-      setError(err.message || "Erro ao salvar simulacao.");
+      setError(err.message || "Erro ao salvar simulação.");
       setIsSaving(false);
     }
-  }, [result, simulationName, saveSimulation]);
+  }, [result, simulationName, saveSimulation, form, derivedFinalUnitCostBrl]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -555,7 +641,7 @@ export default function PricingSimulator() {
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs hidden sm:flex">
                 <Smartphone className="w-3 h-3 mr-1" />
-                DF · 2025
+                DF · 2026
               </Badge>
             </div>
           </div>
@@ -570,7 +656,7 @@ export default function PricingSimulator() {
               Simulador de Precificação
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Calcule o preço ideal por forma de pagamento, separando tributação estimada da operação e custos financeiros.
+              Calcule o preço ideal por forma de pagamento, suportando custos em dólar e controle de estoque.
             </p>
           </div>
 
@@ -622,15 +708,57 @@ export default function PricingSimulator() {
                       className="h-9 text-sm font-mono"
                     />
                   </FormField>
-                  <FormField label="Preço de custo" required>
-                    <NumericInput
-                      value={form.costPrice}
-                      onChange={set("costPrice")}
-                      prefix="R$"
-                      placeholder="0,00"
-                      min={0}
-                    />
+
+                  {/* Moeda e Custos */}
+                  <FormField label="Moeda de Custo" required>
+                    <Select
+                      value={form.costCurrency}
+                      onValueChange={(v) => set("costCurrency")(v as "BRL" | "USD")}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="BRL">Real (BRL)</SelectItem>
+                        <SelectItem value="USD">Dólar (USD)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </FormField>
+
+                  {form.costCurrency === "BRL" ? (
+                    <FormField label="Preço de custo (BRL)" required>
+                      <NumericInput
+                        value={form.costPrice}
+                        onChange={set("costPrice")}
+                        prefix="R$"
+                        placeholder="0,00"
+                        min={0}
+                      />
+                    </FormField>
+                  ) : (
+                    <>
+                      <FormField label="Preço de custo (USD)" required>
+                        <NumericInput
+                          value={form.costPriceUsd}
+                          onChange={set("costPriceUsd")}
+                          prefix="$"
+                          placeholder="0,00"
+                          min={0}
+                        />
+                      </FormField>
+                      <FormField label="Cotação do Dólar (Manual)" required>
+                        <NumericInput
+                          value={form.usdExchangeRate}
+                          onChange={set("usdExchangeRate")}
+                          prefix="R$"
+                          placeholder="5,50"
+                          min={0.01}
+                        />
+                      </FormField>
+                    </>
+                  )}
+
+                  {/* Custos adicionais */}
                   <FormField
                     label="Custo de embalagem"
                     tooltip="Caixas, plástico bolha, fita, etc."
@@ -680,6 +808,36 @@ export default function PricingSimulator() {
                       min={0}
                     />
                   </FormField>
+
+                  {/* Estoque */}
+                  <FormField label="Estoque Atual">
+                    <NumericInput
+                      value={form.stockQuantity}
+                      onChange={set("stockQuantity")}
+                      placeholder="0"
+                      min={0}
+                    />
+                  </FormField>
+                  <FormField label="Estoque Mínimo">
+                    <NumericInput
+                      value={form.minimumStock}
+                      onChange={set("minimumStock")}
+                      placeholder="0"
+                      min={0}
+                    />
+                  </FormField>
+                </div>
+
+                {/* Resumo de Custo Convertido e Final */}
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className='bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800/30'>
+                    <p className='text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider'>Custo em Real (BRL)</p>
+                    <p className='text-lg font-bold text-blue-900 dark:text-blue-100 tabular-nums'>{formatCurrency(derivedCostPriceBrl)}</p>
+                  </div>
+                  <div className='bg-green-50 dark:bg-green-950/20 p-3 rounded-lg border border-green-200 dark:border-green-800/30'>
+                    <p className='text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider'>Custo Final Unitário (BRL)</p>
+                    <p className='text-lg font-bold text-green-900 dark:text-green-100 tabular-nums'>{formatCurrency(derivedFinalUnitCostBrl)}</p>
+                  </div>
                 </div>
               </div>
 
@@ -691,19 +849,15 @@ export default function PricingSimulator() {
                   subtitle="Regime tributário e alíquotas por forma de pagamento"
                 />
 
-                {/* Aviso fiscal obrigatório */}
                 <div className="mb-5 flex gap-3 p-3.5 rounded-lg bg-warning/10 border border-warning/30">
                   <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
                   <p className="text-xs text-warning-foreground leading-relaxed">
-                    <strong>Aviso fiscal:</strong> Alíquotas sugeridas automaticamente com base no regime tributário selecionado. Confirme NCM, regime tributário, CST/CSOSN e eventual substituição tributária com seu contador antes de usar em operações reais.
+                    <strong>Aviso fiscal:</strong> Alíquotas sugeridas automaticamente. Confirme com seu contador antes de usar em operações reais.
                   </p>
                 </div>
 
                 <div className="space-y-4">
-                  <FormField
-                    label="Regime tributário"
-                    tooltip="Selecione o regime da sua empresa. As alíquotas serão sugeridas automaticamente, mas você pode editá-las."
-                  >
+                  <FormField label="Regime tributário">
                     <Select
                       value={form.taxRegime}
                       onValueChange={(v) => handleTaxRegimeChange(v as TaxRegime)}
@@ -723,7 +877,11 @@ export default function PricingSimulator() {
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                     {[
-                      { label: "Alíquota tributária estimada da operação", field: "taxCash" as const },
+                      { label: "Pix / À Vista", field: "taxCash" as const },
+                      { label: "Boleto", field: "taxBoleto" as const },
+                      { label: "Débito", field: "taxDebit" as const },
+                      { label: "Crédito à Vista", field: "taxCreditCash" as const },
+                      { label: "Crédito Parcelado", field: "taxCreditInstallment" as const },
                     ].map(({ label, field }) => (
                       <FormField key={field} label={label}>
                         <NumericInput
@@ -784,31 +942,21 @@ export default function PricingSimulator() {
                       </button>
                       {showBoleto && (
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                          <FormField
-                            label="Quantidade de meses"
-                            tooltip="Número de parcelas do boleto."
-                          >
+                          <FormField label="Meses">
                             <NumericInput
                               value={form.boletoMonths}
                               onChange={set("boletoMonths")}
                               min={1}
                             />
                           </FormField>
-                          <FormField
-                            label="Juros mensal"
-                            tooltip="Taxa de juros mensal aplicada ao boleto."
-                          >
+                          <FormField label="Juros mensal">
                             <NumericInput
                               value={form.boletoMonthlyRate}
                               onChange={set("boletoMonthlyRate")}
                               suffix="%"
-                              min={0}
                             />
                           </FormField>
-                          <FormField
-                            label="Taxa fixa de emissão"
-                            tooltip="Custo fixo cobrado pela emissão de cada boleto."
-                          >
+                          <FormField label="Taxa fixa">
                             <NumericInput
                               value={form.boletoFixedFee}
                               onChange={set("boletoFixedFee")}
@@ -816,10 +964,7 @@ export default function PricingSimulator() {
                               min={0}
                             />
                           </FormField>
-                          <FormField
-                            label="Risco de inadimplência"
-                            tooltip="Percentual estimado de não pagamento."
-                          >
+                          <FormField label="Inadimplência">
                             <NumericInput
                               value={form.boletoDefaultRisk}
                               onChange={set("boletoDefaultRisk")}
@@ -830,20 +975,11 @@ export default function PricingSimulator() {
                           <div className="col-span-2 sm:col-span-3">
                             <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border">
                               <div>
-                                <p className="text-xs font-medium text-foreground">
-                                  Juros repassado ao cliente
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {form.boletoCustomerPaysInterest
-                                    ? "Cliente paga os juros separadamente"
-                                    : "Juros embutido no preço (empresa absorve)"}
-                                </p>
+                                <p className="text-xs font-medium text-foreground">Juros repassado ao cliente</p>
                               </div>
                               <Switch
                                 checked={form.boletoCustomerPaysInterest}
-                                onCheckedChange={(v) =>
-                                  set("boletoCustomerPaysInterest")(v)
-                                }
+                                onCheckedChange={(v) => set("boletoCustomerPaysInterest")(v)}
                               />
                             </div>
                           </div>
@@ -868,7 +1004,7 @@ export default function PricingSimulator() {
                       </button>
                       {showCard && (
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                          <FormField label="Taxa de débito">
+                          <FormField label="Taxa débito">
                             <NumericInput
                               value={form.cardDebitFee}
                               onChange={set("cardDebitFee")}
@@ -876,7 +1012,7 @@ export default function PricingSimulator() {
                               min={0}
                             />
                           </FormField>
-                          <FormField label="Taxa crédito à vista">
+                          <FormField label="Taxa crédito vista">
                             <NumericInput
                               value={form.cardCreditCashFee}
                               onChange={set("cardCreditCashFee")}
@@ -884,7 +1020,7 @@ export default function PricingSimulator() {
                               min={0}
                             />
                           </FormField>
-                          <FormField label="Taxa crédito parcelado">
+                          <FormField label="Taxa parcelado">
                             <NumericInput
                               value={form.cardCreditInstallmentFee}
                               onChange={set("cardCreditInstallmentFee")}
@@ -892,17 +1028,14 @@ export default function PricingSimulator() {
                               min={0}
                             />
                           </FormField>
-                          <FormField label="Número de parcelas">
+                          <FormField label="Parcelas">
                             <NumericInput
                               value={form.cardInstallments}
                               onChange={set("cardInstallments")}
                               min={1}
                             />
                           </FormField>
-                          <FormField
-                            label="Taxa de antecipação"
-                            tooltip="Taxa cobrada pela antecipação do recebível parcelado."
-                          >
+                          <FormField label="Antecipação">
                             <NumericInput
                               value={form.cardAnticipationRate}
                               onChange={set("cardAnticipationRate")}
@@ -910,10 +1043,7 @@ export default function PricingSimulator() {
                               min={0}
                             />
                           </FormField>
-                          <FormField
-                            label="Juros mensal parcelamento"
-                            tooltip="Juros mensais aplicados ao parcelamento no cartão."
-                          >
+                          <FormField label="Juros mensal">
                             <NumericInput
                               value={form.cardMonthlyRate}
                               onChange={set("cardMonthlyRate")}
@@ -924,20 +1054,11 @@ export default function PricingSimulator() {
                           <div className="col-span-2 sm:col-span-3">
                             <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border">
                               <div>
-                                <p className="text-xs font-medium text-foreground">
-                                  Juros absorvido pela empresa
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {form.cardCustomerPaysInterest
-                                    ? "Empresa absorve os juros (sem juros ao cliente)"
-                                    : "Juros repassado ao cliente no parcelamento"}
-                                </p>
+                                <p className="text-xs font-medium text-foreground">Empresa absorve juros</p>
                               </div>
                               <Switch
                                 checked={form.cardCustomerPaysInterest}
-                                onCheckedChange={(v) =>
-                                  set("cardCustomerPaysInterest")(v)
-                                }
+                                onCheckedChange={(v) => set("cardCustomerPaysInterest")(v)}
                               />
                             </div>
                           </div>
@@ -979,11 +1100,11 @@ export default function PricingSimulator() {
             <div className="space-y-4">
               <div className="rounded-xl border border-border bg-card p-5 shadow-sm sticky top-20">
                 <h3 className="text-sm font-semibold text-foreground mb-4">
-                  Resumo de Custos
+                  Resumo de Custos (BRL)
                 </h3>
                 <div className="space-y-2.5">
                   {[
-                    { label: "Preço de custo", value: parseNum(form.costPrice) },
+                    { label: "Preço de custo", value: derivedCostPriceBrl },
                     { label: "Embalagem", value: parseNum(form.packagingCost) },
                     { label: "Frete de compra", value: parseNum(form.inboundShippingCost) },
                     { label: "Custo operacional", value: parseNum(form.operationalCost) },
@@ -1000,40 +1121,27 @@ export default function PricingSimulator() {
                       Custo total
                     </span>
                     <span className="text-sm font-bold text-primary tabular-nums">
-                      {formatCurrency(
-                        parseNum(form.costPrice) +
-                          parseNum(form.packagingCost) +
-                          parseNum(form.inboundShippingCost) +
-                          parseNum(form.operationalCost)
-                      )}
+                      {formatCurrency(derivedFinalUnitCostBrl)}
                     </span>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-border">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">
-                      Margem desejada
-                    </span>
-                    <span className="text-xs font-semibold text-foreground">
-                      {form.desiredMarginRate || "0"}%
-                    </span>
+                    <span className="text-xs text-muted-foreground">Margem desejada</span>
+                    <span className="text-xs font-semibold text-foreground">{form.desiredMarginRate || "0"}%</span>
                   </div>
                   <div className="flex items-center justify-between mt-1.5">
-                    <span className="text-xs text-muted-foreground">
-                      Regime tributário
-                    </span>
-                    <span className="text-xs font-medium text-foreground">
-                      {TAX_REGIME_LABELS[form.taxRegime]}
+                    <span className="text-xs text-muted-foreground">Estoque Atual</span>
+                    <span className={`text-xs font-medium tabular-nums ${parseNum(form.stockQuantity) <= parseNum(form.minimumStock) ? "text-danger" : "text-foreground"}`}>
+                      {form.stockQuantity || "0"}
                     </span>
                   </div>
                 </div>
 
                 <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-border">
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Preencha o formulário e clique em{" "}
-                    <strong className="text-foreground">Calcular Preços</strong> para
-                    ver a simulação completa por forma de pagamento.
+                    Clique em <strong className="text-foreground">Calcular Preços</strong> para ver a simulação completa.
                   </p>
                 </div>
               </div>
@@ -1048,12 +1156,8 @@ export default function PricingSimulator() {
                 <div className="flex gap-3 p-4 rounded-xl bg-danger/10 border border-danger/30">
                   <AlertTriangle className="w-5 h-5 text-danger mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold text-danger">
-                      Produto com margem crítica
-                    </p>
-                    <p className="text-sm text-danger/80 mt-0.5">
-                      {result.unhealthyAlert}
-                    </p>
+                    <p className="text-sm font-semibold text-danger">Produto com margem crítica</p>
+                    <p className="text-sm text-danger/80 mt-0.5">{result.unhealthyAlert}</p>
                   </div>
                 </div>
               )}
@@ -1065,24 +1169,16 @@ export default function PricingSimulator() {
                     Resultados — {result.input.productName}
                   </h2>
                   <p className="text-sm text-muted-foreground mt-0.5">
-                    Custo total:{" "}
-                    <strong className="text-foreground">
-                      {formatCurrency(result.totalCost)}
-                    </strong>{" "}
-                    · Margem desejada:{" "}
-                    <strong className="text-foreground">
-                      {formatPercent(result.input.desiredMarginRate)}
-                    </strong>
+                    Custo total: <strong className="text-foreground">{formatCurrency(result.totalCost)}</strong> · 
+                    Margem desejada: <strong className="text-foreground">{formatPercent(result.input.desiredMarginRate)}</strong>
                   </p>
                 </div>
-                <div className="hidden sm:flex items-center gap-3 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1.5">
-                    <TrendingUp className="w-3.5 h-3.5 text-success" />
-                    Melhor: {PAYMENT_METHOD_LABELS[result.bestMethod]}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <TrendingDown className="w-3.5 h-3.5 text-danger" />
-                    Pior: {PAYMENT_METHOD_LABELS[result.worstMethod]}
+                <div className="flex gap-2">
+                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <TrendingUp className="w-3.5 h-3.5 text-success" />
+                      Melhor: {PAYMENT_METHOD_LABELS[result.bestMethod]}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1099,204 +1195,36 @@ export default function PricingSimulator() {
                 ))}
               </div>
 
-              {/* Preço mínimo para promoção */}
-              <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20">
-                <Tag className="w-5 h-5 text-primary flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    Preço mínimo para promoção
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Menor preço possível sem prejuízo em qualquer forma de pagamento:{" "}
-                    <strong className="text-primary text-sm">
-                      {formatCurrency(result.promotionMinPrice)}
-                    </strong>
-                  </p>
-                </div>
-              </div>
-
-              {/* Tabela Comparativa */}
-              <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-border">
-                  <h3 className="text-sm font-semibold text-foreground">
-                    Tabela Comparativa
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Comparação detalhada entre todas as formas de pagamento
-                  </p>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/30">
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Forma de Pagamento
-                        </th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Preço Sugerido
-                        </th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Parcela
-                        </th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Imposto
-                        </th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Taxas/Juros
-                        </th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Lucro Líquido
-                        </th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Lucro Bruto
-                        </th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Margem sobre Custo
-                        </th>
-                        <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
-                          Diagnóstico
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.results.map((r, i) => {
-                        const diag = diagnosticConfig(r.diagnostic);
-                        const isBest = r.method === result.bestMethod;
-                        return (
-                          <tr
-                            key={r.method}
-                            className={`border-b border-border last:border-0 transition-colors ${
-                              isBest
-                                ? "bg-success/5"
-                                : i % 2 === 0
-                                ? "bg-transparent"
-                                : "bg-muted/20"
-                            }`}
-                          >
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <div className="flex items-center gap-2">
-                                {isBest && (
-                                  <Star className="w-3 h-3 text-success fill-current flex-shrink-0" />
-                                )}
-                                <span className="text-xs font-medium text-foreground">
-                                  {r.methodLabel}
-                                </span>
-                                {r.installments > 1 && (
-                                  <span className="text-xs text-muted-foreground">
-                                    ({r.installments}x)
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <span className="text-xs font-semibold text-foreground tabular-nums">
-                                {formatCurrency(r.suggestedPrice)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <span className="text-xs text-foreground tabular-nums">
-                                {r.installments > 1
-                                  ? formatCurrency(r.installmentValue)
-                                  : "—"}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <span className="text-xs text-foreground tabular-nums">
-                                {formatCurrency(r.totalTax)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <span className="text-xs text-foreground tabular-nums">
-                                {formatCurrency(r.totalFees + r.totalInterest)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <span
-                                className={`text-xs font-semibold tabular-nums ${
-                                  r.netProfit >= 0 ? "text-success" : "text-danger"
-                                }`}
-                              >
-                                {formatCurrency(r.netProfit)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <span className="text-xs font-medium text-foreground tabular-nums">
-                                {formatPercent(r.realMarginRate)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              <span className="text-xs text-foreground tabular-nums">
-                                {formatPercent(r.marginPercentageOnCost)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-center whitespace-nowrap">
-                              <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${diag.color}`}
-                              >
-                                {diag.icon}
-                                {r.diagnostic}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Seção de salvar simulação */}
-              <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground mb-3">Salvar Simulação</h3>
-                  <p className="text-xs text-muted-foreground mb-4">Salve este cálculo para referência futura e geração de relatórios.</p>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-xs font-medium text-foreground/80">Nome da Simulação</Label>
+              {/* Salvar Simulação */}
+              <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+                <div className="flex flex-col sm:flex-row gap-4 items-end">
+                  <div className="flex-1 w-full space-y-1.5">
+                    <Label className="text-xs font-medium">Nome da simulação para salvar</Label>
                     <Input
-                      type="text"
-                      placeholder="Ex: iPhone 15 Pro - Margem 30%"
                       value={simulationName}
                       onChange={(e) => setSimulationName(e.target.value)}
-                      className="h-9 text-sm mt-1.5"
+                      placeholder="Ex: iPhone 15 Pro - Lote Março"
+                      className="h-10"
                     />
                   </div>
                   <Button
                     onClick={handleSaveSimulation}
-                    disabled={isSaving || !simulationName.trim()}
-                    className="w-full h-10 text-sm font-semibold"
+                    disabled={isSaving}
+                    className="w-full sm:w-auto h-10 px-8"
                   >
-                    {isSaving ? "Salvando..." : "Salvar Simulação"}
+                    {isSaving ? (
+                      <RefreshCcw className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4 mr-2" />
+                    )}
+                    Salvar Simulação
                   </Button>
                 </div>
-              </div>
-
-              {/* Aviso fiscal no rodapé dos resultados */}
-              <div className="flex gap-3 p-4 rounded-xl bg-muted/50 border border-border">
-                <Info className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  <strong className="text-foreground">Aviso fiscal:</strong> Alíquota sugerida. Confirme NCM, regime tributário, CST/CSOSN e eventual substituição tributária com contador. Este simulador não realiza cálculo fiscal definitivo por NCM.
-                </p>
               </div>
             </div>
           )}
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="mt-16 border-t border-border bg-card/50">
-        <div className="container py-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              PermuPay Vendas · Simulador de Precificação · Distrito Federal
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Os valores calculados são estimativas. Consulte um contador para decisões fiscais.
-            </p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
