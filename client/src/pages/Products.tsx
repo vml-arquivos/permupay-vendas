@@ -47,11 +47,18 @@ export default function Products() {
       "Nome do Produto",
       "Categoria",
       "NCM",
+      "Moeda de Custo",
       "Preço de Custo",
+      "Preço em Dólar",
+      "Cotação do Dólar",
+      "Custo em Real",
       "Custo de Embalagem",
       "Custo de Frete",
       "Custo Operacional",
       "Custo Total",
+      "Estoque Atual",
+      "Estoque Mínimo",
+      "Custo Final Unitário",
       "Margem Desejada (%)",
       "Regime Tributário",
       "Alíquota Estimada (%)",
@@ -72,11 +79,18 @@ export default function Products() {
         p.name,
         p.category,
         p.ncm || "—",
+        p.costCurrency || "BRL",
         formatCurrency(p.costPrice || 0),
+        p.costCurrency === "USD" ? formatCurrency(p.costPriceUsd || 0) : "—",
+        p.costCurrency === "USD" ? (p.usdExchangeRate || 0).toFixed(4) : "—",
+        formatCurrency(p.costPriceBrl || 0),
         formatCurrency(p.packagingCost || 0),
         formatCurrency(p.inboundShippingCost || 0),
         formatCurrency(p.operationalCost || 0),
         formatCurrency(totalCost),
+        (p.stockQuantity || 0).toFixed(2),
+        (p.minimumStock || 0).toFixed(2),
+        formatCurrency(p.finalUnitCostBrl || 0),
         formatPercent(p.desiredMarginRate || 0),
         p.taxRegime || "—",
         formatPercent(p.estimatedTaxRate || 0),
@@ -220,7 +234,18 @@ export default function Products() {
                         <div>
                           <p className="text-xs text-muted-foreground">Preço de Custo</p>
                           <p className="text-sm font-semibold text-foreground">
-                            {formatCurrency(product.costPrice || 0)}
+                            {product.costCurrency === "USD" ? `$${(product.costPriceUsd || 0).toFixed(2)}` : formatCurrency(product.costPrice || 0)}
+                          </p>
+                          {product.costCurrency === "USD" && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Taxa: {(product.usdExchangeRate || 0).toFixed(4)}
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Custo em Real</p>
+                          <p className="text-sm font-semibold text-foreground">
+                            {formatCurrency(product.costPriceBrl || 0)}
                           </p>
                         </div>
                         <div>
@@ -235,10 +260,26 @@ export default function Products() {
                             {formatCurrency(product.inboundShippingCost || 0)}
                           </p>
                         </div>
+                      </div>
+
+                      {/* Informações de estoque */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
                         <div>
-                          <p className="text-xs text-muted-foreground">Operacional</p>
+                          <p className="text-xs text-muted-foreground">Estoque Atual</p>
                           <p className="text-sm font-semibold text-foreground">
-                            {formatCurrency(product.operationalCost || 0)}
+                            {(product.stockQuantity || 0).toFixed(2)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Estoque Mínimo</p>
+                          <p className="text-sm font-semibold text-foreground">
+                            {(product.minimumStock || 0).toFixed(2)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Custo Final Unitário</p>
+                          <p className="text-sm font-semibold text-amber-900">
+                            {formatCurrency(product.finalUnitCostBrl || 0)}
                           </p>
                         </div>
                       </div>

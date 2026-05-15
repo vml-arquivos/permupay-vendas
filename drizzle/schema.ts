@@ -28,6 +28,7 @@ export const products = pgTable("permupay_products", {
   name: text("name").notNull(), category: productCategoryEnum("category").notNull(), ncm: text("ncm"),
   costPrice: real("cost_price").notNull().default(0), packagingCost: real("packaging_cost").notNull().default(0), inboundShippingCost: real("inbound_shipping_cost").notNull().default(0), operationalCost: real("operational_cost").notNull().default(0),
   desiredMarginRate: real("desired_margin_rate").notNull().default(0), desiredMarginValue: real("desired_margin_value").notNull().default(0), marginMode: marginModeEnum("margin_mode").notNull().default("PERCENT"), taxRegime: taxRegimeEnum("tax_regime").notNull().default("SIMPLES_NACIONAL"), estimatedTaxRate: real("estimated_tax_rate").notNull().default(0),
+  costCurrency: text("cost_currency").default("BRL"), costPriceUsd: real("cost_price_usd").notNull().default(0), usdExchangeRate: real("usd_exchange_rate").notNull().default(0), costPriceBrl: real("cost_price_brl").notNull().default(0), stockQuantity: real("stock_quantity").notNull().default(0), minimumStock: real("minimum_stock").notNull().default(0), averageCostBrl: real("average_cost_brl").notNull().default(0), finalUnitCostBrl: real("final_unit_cost_brl").notNull().default(0),
   notes: text("notes"), active: boolean("active").notNull().default(true), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

@@ -9,7 +9,7 @@ import { ONE_YEAR_MS } from "@shared/const";
 
 
 
-const productInput = z.object({name:z.string().min(1),category:z.enum(["CELULAR","ELETRONICO","PERFUME","OUTRO"]),ncm:z.string().optional(),costPrice:z.number().min(0),packagingCost:z.number().min(0),inboundShippingCost:z.number().min(0),operationalCost:z.number().min(0),desiredMarginRate:z.number().min(0),taxRegime:z.enum(["SIMPLES_NACIONAL","LUCRO_PRESUMIDO","LUCRO_REAL","MANUAL"]),estimatedTaxRate:z.number().min(0),notes:z.string().optional(),active:z.boolean().optional()});
+const productInput = z.object({name:z.string().min(1),category:z.enum(["CELULAR","ELETRONICO","PERFUME","OUTRO"]),ncm:z.string().optional(),costPrice:z.number().min(0),packagingCost:z.number().min(0),inboundShippingCost:z.number().min(0),operationalCost:z.number().min(0),desiredMarginRate:z.number().min(0),taxRegime:z.enum(["SIMPLES_NACIONAL","LUCRO_PRESUMIDO","LUCRO_REAL","MANUAL"]),estimatedTaxRate:z.number().min(0),notes:z.string().optional(),active:z.boolean().optional(),costCurrency:z.enum(["BRL","USD"]).optional(),costPriceUsd:z.number().min(0).optional(),usdExchangeRate:z.number().min(0).optional(),stockQuantity:z.number().min(0).optional(),minimumStock:z.number().min(0).optional()});
 
 export const appRouter = router({
   system: systemRouter,
