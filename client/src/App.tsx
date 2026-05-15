@@ -1,3 +1,9 @@
+/**
+ * App.tsx — Atualizado com rotas de Lotes, Vitrine e Upload
+ *
+ * Substitui client/src/App.tsx
+ */
+
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -11,16 +17,19 @@ import Products from "./pages/Products";
 import ProductForm from "./pages/ProductForm";
 import SimulationsExport from "./pages/SimulationsExport";
 import SimulationDetail from "./pages/SimulationDetail";
+import Marketplace from "./pages/Marketplace";
+import BatchPricing from "./pages/BatchPricing";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 function Router() {
   return (
     <Switch>
-      {/* Rota raiz "/" agora abre o simulador público para evitar erro 401 */}
+      {/* Rotas públicas */}
       <Route path="/" component={PricingSimulator} />
       <Route path="/simulador" component={PricingSimulator} />
       <Route path="/login" component={Login} />
-      
+      <Route path="/vitrine" component={Marketplace} />
+
       {/* Rotas protegidas */}
       <Route path="/dashboard">
         {() => (
@@ -29,6 +38,7 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+
       <Route path="/produtos">
         {() => (
           <ProtectedRoute>
@@ -36,6 +46,7 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+
       <Route path="/produtos/novo">
         {() => (
           <ProtectedRoute>
@@ -43,6 +54,7 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+
       <Route path="/produtos/:id/editar">
         {(params: any) => (
           <ProtectedRoute>
@@ -50,6 +62,17 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+
+      {/* Lotes de precificação */}
+      <Route path="/lotes/novo">
+        {() => (
+          <ProtectedRoute>
+            <BatchPricing />
+          </ProtectedRoute>
+        )}
+      </Route>
+
+      {/* Simulações */}
       <Route path="/simulacoes">
         {() => (
           <ProtectedRoute>
@@ -57,6 +80,7 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+
       <Route path="/simulacoes/:id">
         {(params: any) => (
           <ProtectedRoute>
@@ -64,7 +88,7 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
-      
+
       <Route component={NotFound} />
     </Switch>
   );
