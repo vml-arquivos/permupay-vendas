@@ -35,7 +35,7 @@ export const products = pgTable("permupay_products", {
 export const pricingSimulations = pgTable("permupay_pricing_simulations", {
   id: serial("id").primaryKey(), userId: integer("user_id").references(() => users.id), productId: integer("product_id").references(() => products.id),
   name: text("name").notNull(), productSnapshot: jsonb("product_snapshot").notNull(), taxSnapshot: jsonb("tax_snapshot").notNull(), paymentSnapshot: jsonb("payment_snapshot").notNull(), resultSnapshot: jsonb("result_snapshot").notNull(),
-  bestPaymentMethod: text("best_payment_method").notNull(), worstPaymentMethod: text("worst_payment_method").notNull(), recommendedPrice: real("recommended_price").notNull(), minimumBreakEvenPrice: real("minimum_break_even_price").notNull(), promotionFloorPrice: real("promotion_floor_price").notNull(), desiredMarginRate: real("desired_margin_rate").notNull(), diagnosis: text("diagnosis").notNull(), notes: text("notes"),
+  bestPaymentMethod: text("best_payment_method").notNull(), worstPaymentMethod: text("worst_payment_method").notNull(), recommendedPrice: real("recommended_price").notNull(), minimumBreakEvenPrice: real("minimum_break_even_price").notNull(), promotionFloorPrice: real("promotion_floor_price").notNull(), netProfit: real("net_profit").notNull().default(0), netMargin: real("net_margin").notNull().default(0), desiredMarginRate: real("desired_margin_rate").notNull(), diagnosis: text("diagnosis").notNull(), notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
