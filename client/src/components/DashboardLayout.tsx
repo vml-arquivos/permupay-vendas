@@ -20,15 +20,15 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, ShoppingBag, Users } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Page 1", path: "/" },
-  { icon: Users, label: "Page 2", path: "/some-path" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
+  { icon: Users, label: "Produtos", path: "/produtos" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -198,6 +198,18 @@ function DashboardLayoutContent({
                 );
               })}
             </SidebarMenu>
+            {/* Link externo para a vitrine */}
+            <div className="px-2 py-1">
+              <a
+                href="/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground h-10"
+              >
+                <ShoppingBag className="h-4 w-4" />
+                <span>Ver Vitrine</span>
+              </a>
+            </div>
           </SidebarContent>
 
           <SidebarFooter className="p-3">
