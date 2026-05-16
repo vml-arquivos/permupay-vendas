@@ -1,12 +1,13 @@
 # ─── PermuPay Vendas — Dockerfile para Coolify ───────────────────────────────
 # Multi-stage build otimizado para produção
-# Banco: PostgreSQL (configurado como serviço separado no Coolify)
-# URL: autopay.permupay.com.br
 
 # ── Estágio 1: Build ──────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
 
 WORKDIR /app
+
+# Instalar dependências nativas necessárias para esbuild e tailwindcss no Alpine
+RUN apk add --no-cache python3 make g++ libc6-compat
 
 # Instalar pnpm
 RUN npm install -g pnpm@10.4.1 --quiet
@@ -16,7 +17,8 @@ COPY package.json pnpm-lock.yaml ./
 COPY patches/ ./patches/
 
 # Instalar TODAS as dependências (incluindo devDependencies para o build)
-RUN pnpm install --frozen-lockfile
+# --ignore-scripts=false garante que esbuild e tailwindcss compilem seus binários nativos
+RUN pnpm install --frozen-lockfile --ignore-scripts=false
 
 # Copiar código-fonte
 COPY . .
@@ -37,7 +39,7 @@ COPY package.json pnpm-lock.yaml ./
 COPY patches/ ./patches/
 
 # Instalar apenas dependências de produção
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts=false
 
 # Copiar build gerado pelo estágio anterior
 COPY --from=builder /app/dist ./dist
