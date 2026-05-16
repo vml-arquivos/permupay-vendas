@@ -93,6 +93,27 @@ export const products = pgTable("permupay_products", {
   published: boolean("published").notNull().default(false),
 
   notes: text("notes"),
+
+  // Catálogo e vitrine
+  shortDescription: text("short_description"),
+  description: text("description"),
+
+  // Preços sugeridos calculados (salvos para exibição na vitrine)
+  suggestedPrice: real("suggested_price").notNull().default(0),
+  suggestedPricePix: real("suggested_price_pix").notNull().default(0),
+  suggestedPriceCard: real("suggested_price_card").notNull().default(0),
+  suggestedPriceBoleto: real("suggested_price_boleto").notNull().default(0),
+
+  // Links de pagamento externos
+  paymentPlatform: text("payment_platform").default("MERCADO_PAGO"),
+  pixKey: text("pix_key"),
+  pixLink: text("pix_link"),
+  cardPaymentUrl: text("card_payment_url"),
+  boletoUrl: text("boleto_url"),
+
+  // Label customizável de categoria para filtro
+  categoryLabel: text("category_label"),
+
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

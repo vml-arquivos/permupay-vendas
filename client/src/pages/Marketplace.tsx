@@ -1,119 +1,201 @@
 /**
- * Marketplace.tsx — Vitrine pública de produtos
+ * Marketplace.tsx — Vitrine e-commerce pública
  *
- * Rota pública: /vitrine
- *
- * Renderiza cards de produto estilo marketplace com:
- * - Imagem do produto (com fallback)
- * - Preço final calculado
- * - Tags de promoção
- * - Badge de estoque
+ * Catálogo de produtos com filtro por categoria, busca por nome,
+ * cards com botões de pagamento (PIX, Cartão, Boleto).
  */
 
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ShoppingBag, Package, Tag } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  ShoppingBag,
+  Package,
+  CreditCard,
+  FileText,
+  LogIn,
+  Search,
+} from "lucide-react";
+import { useState, useMemo } from "react";
 
-// ─── Tipos ─────────────────────────────────────────────────────────────────────
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
-interface MarketplaceProduct {
+interface CatalogProduct {
   id: number;
   name: string;
   category: string;
+  categoryLabel: string | null;
+  shortDescription: string | null;
+  description: string | null;
   imageUrl: string | null;
   promoTag: string | null;
+  suggestedPrice: number;
+  suggestedPricePix: number;
+  suggestedPriceCard: number;
+  suggestedPriceBoleto: number;
   finalUnitCostBrl: number;
   stockQuantity: number;
+  paymentPlatform: string | null;
+  pixKey: string | null;
+  pixLink: string | null;
+  cardPaymentUrl: string | null;
+  boletoUrl: string | null;
 }
 
-// ─── Formatadores ──────────────────────────────────────────────────────────────
-
-const formatBRL = (value: number) =>
-  new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
+// ─── Constantes ───────────────────────────────────────────────────────────────
 
 const CATEGORY_LABELS: Record<string, string> = {
-  CELULAR: "Celular",
-  ELETRONICO: "Eletrônico",
-  PERFUME: "Perfume",
-  OUTRO: "Outro",
+  CELULAR: "Celulares",
+  ELETRONICO: "Eletrônicos",
+  PERFUME: "Perfumes",
+  OUTRO: "Outros",
 };
 
-// ─── ProductCard ──────────────────────────────────────────────────────────────
+// ─── Utilitários ──────────────────────────────────────────────────────────────
 
-interface ProductCardProps {
-  product: MarketplaceProduct;
+function formatBRL(value: number) {
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+function displayPrice(product: CatalogProduct): number {
+  if (product.suggestedPricePix > 0) return product.suggestedPricePix;
+  if (product.suggestedPrice > 0) return product.suggestedPrice;
+  return product.finalUnitCostBrl;
+}
+
+// ─── Componente ProductCard ───────────────────────────────────────────────────
+
+function ProductCard({ product }: { product: CatalogProduct }) {
   const inStock = product.stockQuantity > 0;
 
   return (
-    <div className="group relative flex flex-col rounded-2xl border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200">
-      {/* Imagem */}
+    <div className="group flex flex-col rounded-2xl border bg-card overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+      {/* Imagem 1:1 */}
       <div className="relative aspect-square overflow-hidden bg-muted">
         {product.imageUrl ? (
           <img
             src={product.imageUrl}
             alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            loading="lazy"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
-            <Package className="w-12 h-12 text-muted-foreground/40" />
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900">
+            <Package className="w-16 h-16 text-muted-foreground/30" />
           </div>
         )}
 
-        {/* Tag de promoção */}
         {product.promoTag && (
-          <div className="absolute top-2 left-2">
-            <Badge className="bg-orange-500 hover:bg-orange-500 text-white text-xs font-bold gap-1 px-2 py-0.5 rounded-full shadow">
-              <Tag className="w-3 h-3" />
-              {product.promoTag}
-            </Badge>
-          </div>
+          <Badge className="absolute top-3 left-3 bg-orange-500 text-white shadow-lg">
+            🏷️ {product.promoTag}
+          </Badge>
         )}
 
-        {/* Badge de estoque */}
         {!inStock && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
             <span className="text-white font-bold text-sm bg-black/60 px-3 py-1 rounded-full">
-              Sem estoque
+              Sem Estoque
             </span>
           </div>
         )}
       </div>
 
-      {/* Conteúdo */}
-      <div className="flex flex-col flex-1 p-4 gap-2">
-        {/* Categoria */}
-        <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-          {CATEGORY_LABELS[product.category] ?? product.category}
+      {/* Informações */}
+      <div className="flex flex-col flex-1 p-4 gap-3">
+        {/* Categoria badge */}
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          {product.categoryLabel ||
+            CATEGORY_LABELS[product.category] ||
+            product.category}
         </span>
 
         {/* Nome */}
-        <h3 className="text-sm font-semibold leading-snug line-clamp-2 text-foreground">
+        <h3 className="font-semibold text-base leading-snug line-clamp-2">
           {product.name}
         </h3>
 
-        {/* Preço */}
-        <div className="mt-auto pt-3 border-t border-border/50">
-          <p className="text-xs text-muted-foreground">A partir de</p>
-          <p className="text-xl font-bold text-primary font-mono">
-            {formatBRL(product.finalUnitCostBrl)}
-          </p>
-        </div>
-
-        {/* Estoque mínimo (badge de disponibilidade) */}
-        {inStock && product.stockQuantity <= 5 && (
-          <p className="text-xs text-orange-600 font-medium">
-            ⚡ Últimas {product.stockQuantity} unidades
+        {/* Descrição curta */}
+        {product.shortDescription && (
+          <p className="text-sm text-muted-foreground line-clamp-2">
+            {product.shortDescription}
           </p>
         )}
+
+        {/* Preços */}
+        <div className="space-y-1 mt-auto">
+          {/* Preço PIX — destaque */}
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-green-600 dark:text-green-400">
+              {formatBRL(displayPrice(product))}
+            </span>
+            {(product.pixLink || product.pixKey) && (
+              <span className="text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 rounded-full">
+                no PIX
+              </span>
+            )}
+          </div>
+
+          {/* Preço cartão se diferente */}
+          {product.suggestedPriceCard > 0 && product.cardPaymentUrl && (
+            <p className="text-xs text-muted-foreground">
+              ou {formatBRL(product.suggestedPriceCard)} no cartão
+            </p>
+          )}
+        </div>
+
+        {/* Botões de pagamento */}
+        <div className="flex flex-col gap-2 pt-2 border-t">
+          {/* PIX */}
+          {(product.pixLink || product.pixKey) && inStock && (
+            <a
+              href={product.pixLink || `https://nubank.com.br/cobrar/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-semibold transition-colors"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
+                <path d="M11.944 17.97L4.58 10.607 7.408 7.78l4.536 4.536 4.536-4.536 2.828 2.828-7.364 7.364zm.056-15.97C6.477 2 2 6.477 2 12c0 5.522 4.477 10 10 10s10-4.478 10-10c0-5.523-4.477-10-10-10z" />
+              </svg>
+              Pagar com PIX
+            </a>
+          )}
+
+          {/* Cartão */}
+          {product.cardPaymentUrl && inStock && (
+            <a
+              href={product.cardPaymentUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
+            >
+              <CreditCard className="w-4 h-4" />
+              Pagar com Cartão
+            </a>
+          )}
+
+          {/* Boleto */}
+          {product.boletoUrl && inStock && (
+            <a
+              href={product.boletoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl border border-border hover:bg-muted text-sm font-medium transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              Gerar Boleto
+            </a>
+          )}
+
+          {/* Sem método de pagamento configurado */}
+          {!product.pixLink &&
+            !product.pixKey &&
+            !product.cardPaymentUrl &&
+            !product.boletoUrl && (
+              <p className="text-xs text-center text-muted-foreground py-1">
+                Entre em contato para comprar
+              </p>
+            )}
+        </div>
       </div>
     </div>
   );
@@ -123,13 +205,13 @@ export function ProductCard({ product }: ProductCardProps) {
 
 function ProductCardSkeleton() {
   return (
-    <div className="rounded-2xl border bg-card overflow-hidden">
+    <div className="rounded-2xl border overflow-hidden">
       <Skeleton className="aspect-square w-full" />
-      <div className="p-4 space-y-2">
-        <Skeleton className="h-3 w-16" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-3/4" />
-        <Skeleton className="h-6 w-24 mt-2" />
+      <div className="p-4 space-y-3">
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-5 w-full" />
+        <Skeleton className="h-3 w-3/4" />
+        <Skeleton className="h-8 w-full mt-4" />
       </div>
     </div>
   );
@@ -138,73 +220,166 @@ function ProductCardSkeleton() {
 // ─── Página Marketplace ───────────────────────────────────────────────────────
 
 export default function Marketplace() {
-  const { data: products, isLoading, error } = trpc.marketplace.products.useQuery();
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const {
+    data: allProducts,
+    isLoading,
+    error,
+  } = trpc.marketplace.products.useQuery();
+
+  const filteredProducts = useMemo(() => {
+    if (!allProducts) return [];
+    return (allProducts as CatalogProduct[]).filter((p) => {
+      const matchCategory =
+        !categoryFilter || p.category === categoryFilter;
+      const matchSearch =
+        !searchQuery ||
+        p.name.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchCategory && matchSearch;
+    });
+  }, [allProducts, categoryFilter, searchQuery]);
+
+  // Extrair categorias únicas dos produtos
+  const availableCategories = useMemo(() => {
+    if (!allProducts) return [];
+    const cats = [
+      ...new Set((allProducts as CatalogProduct[]).map((p) => p.category)),
+    ];
+    return cats;
+  }, [allProducts]);
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero */}
-      <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-background border-b">
-        <div className="container mx-auto max-w-6xl px-4 py-12">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
+      {/* Header */}
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
               <ShoppingBag className="w-5 h-5 text-primary-foreground" />
             </div>
-            <h1 className="text-3xl font-bold tracking-tight">Vitrine</h1>
+            <div>
+              <h1 className="text-lg font-bold leading-none">PermuPay</h1>
+              <p className="text-xs text-muted-foreground">
+                Catálogo de Produtos
+              </p>
+            </div>
           </div>
-          <p className="text-muted-foreground text-lg">
-            Produtos disponíveis para venda
-          </p>
+          <a
+            href="/login"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+          >
+            <LogIn className="w-4 h-4" />
+            Entrar
+          </a>
+        </div>
+      </header>
+
+      {/* Barra de filtros */}
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          {/* Busca */}
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar produtos..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {/* Filtros de categoria */}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setCategoryFilter(null)}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                categoryFilter === null
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              Todos
+            </button>
+            {availableCategories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() =>
+                  setCategoryFilter(cat === categoryFilter ? null : cat)
+                }
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  categoryFilter === cat
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {CATEGORY_LABELS[cat] || cat}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Grid de produtos */}
-      <div className="container mx-auto max-w-6xl px-4 py-10">
+      {/* Conteúdo principal */}
+      <main className="max-w-7xl mx-auto px-4 pb-16">
         {/* Erro */}
         {error && (
           <div className="text-center py-16 text-muted-foreground">
-            Não foi possível carregar os produtos.
+            Não foi possível carregar os produtos. Tente novamente mais tarde.
           </div>
         )}
 
         {/* Loading skeleton */}
         {isLoading && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {Array.from({ length: 10 }).map((_, i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {Array.from({ length: 8 }).map((_, i) => (
               <ProductCardSkeleton key={i} />
             ))}
           </div>
         )}
 
-        {/* Sem produtos */}
-        {!isLoading && !error && products?.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center">
-              <Package className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <p className="text-muted-foreground text-lg font-medium">
-              Nenhum produto disponível no momento.
-            </p>
-          </div>
+        {/* Contador de resultados */}
+        {!isLoading && !error && filteredProducts.length > 0 && (
+          <p className="text-sm text-muted-foreground mb-5">
+            {filteredProducts.length} produto
+            {filteredProducts.length !== 1 ? "s" : ""} encontrado
+            {filteredProducts.length !== 1 ? "s" : ""}
+          </p>
         )}
 
         {/* Grid de cards */}
-        {!isLoading && products && products.length > 0 && (
-          <>
-            <p className="text-sm text-muted-foreground mb-5">
-              {products.length} produto{products.length !== 1 ? "s" : ""} disponível
-              {products.length !== 1 ? "s" : ""}
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {products.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product as MarketplaceProduct}
-                />
-              ))}
-            </div>
-          </>
+        {!isLoading && !error && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+
+            {/* Estado vazio */}
+            {filteredProducts.length === 0 && (
+              <div className="col-span-full flex flex-col items-center justify-center py-24 text-center">
+                <Package className="w-16 h-16 text-muted-foreground/30 mb-4" />
+                <h3 className="text-lg font-medium text-muted-foreground">
+                  {categoryFilter
+                    ? "Nenhum produto nesta categoria"
+                    : "Nenhum produto disponível no momento"}
+                </h3>
+                <p className="text-sm text-muted-foreground/60 mt-1">
+                  Volte em breve!
+                </p>
+              </div>
+            )}
+          </div>
         )}
-      </div>
+      </main>
+
+      {/* Rodapé */}
+      <footer className="border-t py-6 text-center">
+        <p className="text-xs text-muted-foreground">
+          Catálogo gerado por{" "}
+          <span className="font-semibold text-foreground">PermuPay Vendas</span>
+        </p>
+      </footer>
     </div>
   );
 }
