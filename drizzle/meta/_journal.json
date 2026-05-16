@@ -50,6 +50,13 @@
       "when": 1747526400000,
       "tag": "0006_lista_desejos",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1747612800000,
+      "tag": "0008_seed_produtos_vitrine",
+      "breakpoints": true
     }
   ]
 }
