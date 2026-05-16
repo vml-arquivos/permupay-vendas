@@ -29,6 +29,13 @@
       "when": 1778400000000,
       "tag": "0003_add_usd_cost_and_stock",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1747440000000,
+      "tag": "0005_catalogo_ecommerce",
+      "breakpoints": true
     }
   ]
 }
