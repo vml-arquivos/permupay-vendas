@@ -9,6 +9,7 @@
  */
 
 import { useState } from "react";
+import * as XLSX from "xlsx";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatPercent } from "../../../shared/pricingCalculator";
@@ -80,95 +81,153 @@ export default function Products() {
   const publishedCount = (products as any[]).filter((p) => p.published).length;
   const draftCount = (products as any[]).filter((p) => !p.published).length;
 
+  // ── Exportação XLSX completa (4 abas) ───────────────────────────────────────
   const exportToExcel = () => {
     if (products.length === 0) {
       toast.error("Nenhum produto para exportar");
       return;
     }
+    const now = new Date().toISOString().split("T")[0];
 
-    const rows: any[] = [];
-    rows.push([
-      "Nome do Produto",
-      "Categoria",
-      "Descrição Curta",
-      "NCM",
-      "Moeda de Custo",
-      "Preço de Custo",
-      "Custo em Real",
-      "Custo de Embalagem",
-      "Custo de Frete",
-      "Custo Operacional",
-      "Custo Final Unitário",
-      "Preço Sugerido PIX",
-      "Preço Sugerido Cartão",
-      "Preço Sugerido Boleto",
-      "Estoque Atual",
-      "Estoque Mínimo",
-      "Margem Desejada (%)",
-      "Regime Tributário",
-      "Alíquota Estimada (%)",
-      "Publicado",
-      "Tag de Promoção",
-      "Plataforma de Pagamento",
-      "Status",
-      "Data de Criação",
-    ]);
+    const catalogRows = (products as any[]).map((p) => ({
+      "Nome do Produto": p.name,
+      "Categoria": p.category,
+      "Descrição Curta": p.shortDescription || "—",
+      "NCM": p.ncm || "—",
+      "Tag de Promoção": p.promoTag || "—",
+      "Publicado na Vitrine": p.published ? "Sim" : "Não",
+      "Status": p.active ? "Ativo" : "Inativo",
+      "Data de Criação": new Date(p.createdAt).toLocaleDateString("pt-BR"),
+    }));
 
-    (products as any[]).forEach((p) => {
-      const createdAt = new Date(p.createdAt).toLocaleDateString("pt-BR");
-      rows.push([
-        p.name,
-        p.category,
-        p.shortDescription || "—",
-        p.ncm || "—",
-        p.costCurrency || "BRL",
-        formatCurrency(p.costPrice || 0),
-        formatCurrency(p.costPriceBrl || 0),
-        formatCurrency(p.packagingCost || 0),
-        formatCurrency(p.inboundShippingCost || 0),
-        formatCurrency(p.operationalCost || 0),
-        formatCurrency(p.finalUnitCostBrl || 0),
-        formatCurrency(p.suggestedPricePix || 0),
-        formatCurrency(p.suggestedPriceCard || 0),
-        formatCurrency(p.suggestedPriceBoleto || 0),
-        (p.stockQuantity || 0).toFixed(2),
-        (p.minimumStock || 0).toFixed(2),
-        formatPercent(p.desiredMarginRate || 0),
-        p.taxRegime || "—",
-        formatPercent(p.estimatedTaxRate || 0),
-        p.published ? "Sim" : "Não",
-        p.promoTag || "—",
-        p.paymentPlatform || "—",
-        p.active ? "Ativo" : "Inativo",
-        createdAt,
-      ]);
+    const pricingRows = (products as any[]).map((p) => ({
+      "Nome do Produto": p.name,
+      "Moeda de Custo": p.costCurrency || "BRL",
+      "Preço de Custo (BRL)": p.costPriceBrl || p.costPrice || 0,
+      "Custo de Embalagem": p.packagingCost || 0,
+      "Custo de Frete": p.inboundShippingCost || 0,
+      "Custo Operacional": p.operationalCost || 0,
+      "Custo Final Unitário": p.finalUnitCostBrl || 0,
+      "Margem Desejada (%)": p.desiredMarginRate || 0,
+      "Regime Tributário": p.taxRegime || "—",
+      "Alíquota Estimada (%)": p.estimatedTaxRate || 0,
+      "Preço Sugerido PIX": p.suggestedPricePix || 0,
+      "Preço Sugerido Cartão": p.suggestedPriceCard || 0,
+      "Preço Sugerido Boleto": p.suggestedPriceBoleto || 0,
+      "Plataforma de Pagamento": p.paymentPlatform || "—",
+    }));
+
+    const stockRows = (products as any[]).map((p) => {
+      const qty = p.stockQuantity || 0;
+      const min = p.minimumStock || 0;
+      const avgCost = p.averageCostBrl || 0;
+      const status = qty === 0 ? "SEM ESTOQUE" : qty <= min ? "ESTOQUE BAIXO" : "NORMAL";
+      return {
+        "Nome do Produto": p.name,
+        "Categoria": p.category,
+        "Estoque Atual (un)": qty,
+        "Estoque Mínimo (un)": min,
+        "Status de Estoque": status,
+        "Custo Médio Unitário (R$)": avgCost,
+        "Valor Total em Estoque (R$)": qty * avgCost,
+        "Custo Final Unitário (R$)": p.finalUnitCostBrl || 0,
+        "Preço Sugerido PIX (R$)": p.suggestedPricePix || 0,
+        "Publicado": p.published ? "Sim" : "Não",
+        "Data de Criação": new Date(p.createdAt).toLocaleDateString("pt-BR"),
+      };
     });
 
-    const csv = rows
-      .map((row) =>
-        row
-          .map((cell: any) => {
-            const str = String(cell);
-            return str.includes(",") || str.includes('"')
-              ? `"${str.replace(/"/g, '""')}"`
-              : str;
-          })
-          .join(",")
-      )
-      .join("\n");
+    const paymentRows = (products as any[]).map((p) => ({
+      "Nome do Produto": p.name,
+      "Plataforma": p.paymentPlatform || "—",
+      "Chave PIX": p.pixKey || "—",
+      "Link PIX": p.pixLink || "—",
+      "Link Cartão": p.cardPaymentUrl || "—",
+      "Link Boleto": p.boletoUrl || "—",
+      "Preço PIX": p.suggestedPricePix || 0,
+      "Preço Cartão": p.suggestedPriceCard || 0,
+      "Preço Boleto": p.suggestedPriceBoleto || 0,
+    }));
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `produtos-${new Date().toISOString().split("T")[0]}.csv`
-    );
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const wb = XLSX.utils.book_new();
+
+    const wsCatalog = XLSX.utils.json_to_sheet(catalogRows);
+    wsCatalog["!cols"] = [{ wch: 35 }, { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, wsCatalog, "Catálogo");
+
+    const wsPricing = XLSX.utils.json_to_sheet(pricingRows);
+    wsPricing["!cols"] = [{ wch: 35 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, wsPricing, "Precificação");
+
+    const wsStock = XLSX.utils.json_to_sheet(stockRows);
+    wsStock["!cols"] = [{ wch: 35 }, { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 24 }, { wch: 26 }, { wch: 24 }, { wch: 22 }, { wch: 10 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, wsStock, "Estoque");
+
+    const wsPayment = XLSX.utils.json_to_sheet(paymentRows);
+    wsPayment["!cols"] = [{ wch: 35 }, { wch: 16 }, { wch: 30 }, { wch: 40 }, { wch: 40 }, { wch: 40 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsPayment, "Pagamentos");
+
+    XLSX.writeFile(wb, `permupay-produtos-${now}.xlsx`);
+    toast.success(`Planilha exportada com ${products.length} produto(s) em 4 abas!`);
+  };
+
+  // ── Exportação rápida de Estoque ─────────────────────────────────────────────
+  const exportStock = () => {
+    if (products.length === 0) {
+      toast.error("Nenhum produto para exportar");
+      return;
+    }
+    const now = new Date().toISOString().split("T")[0];
+    const semEstoque = (products as any[]).filter(p => (p.stockQuantity || 0) === 0).length;
+    const estoqueBaixo = (products as any[]).filter(p => {
+      const qty = p.stockQuantity || 0;
+      const min = p.minimumStock || 0;
+      return qty > 0 && qty <= min;
+    }).length;
+    const valorTotal = (products as any[]).reduce((acc, p) => acc + (p.stockQuantity || 0) * (p.averageCostBrl || 0), 0);
+
+    const stockRows = (products as any[]).map((p) => {
+      const qty = p.stockQuantity || 0;
+      const min = p.minimumStock || 0;
+      const avgCost = p.averageCostBrl || 0;
+      return {
+        "Nome do Produto": p.name,
+        "Categoria": p.category,
+        "Estoque Atual (un)": qty,
+        "Estoque Mínimo (un)": min,
+        "Status": qty === 0 ? "SEM ESTOQUE" : qty <= min ? "ESTOQUE BAIXO" : "NORMAL",
+        "Custo Médio Unitário (R$)": avgCost,
+        "Valor Total em Estoque (R$)": qty * avgCost,
+        "Custo Final Unitário (R$)": p.finalUnitCostBrl || 0,
+        "Preço Sugerido PIX (R$)": p.suggestedPricePix || 0,
+        "Preço Sugerido Cartão (R$)": p.suggestedPriceCard || 0,
+        "Margem Desejada (%)": p.desiredMarginRate || 0,
+        "Publicado": p.published ? "Sim" : "Não",
+        "Ativo": p.active ? "Sim" : "Não",
+        "Data de Criação": new Date(p.createdAt).toLocaleDateString("pt-BR"),
+      };
+    });
+
+    const summaryRows = [
+      { "Indicador": "Total de Produtos", "Valor": products.length },
+      { "Indicador": "Produtos Sem Estoque", "Valor": semEstoque },
+      { "Indicador": "Produtos com Estoque Baixo", "Valor": estoqueBaixo },
+      { "Indicador": "Produtos com Estoque Normal", "Valor": products.length - semEstoque - estoqueBaixo },
+      { "Indicador": "Valor Total em Estoque (R$)", "Valor": valorTotal.toFixed(2) },
+      { "Indicador": "Data do Relatório", "Valor": new Date().toLocaleDateString("pt-BR") },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(stockRows);
+    ws["!cols"] = [{ wch: 35 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 24 }, { wch: 26 }, { wch: 24 }, { wch: 22 }, { wch: 24 }, { wch: 18 }, { wch: 10 }, { wch: 8 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Estoque");
+
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+    wsSummary["!cols"] = [{ wch: 32 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo");
+
+    XLSX.writeFile(wb, `permupay-estoque-${now}.xlsx`);
+    toast.success("Planilha de estoque exportada com resumo!");
   };
 
   return (
@@ -183,7 +242,16 @@ export default function Products() {
                 Gerencie produtos, preços e publicação na vitrine
               </p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={exportStock}
+                disabled={products.length === 0}
+                variant="outline"
+                className="gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Estoque
+              </Button>
               <Button
                 onClick={exportToExcel}
                 disabled={products.length === 0}
@@ -191,7 +259,7 @@ export default function Products() {
                 className="gap-2"
               >
                 <Download className="w-4 h-4" />
-                Exportar
+                Catálogo Completo
               </Button>
               <Link href="/produtos/novo">
                 <Button className="gap-2">
