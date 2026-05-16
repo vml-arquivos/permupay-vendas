@@ -1,13 +1,11 @@
 # ─── PermuPay Vendas — Dockerfile para Coolify ───────────────────────────────
-# Multi-stage build otimizado para produção
+# Usa node:22 (Debian) — binários nativos do esbuild/tailwindcss já disponíveis
+# Runtime copia node_modules do builder → sem reinstalação, sem timeout
 
 # ── Estágio 1: Build ──────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
-
-# Instalar dependências nativas necessárias para esbuild e tailwindcss no Alpine
-RUN apk add --no-cache python3 make g++ libc6-compat
 
 # Instalar pnpm
 RUN npm install -g pnpm@10.4.1 --quiet
@@ -16,9 +14,8 @@ RUN npm install -g pnpm@10.4.1 --quiet
 COPY package.json pnpm-lock.yaml ./
 COPY patches/ ./patches/
 
-# Instalar TODAS as dependências (incluindo devDependencies para o build)
-# --ignore-scripts=false garante que esbuild e tailwindcss compilem seus binários nativos
-RUN pnpm install --frozen-lockfile --ignore-scripts=false
+# Instalar TODAS as dependências (scripts nativos habilitados — esbuild/tailwindcss compilam)
+RUN pnpm install --frozen-lockfile
 
 # Copiar código-fonte
 COPY . .
@@ -27,28 +24,19 @@ COPY . .
 RUN pnpm build
 
 # ── Estágio 2: Runtime ────────────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM node:22-slim AS runtime
 
 WORKDIR /app
 
-# Instalar wget (necessário para o healthcheck) e pnpm
-RUN apk add --no-cache wget && npm install -g pnpm@10.4.1 --quiet
+# Instalar wget para healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
 
-# Copiar arquivos de dependências
-COPY package.json pnpm-lock.yaml ./
-COPY patches/ ./patches/
-
-# Instalar apenas dependências de produção
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts=false
-
-# Copiar build gerado pelo estágio anterior
+# Copiar tudo do builder — node_modules, dist, drizzle, scripts
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-
-# Copiar migrations do Drizzle (necessário para o entrypoint aplicar no boot)
 COPY --from=builder /app/drizzle ./drizzle
-
-# Copiar scripts de inicialização
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/package.json ./package.json
 
 # Copiar entrypoint
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
@@ -57,13 +45,12 @@ RUN chmod +x docker-entrypoint.sh
 # Expor porta da aplicação
 EXPOSE 4000
 
-# Variáveis de ambiente padrão (sobrescreva no Coolify via Environment Variables)
+# Variáveis de ambiente padrão
 ENV NODE_ENV=production
 ENV PORT=4000
 ENV DATA_DIR=/var/data/permupay
 
 # Volume persistente para imagens de produto
-# No Coolify: Persistent Storage → /var/data/permupay → qualquer nome de volume
 VOLUME ["/var/data/permupay"]
 
 # Healthcheck
