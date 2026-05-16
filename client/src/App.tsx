@@ -10,9 +10,11 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import Marketplace from "./pages/Marketplace";
 import Login from "./pages/Login";
 import PricingSimulator from "./pages/PricingSimulator";
+import WishlistPublic from "./pages/WishlistPublic";
 
 // Páginas protegidas
 import Dashboard from "./pages/Dashboard";
+import WishlistAdmin from "./pages/WishlistAdmin";
 import Products from "./pages/Products";
 import ProductForm from "./pages/ProductForm";
 import SimulationsExport from "./pages/SimulationsExport";
@@ -35,6 +37,7 @@ function Router() {
       <Route path="/vitrine" component={Marketplace} />
       <Route path="/login" component={Login} />
       <Route path="/simulador" component={PricingSimulator} />
+      <Route path="/desejos" component={WishlistPublic} />
 
       {/* Dashboard */}
       <Route path="/dashboard">{() => <P><Dashboard /></P>}</Route>
@@ -43,7 +46,7 @@ function Router() {
       <Route path="/produtos">{() => <P><Products /></P>}</Route>
       <Route path="/produtos/novo">{() => <P><ProductForm /></P>}</Route>
       <Route path="/produtos/:id/editar">
-        {(params: any) => <P><ProductForm id={Number(params.id)} /></P>}
+        {() => <P><ProductForm /></P>}
       </Route>
 
       {/* Estoque */}
@@ -61,6 +64,9 @@ function Router() {
 
       {/* Relatórios */}
       <Route path="/relatorios">{() => <P><Relatorios /></P>}</Route>
+
+      {/* Lista de Desejos Admin */}
+      <Route path="/desejos-admin">{() => <P><WishlistAdmin /></P>}</Route>
 
       {/* Admin */}
       <Route path="/usuarios">{() => <P><Usuarios /></P>}</Route>

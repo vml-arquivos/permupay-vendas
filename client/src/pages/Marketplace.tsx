@@ -27,7 +27,6 @@ interface CatalogProduct {
   suggestedPricePix: number;
   suggestedPriceCard: number;
   suggestedPriceBoleto: number;
-  finalUnitCostBrl: number;
   stockQuantity: number;
   minimumStock: number;
   paymentPlatform: string | null;
@@ -56,10 +55,11 @@ function getStockStatus(p: CatalogProduct): StockStatus {
   if (min > 0 && qty <= min) return "low_stock";
   return "in_stock";
 }
-function displayPrice(p: CatalogProduct): number {
-  if (p.suggestedPricePix > 0) return p.suggestedPricePix;
-  if (p.suggestedPrice > 0) return p.suggestedPrice;
-  return p.finalUnitCostBrl;
+// Retorna o preço de exibição principal (apenas dados comerciais finais, nunca custo interno)
+function displayPrice(p: CatalogProduct): number | null {
+  if ((p.suggestedPricePix ?? 0) > 0) return p.suggestedPricePix;
+  if ((p.suggestedPrice ?? 0) > 0) return p.suggestedPrice;
+  return null;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -138,15 +138,24 @@ function ProductCard({ product }: { product: CatalogProduct }) {
         <div className="mt-auto">
           {inStock ? (
             <>
-              <div className="flex items-baseline gap-1.5 mb-1">
-                <span className="text-xl font-bold text-stone-900">{formatBRL(displayPrice(product))}</span>
-                {(product.pixLink || product.pixKey) && (
-                  <span className="text-xs text-emerald-600 font-medium">no PIX</span>
-                )}
-              </div>
+              {displayPrice(product) !== null ? (
+                <div className="flex items-baseline gap-1.5 mb-1">
+                  <span className="text-xl font-bold text-stone-900">{formatBRL(displayPrice(product)!)}</span>
+                  {(product.pixLink || product.pixKey) && (
+                    <span className="text-xs text-emerald-600 font-medium">no PIX</span>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-stone-400 italic mb-1">Consulte o preço</p>
+              )}
               {product.suggestedPriceCard > 0 && product.cardPaymentUrl && (
                 <p className="text-xs text-stone-400 mb-3">
                   ou {formatBRL(product.suggestedPriceCard)} no cartão
+                </p>
+              )}
+              {product.suggestedPriceBoleto > 0 && product.boletoUrl && !product.cardPaymentUrl && (
+                <p className="text-xs text-stone-400 mb-3">
+                  Boleto: {formatBRL(product.suggestedPriceBoleto)}
                 </p>
               )}
               <div className="flex flex-col gap-2 pt-2 border-t border-stone-100">
@@ -158,7 +167,7 @@ function ProductCard({ product }: { product: CatalogProduct }) {
                     className="w-full py-2.5 px-4 rounded-xl bg-stone-900 hover:bg-stone-700 text-white text-sm font-semibold text-center transition-colors flex items-center justify-center gap-2"
                   >
                     <Zap className="w-3.5 h-3.5" />
-                    CTA Pagar com PIX
+                    Pagar com PIX
                   </a>
                 )}
                 {product.cardPaymentUrl && (

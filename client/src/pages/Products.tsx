@@ -4,15 +4,17 @@
  * Inclui:
  * - Listagem de produtos com busca e filtro
  * - Toggle de publicação na vitrine por produto
- * - Badges de status (publicado, estoque baixo, sem pagamento)
- * - Exportação CSV
+ * - Badges de status: Publicado, Rascunho, Sem pagamento, Sem imagem, Baixo estoque
+ * - Preços PIX, Cartão e Boleto corretamente exibidos
+ * - Botões: Editar, Simular/Recalcular, Duplicar, Publicar/Despublicar, Desativar
+ * - Exportação XLSX completa (4 abas)
  */
 
 import { useState } from "react";
 import * as XLSX from "xlsx";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { formatCurrency, formatPercent } from "../../../shared/pricingCalculator";
+import { formatCurrency } from "../../../shared/pricingCalculator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +31,9 @@ import {
   ShoppingBag,
   CreditCard,
   Globe,
+  EyeOff,
+  ImageOff,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -338,8 +343,13 @@ export default function Products() {
                   product.cardPaymentUrl ||
                   product.boletoUrl;
                 const lowStock =
-                  product.minimumStock > 0 &&
-                  product.stockQuantity <= product.minimumStock;
+                  (product.minimumStock ?? 0) > 0 &&
+                  (product.stockQuantity ?? 0) <= (product.minimumStock ?? 0);
+                const noImage = !product.imageUrl;
+                const hasPix = (product.suggestedPricePix ?? 0) > 0;
+                const hasCard = (product.suggestedPriceCard ?? 0) > 0;
+                const hasBoleto = (product.suggestedPriceBoleto ?? 0) > 0;
+                const hasAnyPrice = hasPix || hasCard || hasBoleto || (product.suggestedPrice ?? 0) > 0;
 
                 return (
                   <div
@@ -371,14 +381,20 @@ export default function Products() {
                               <h3 className="font-semibold text-foreground truncate">
                                 {product.name}
                               </h3>
-                              {product.published && (
+                              {/* Status badges */}
+                              {product.published ? (
                                 <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0 text-xs">
                                   <Globe className="w-3 h-3 mr-1" />
                                   Publicado
                                 </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-xs">
+                                  <EyeOff className="w-3 h-3 mr-1" />
+                                  Rascunho
+                                </Badge>
                               )}
                               {!product.active && (
-                                <Badge variant="secondary" className="text-xs">
+                                <Badge variant="secondary" className="text-xs opacity-60">
                                   Inativo
                                 </Badge>
                               )}
@@ -392,7 +408,7 @@ export default function Products() {
                                   variant="outline"
                                   className="text-amber-600 border-amber-300 text-xs"
                                 >
-                                  ⚠️ Estoque baixo
+                                  ⚠️ Baixo estoque
                                 </Badge>
                               )}
                               {!hasPaymentMethod && product.published && (
@@ -401,6 +417,15 @@ export default function Products() {
                                   className="text-red-600 border-red-300 text-xs"
                                 >
                                   Sem pagamento configurado
+                                </Badge>
+                              )}
+                              {noImage && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-slate-500 border-slate-300 text-xs"
+                                >
+                                  <ImageOff className="w-3 h-3 mr-1" />
+                                  Sem imagem
                                 </Badge>
                               )}
                             </div>
@@ -436,10 +461,10 @@ export default function Products() {
                         </div>
                       </div>
 
-                      {/* Informações de custos */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-muted/30">
+                      {/* Informações de custos e preços */}
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3 rounded-lg bg-muted/30">
                         <div>
-                          <p className="text-xs text-muted-foreground">Preço de Custo</p>
+                          <p className="text-xs text-muted-foreground">Custo</p>
                           <p className="text-sm font-semibold text-foreground">
                             {product.costCurrency === "USD"
                               ? `$${(product.costPriceUsd || 0).toFixed(2)}`
@@ -454,9 +479,19 @@ export default function Products() {
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Preço PIX</p>
-                          <p className="text-sm font-semibold text-green-600">
-                            {product.suggestedPricePix > 0
-                              ? formatCurrency(product.suggestedPricePix)
+                          <p className={`text-sm font-semibold ${hasPix ? "text-green-600" : "text-muted-foreground"}`}>
+                            {hasPix ? formatCurrency(product.suggestedPricePix) : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Cartão / Boleto</p>
+                          <p className="text-sm font-semibold text-foreground">
+                            {hasCard
+                              ? formatCurrency(product.suggestedPriceCard)
+                              : hasBoleto
+                              ? formatCurrency(product.suggestedPriceBoleto)
+                              : !hasAnyPrice
+                              ? <span className="text-amber-600 text-xs">Preço não calculado</span>
                               : "—"}
                           </p>
                         </div>
@@ -464,7 +499,11 @@ export default function Products() {
                           <p className="text-xs text-muted-foreground">Estoque</p>
                           <p
                             className={`text-sm font-semibold ${
-                              lowStock ? "text-amber-600" : "text-foreground"
+                              (product.stockQuantity ?? 0) === 0
+                                ? "text-red-600"
+                                : lowStock
+                                ? "text-amber-600"
+                                : "text-foreground"
                             }`}
                           >
                             {(product.stockQuantity || 0).toFixed(0)} un.
@@ -504,17 +543,17 @@ export default function Products() {
                       )}
 
                       {/* Ações */}
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        <Link href={`/simulador?productId=${product.id}`}>
-                          <Button variant="outline" size="sm" className="gap-1.5">
-                            <Eye className="w-3.5 h-3.5" />
-                            Simular
-                          </Button>
-                        </Link>
+                      <div className="flex flex-wrap gap-2 pt-2 border-t border-border/50">
                         <Link href={`/produtos/${product.id}/editar`}>
                           <Button variant="outline" size="sm" className="gap-1.5">
                             <Edit2 className="w-3.5 h-3.5" />
                             Editar
+                          </Button>
+                        </Link>
+                        <Link href={`/simulador?productId=${product.id}`}>
+                          <Button variant="outline" size="sm" className="gap-1.5">
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Simular
                           </Button>
                         </Link>
                         <Button
@@ -529,7 +568,31 @@ export default function Products() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="gap-1.5 text-danger hover:text-danger ml-auto"
+                          className={`gap-1.5 ${product.published ? "text-amber-600 hover:text-amber-700" : "text-green-600 hover:text-green-700"}`}
+                          onClick={() =>
+                            togglePublished.mutate({
+                              productId: product.id,
+                              published: !product.published,
+                            })
+                          }
+                          disabled={togglePublished.isPending}
+                        >
+                          {product.published ? (
+                            <>
+                              <EyeOff className="w-3.5 h-3.5" />
+                              Despublicar
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-3.5 h-3.5" />
+                              Publicar
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-destructive hover:text-destructive ml-auto"
                           onClick={() => {
                             if (
                               confirm(

@@ -33,6 +33,7 @@ import {
   PanelLeft,
   Warehouse,
   BarChart3,
+  Heart,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -46,6 +47,7 @@ const menuItems = [
   { icon: Calculator, label: "Simulações", path: "/simulacoes" },
   { icon: Layers, label: "Lotes", path: "/lotes" },
   { icon: ShoppingBag, label: "Vitrine", path: "/vitrine" },
+  { icon: Heart, label: "Lista de Desejos", path: "/desejos-admin" },
   { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
 ];
 

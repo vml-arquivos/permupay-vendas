@@ -122,11 +122,20 @@ export const appRouter = router({
           ]),
         })
       )
-      .mutation(async ({ input, ctx }) => {
+            .mutation(async ({ input, ctx }) => {
         // Verificar que o produto pertence ao usuário
         const product = await db.getProductById(input.productId, ctx.user.id);
         if (!product) throw new Error("Produto não encontrado");
-
+        // Verificar configuração do storage antes de tentar
+        const missingVars: string[] = [];
+        if (!process.env.AWS_ACCESS_KEY_ID) missingVars.push("AWS_ACCESS_KEY_ID");
+        if (!process.env.AWS_SECRET_ACCESS_KEY) missingVars.push("AWS_SECRET_ACCESS_KEY");
+        if (!process.env.S3_BUCKET) missingVars.push("S3_BUCKET");
+        if (missingVars.length > 0) {
+          throw new Error(
+            `Upload de imagens indisponível. Configure o storage S3/R2 no servidor. Variáveis ausentes: ${missingVars.join(", ")}`
+          );
+        }
         return getPresignedUploadUrl(
           input.productId,
           input.filename,
