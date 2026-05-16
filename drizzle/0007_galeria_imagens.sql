@@ -12,9 +12,15 @@ CREATE TABLE IF NOT EXISTS permupay_product_images (
   created_at    timestamp     NOT NULL DEFAULT now()
 );
 
--- Índices
-CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON permupay_product_images(product_id);
-CREATE INDEX IF NOT EXISTS idx_product_images_thumbnail  ON permupay_product_images(product_id, is_thumbnail);
+-- Índices via DO block — ignora silenciosamente se já existir (42P07)
+DO $$ BEGIN
+  CREATE INDEX idx_product_images_product_id ON permupay_product_images(product_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_product_images_thumbnail ON permupay_product_images(product_id, is_thumbnail);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
 
 -- Garantir que só existe uma thumbnail por produto (trigger)
 CREATE OR REPLACE FUNCTION ensure_single_thumbnail()

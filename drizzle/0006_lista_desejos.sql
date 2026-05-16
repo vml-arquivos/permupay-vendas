@@ -45,7 +45,16 @@ CREATE TABLE IF NOT EXISTS permupay_wishlist_requests (
   updated_at        timestamp       NOT NULL DEFAULT now()
 );
 
--- Índices para performance
-CREATE INDEX IF NOT EXISTS idx_wishlist_status   ON permupay_wishlist_requests(status);
-CREATE INDEX IF NOT EXISTS idx_wishlist_category ON permupay_wishlist_requests(category);
-CREATE INDEX IF NOT EXISTS idx_wishlist_created  ON permupay_wishlist_requests(created_at DESC);
+-- Índices via DO block — ignora silenciosamente se já existir (42P07)
+DO $$ BEGIN
+  CREATE INDEX idx_wishlist_status ON permupay_wishlist_requests(status);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_wishlist_category ON permupay_wishlist_requests(category);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_wishlist_created ON permupay_wishlist_requests(created_at DESC);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;

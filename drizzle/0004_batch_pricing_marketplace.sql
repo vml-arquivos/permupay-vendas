@@ -46,12 +46,27 @@ ALTER TABLE permupay_pricing_simulations ADD COLUMN IF NOT EXISTS net_profit rea
 --> statement-breakpoint
 ALTER TABLE permupay_pricing_simulations ADD COLUMN IF NOT EXISTS net_margin real NOT NULL DEFAULT 0;
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_batch_items_batch_id ON permupay_batch_items(batch_id);
+DO $$ BEGIN
+  CREATE INDEX idx_batch_items_batch_id ON permupay_batch_items(batch_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_batch_items_product_id ON permupay_batch_items(product_id);
+DO $$ BEGIN
+  CREATE INDEX idx_batch_items_product_id ON permupay_batch_items(product_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_stock_entries_product_id ON permupay_stock_entries(product_id);
+DO $$ BEGIN
+  CREATE INDEX idx_stock_entries_product_id ON permupay_stock_entries(product_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_stock_entries_batch_id ON permupay_stock_entries(batch_id);
+DO $$ BEGIN
+  CREATE INDEX idx_stock_entries_batch_id ON permupay_stock_entries(batch_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_products_published ON permupay_products(published) WHERE published = true;
+DO $$ BEGIN
+  CREATE INDEX idx_products_published ON permupay_products(published) WHERE published = true;
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
