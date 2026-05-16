@@ -16,6 +16,7 @@ import {
   FileText,
   LogIn,
   Search,
+  Heart,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 
@@ -266,13 +267,22 @@ export default function Marketplace() {
               </p>
             </div>
           </div>
-          <a
-            href="/login"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
-          >
-            <LogIn className="w-4 h-4" />
-            Entrar
-          </a>
+          <div className="flex items-center gap-3">
+            <a
+              href="/desejos"
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+            >
+              <Heart className="w-4 h-4" />
+              Lista de Desejos
+            </a>
+            <a
+              href="/login"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+            >
+              <LogIn className="w-4 h-4" />
+              Entrar
+            </a>
+          </div>
         </div>
       </header>
 
