@@ -40,6 +40,20 @@ const productInput = z.object({
   usdExchangeRate: z.number().min(0).optional(),
   stockQuantity: z.number().min(0).optional(),
   minimumStock: z.number().min(0).optional(),
+  shortDescription: z.string().optional(),
+  description: z.string().optional(),
+  suggestedPrice: z.number().min(0).optional(),
+  suggestedPricePix: z.number().min(0).optional(),
+  suggestedPriceCard: z.number().min(0).optional(),
+  suggestedPriceBoleto: z.number().min(0).optional(),
+  paymentPlatform: z.enum(["MERCADO_PAGO", "PAGSEGURO", "OUTRO"]).optional(),
+  pixKey: z.string().optional(),
+  pixLink: z.string().optional(),
+  cardPaymentUrl: z.string().optional(),
+  boletoUrl: z.string().optional(),
+  categoryLabel: z.string().optional(),
+  promoTag: z.string().optional(),
+  published: z.boolean().optional(),
 });
 
 const batchItemSchema = z.object({
@@ -233,6 +247,9 @@ export const appRouter = router({
   marketplace: router({
     /** Rota pública — não requer autenticação */
     products: publicProcedure.query(() => dbBatches.getPublishedProducts()),
+    productsByCategory: publicProcedure
+      .input(z.object({ category: z.string().optional() }))
+      .query(({ input }) => dbBatches.getPublishedProductsByCategory(input.category)),
   }),
 
   // ── Simulações ─────────────────────────────────────────────────────────────

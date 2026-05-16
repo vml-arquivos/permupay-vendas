@@ -269,16 +269,63 @@ export async function getPublishedProducts() {
       id: products.id,
       name: products.name,
       category: products.category,
+      categoryLabel: products.categoryLabel,
+      shortDescription: products.shortDescription,
+      description: products.description,
       imageUrl: products.imageUrl,
       promoTag: products.promoTag,
+      suggestedPrice: products.suggestedPrice,
+      suggestedPricePix: products.suggestedPricePix,
+      suggestedPriceCard: products.suggestedPriceCard,
+      suggestedPriceBoleto: products.suggestedPriceBoleto,
       finalUnitCostBrl: products.finalUnitCostBrl,
       stockQuantity: products.stockQuantity,
-      // Nota: o preço de venda exibido na vitrine deve vir de uma simulação salva.
-      // Aqui expõe o custo final como referência mínima.
+      paymentPlatform: products.paymentPlatform,
+      pixKey: products.pixKey,
+      pixLink: products.pixLink,
+      cardPaymentUrl: products.cardPaymentUrl,
+      boletoUrl: products.boletoUrl,
     })
     .from(products)
     .where(and(eq(products.published, true), eq(products.active, true)))
-    .orderBy(products.name);
+    .orderBy(desc(products.createdAt));
+}
+
+export async function getPublishedProductsByCategory(category?: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const baseQuery = db
+    .select({
+      id: products.id,
+      name: products.name,
+      category: products.category,
+      categoryLabel: products.categoryLabel,
+      shortDescription: products.shortDescription,
+      description: products.description,
+      imageUrl: products.imageUrl,
+      promoTag: products.promoTag,
+      suggestedPrice: products.suggestedPrice,
+      suggestedPricePix: products.suggestedPricePix,
+      suggestedPriceCard: products.suggestedPriceCard,
+      suggestedPriceBoleto: products.suggestedPriceBoleto,
+      finalUnitCostBrl: products.finalUnitCostBrl,
+      stockQuantity: products.stockQuantity,
+      paymentPlatform: products.paymentPlatform,
+      pixKey: products.pixKey,
+      pixLink: products.pixLink,
+      cardPaymentUrl: products.cardPaymentUrl,
+      boletoUrl: products.boletoUrl,
+    })
+    .from(products)
+    .where(
+      category
+        ? and(eq(products.published, true), eq(products.active, true), eq(products.category, category as any))
+        : and(eq(products.published, true), eq(products.active, true))
+    )
+    .orderBy(desc(products.createdAt));
+
+  return baseQuery;
 }
 
 export async function togglePublished(
