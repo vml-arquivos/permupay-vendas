@@ -178,6 +178,9 @@ export default defineConfig({
       ".manusvm.computer",
       "localhost",
       "127.0.0.1",
+      "autopay.permupay.com.br",
+      "shoop.permupay.com.br",
+      ".permupay.com.br",
     ],
     fs: {
       strict: true,
