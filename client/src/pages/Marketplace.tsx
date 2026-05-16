@@ -325,12 +325,12 @@ export default function Marketplace() {
                   <span className="hidden md:inline">Lista de Desejos</span>
                 </Button>
               </Link>
-              <Link href="/login">
+              <a href={`${import.meta.env.VITE_PANEL_URL ?? ""}/login`}>
                 <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700">
                   <LogIn className="w-4 h-4" />
                   <span className="hidden sm:inline">Entrar</span>
                 </Button>
-              </Link>
+              </a>
             </div>
           </div>
         </div>
@@ -576,17 +576,26 @@ export default function Marketplace() {
               <h3 className="text-white font-semibold mb-4 text-sm uppercase tracking-wide">Links Úteis</h3>
               <ul className="space-y-2.5">
                 {[
-                  { href: "/",        label: "Início" },
-                  { href: "/desejos", label: "Lista de Desejos" },
-                  { href: "/login",   label: "Área do Vendedor" },
-                ].map(({ href, label }) => (
-                  <li key={href}>
-                    <Link href={href}>
-                      <span className="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2 cursor-pointer">
-                        <ChevronRight className="w-3 h-3" />
-                        {label}
-                      </span>
-                    </Link>
+                  { href: "/",        label: "Início",            external: false },
+                  { href: "/desejos", label: "Lista de Desejos",    external: false },
+                  { href: `${import.meta.env.VITE_PANEL_URL ?? ""}/login`, label: "Área do Vendedor", external: true },
+                ].map(({ href, label, external }) => (
+                  <li key={label}>
+                    {external ? (
+                      <a href={href}>
+                        <span className="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2 cursor-pointer">
+                          <ChevronRight className="w-3 h-3" />
+                          {label}
+                        </span>
+                      </a>
+                    ) : (
+                      <Link href={href}>
+                        <span className="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2 cursor-pointer">
+                          <ChevronRight className="w-3 h-3" />
+                          {label}
+                        </span>
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>

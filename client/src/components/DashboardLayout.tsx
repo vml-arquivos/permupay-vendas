@@ -202,7 +202,7 @@ function DashboardLayoutContent({
             {/* Link externo para a vitrine */}
             <div className="px-2 py-1">
               <a
-                href="/"
+                href={import.meta.env.VITE_STOREFRONT_URL ?? "/"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground h-10"
