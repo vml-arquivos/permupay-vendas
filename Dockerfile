@@ -58,6 +58,11 @@ EXPOSE 4000
 # Variáveis de ambiente padrão (sobrescreva no Coolify via Environment Variables)
 ENV NODE_ENV=production
 ENV PORT=4000
+ENV DATA_DIR=/var/data/permupay
+
+# Volume persistente para imagens de produto
+# No Coolify: Persistent Storage → /var/data/permupay → qualquer nome de volume
+VOLUME ["/var/data/permupay"]
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
