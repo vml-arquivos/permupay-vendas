@@ -222,3 +222,50 @@ export type StockEntry = typeof stockEntries.$inferSelect;
 export type InsertStockEntry = typeof stockEntries.$inferInsert;
 
 export type PricingSimulation = typeof pricingSimulations.$inferSelect;
+
+// ─── Enum: wishlist status ────────────────────────────────────────────────────
+
+export const wishlistStatusEnum = pgEnum("permupay_wishlist_status", [
+  "NOVO",
+  "VISUALIZADO",
+  "CONTATADO",
+  "ATENDIDO",
+  "FECHADO",
+]);
+
+// ─── Tabela: wishlist_requests ────────────────────────────────────────────────
+
+export const wishlistRequests = pgTable("permupay_wishlist_requests", {
+  id: serial("id").primaryKey(),
+
+  // Identidade do solicitante
+  visitorName: text("visitor_name").notNull(),
+  contact: text("contact").notNull(),
+  contactType: text("contact_type").notNull().default("WHATSAPP"),
+
+  // O que procura
+  category: text("category"),
+  brand: text("brand"),
+  model: text("model"),
+  description: text("description").notNull(),
+
+  // Orçamento
+  budgetMin: real("budget_min").notNull().default(0),
+  budgetMax: real("budget_max").notNull().default(0),
+
+  // Gestão admin
+  status: wishlistStatusEnum("status").notNull().default("NOVO"),
+  adminNotes: text("admin_notes"),
+  attendedBy: integer("attended_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+
+  // Controle
+  isAnonymous: boolean("is_anonymous").notNull().default(false),
+  ipHash: text("ip_hash"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type WishlistRequest = typeof wishlistRequests.$inferSelect;
+export type InsertWishlistRequest = typeof wishlistRequests.$inferInsert;

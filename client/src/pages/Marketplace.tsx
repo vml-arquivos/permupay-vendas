@@ -16,6 +16,7 @@ import {
   FileText,
   LogIn,
   Search,
+  Heart,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 
@@ -36,6 +37,7 @@ interface CatalogProduct {
   suggestedPriceBoleto: number;
   finalUnitCostBrl: number;
   stockQuantity: number;
+  minimumStock: number;
   paymentPlatform: string | null;
   pixKey: string | null;
   pixLink: string | null;
@@ -64,10 +66,25 @@ function displayPrice(product: CatalogProduct): number {
   return product.finalUnitCostBrl;
 }
 
+// ─── Lógica de status de estoque ─────────────────────────────────────────────
+
+type StockStatus = "in_stock" | "low_stock" | "out_of_stock";
+
+function getStockStatus(product: CatalogProduct): StockStatus {
+  const qty = product.stockQuantity ?? 0;
+  const min = product.minimumStock ?? 0;
+  if (qty <= 0) return "out_of_stock";
+  // Considera "últimas unidades" se estoque <= estoque mínimo (e mínimo > 0)
+  if (min > 0 && qty <= min) return "low_stock";
+  return "in_stock";
+}
+
 // ─── Componente ProductCard ───────────────────────────────────────────────────
 
 function ProductCard({ product }: { product: CatalogProduct }) {
-  const inStock = product.stockQuantity > 0;
+  const stockStatus = getStockStatus(product);
+  const inStock = stockStatus !== "out_of_stock";
+  const isLowStock = stockStatus === "low_stock";
 
   return (
     <div className="group flex flex-col rounded-2xl border bg-card overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
@@ -77,7 +94,9 @@ function ProductCard({ product }: { product: CatalogProduct }) {
           <img
             src={product.imageUrl}
             alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ${
+              !inStock ? "opacity-60 grayscale" : ""
+            }`}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900">
@@ -85,17 +104,32 @@ function ProductCard({ product }: { product: CatalogProduct }) {
           </div>
         )}
 
-        {product.promoTag && (
+        {/* Badge de promoção (só aparece se em estoque) */}
+        {product.promoTag && inStock && (
           <Badge className="absolute top-3 left-3 bg-orange-500 text-white shadow-lg">
             🏷️ {product.promoTag}
           </Badge>
         )}
 
+        {/* Badge de últimas unidades */}
+        {isLowStock && (
+          <Badge className="absolute top-3 right-3 bg-amber-500 text-white shadow-lg text-xs">
+            ⚡ Últimas unidades
+          </Badge>
+        )}
+
+        {/* Overlay sem estoque */}
         {!inStock && (
-          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-            <span className="text-white font-bold text-sm bg-black/60 px-3 py-1 rounded-full">
+          <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
+            <span className="text-white font-bold text-sm bg-black/70 px-4 py-1.5 rounded-full">
               Sem Estoque
             </span>
+            <a
+              href="/desejos"
+              className="text-xs text-white/90 underline hover:text-white transition-colors"
+            >
+              Avisar quando chegar
+            </a>
           </div>
         )}
       </div>
@@ -125,10 +159,14 @@ function ProductCard({ product }: { product: CatalogProduct }) {
         <div className="space-y-1 mt-auto">
           {/* Preço PIX — destaque */}
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-green-600 dark:text-green-400">
+            <span className={`text-2xl font-bold ${
+              inStock
+                ? "text-green-600 dark:text-green-400"
+                : "text-muted-foreground line-through"
+            }`}>
               {formatBRL(displayPrice(product))}
             </span>
-            {(product.pixLink || product.pixKey) && (
+            {(product.pixLink || product.pixKey) && inStock && (
               <span className="text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 rounded-full">
                 no PIX
               </span>
@@ -136,7 +174,7 @@ function ProductCard({ product }: { product: CatalogProduct }) {
           </div>
 
           {/* Preço cartão se diferente */}
-          {product.suggestedPriceCard > 0 && product.cardPaymentUrl && (
+          {product.suggestedPriceCard > 0 && product.cardPaymentUrl && inStock && (
             <p className="text-xs text-muted-foreground">
               ou {formatBRL(product.suggestedPriceCard)} no cartão
             </p>
@@ -145,6 +183,17 @@ function ProductCard({ product }: { product: CatalogProduct }) {
 
         {/* Botões de pagamento */}
         <div className="flex flex-col gap-2 pt-2 border-t">
+          {/* Produto sem estoque — CTA para lista de desejos */}
+          {!inStock && (
+            <a
+              href="/desejos"
+              className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl border-2 border-dashed border-muted-foreground/30 text-muted-foreground text-sm font-medium hover:border-primary hover:text-primary transition-colors"
+            >
+              <Heart className="w-4 h-4" />
+              Avisar quando chegar
+            </a>
+          )}
+
           {/* PIX */}
           {(product.pixLink || product.pixKey) && inStock && (
             <a
@@ -186,8 +235,9 @@ function ProductCard({ product }: { product: CatalogProduct }) {
             </a>
           )}
 
-          {/* Sem método de pagamento configurado */}
-          {!product.pixLink &&
+          {/* Sem método de pagamento configurado (mas em estoque) */}
+          {inStock &&
+            !product.pixLink &&
             !product.pixKey &&
             !product.cardPaymentUrl &&
             !product.boletoUrl && (
@@ -266,13 +316,22 @@ export default function Marketplace() {
               </p>
             </div>
           </div>
-          <a
-            href="/login"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
-          >
-            <LogIn className="w-4 h-4" />
-            Entrar
-          </a>
+          <div className="flex items-center gap-3">
+            <a
+              href="/desejos"
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+            >
+              <Heart className="w-4 h-4" />
+              Lista de Desejos
+            </a>
+            <a
+              href="/login"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+            >
+              <LogIn className="w-4 h-4" />
+              Entrar
+            </a>
+          </div>
         </div>
       </header>
 

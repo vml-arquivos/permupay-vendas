@@ -19,6 +19,8 @@ import SimulationsExport from "./pages/SimulationsExport";
 import SimulationDetail from "./pages/SimulationDetail";
 import Marketplace from "./pages/Marketplace";
 import BatchPricing from "./pages/BatchPricing";
+import WishlistPublic from "./pages/WishlistPublic";
+import WishlistAdmin from "./pages/WishlistAdmin";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 function Router() {
@@ -29,6 +31,18 @@ function Router() {
       <Route path="/vitrine" component={Marketplace} />
       <Route path="/simulador" component={PricingSimulator} />
       <Route path="/login" component={Login} />
+
+      {/* Lista de Desejos pública */}
+      <Route path="/desejos" component={WishlistPublic} />
+
+      {/* Admin de desejos (protegida) */}
+      <Route path="/desejos-admin">
+        {() => (
+          <ProtectedRoute>
+            <WishlistAdmin />
+          </ProtectedRoute>
+        )}
+      </Route>
 
       {/* Rotas protegidas */}
       <Route path="/dashboard">

@@ -13,6 +13,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
 import * as dbBatches from "./db.batches";
+import * as dbWishlist from "./db.wishlist";
 import { getPresignedUploadUrl } from "./storage.upload";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
@@ -284,9 +285,89 @@ export const appRouter = router({
   }),
 
   // ── Dashboard ───────────────────────────────────────────────────────────────
-  dashboard: protectedProcedure.query(({ ctx }) =>
-    db.getDashboardData(ctx.user.id)
-  ),
+  // ── Lista de Desejos ──────────────────────────────────────────────────────────
+  wishlist: router({
+    // Público: criar um desejo
+    create: publicProcedure
+      .input(
+        z.object({
+          visitorName: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
+          contact: z.string().min(8, "Informe WhatsApp ou email"),
+          contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          category: z.enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"]).optional(),
+          brand: z.string().optional(),
+          model: z.string().optional(),
+          description: z.string().min(10, "Descreva melhor o que procura (mín. 10 caracteres)"),
+          budgetMin: z.number().min(0).default(0),
+          budgetMax: z.number().min(0).default(0),
+          isAnonymous: z.boolean().default(false),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        const ipRaw =
+          (ctx.req.headers["x-forwarded-for"] as string | undefined) ??
+          (ctx.req as any).ip ??
+          "";
+        const ipHash = ipRaw
+          ? Buffer.from(ipRaw).toString("base64").slice(0, 16)
+          : undefined;
+        return dbWishlist.createWishlistRequest({ ...input, ipHash });
+      }),
+
+    // Público: listar os próprios desejos pelo contato
+    myRequests: publicProcedure
+      .input(z.object({ contact: z.string().min(1) }))
+      .query(({ input }) => dbWishlist.getWishlistByContact(input.contact)),
+
+    // Admin: listar todos com filtros
+    list: protectedProcedure
+      .input(
+        z
+          .object({
+            status: z
+              .enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"])
+              .optional(),
+            category: z.string().optional(),
+          })
+          .optional()
+      )
+      .query(({ input }) => dbWishlist.listWishlistRequests(input)),
+
+    // Admin: atualizar status
+    updateStatus: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          status: z.enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"]),
+          adminNotes: z.string().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbWishlist.updateWishlistStatus(
+          input.id,
+          input.status,
+          input.adminNotes,
+          ctx.user.id
+        )
+      ),
+
+    // Admin: deletar
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input }) => dbWishlist.deleteWishlistRequest(input.id)),
+
+    // Admin/Dashboard: contadores
+    counts: protectedProcedure.query(() => dbWishlist.getWishlistCounts()),
+  }),
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────────
+  dashboard: protectedProcedure.query(async ({ ctx }) => {
+    const [dashData, wishlistCounts] = await Promise.all([
+      db.getDashboardData(ctx.user.id),
+      dbWishlist.getWishlistCounts(),
+    ]);
+    return { ...dashData, wishlistCounts };
+  }),
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   auth: router({

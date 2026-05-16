@@ -1,7 +1,7 @@
 import { Link } from 'wouter';import { trpc } from '@/lib/trpc';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertCircle, Package, Calculator, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { AlertCircle, Package, Calculator, CheckCircle2, AlertTriangle, Heart } from 'lucide-react';
 
 export default function Dashboard() {
   const { data, isLoading, error } = trpc.dashboard.useQuery();
@@ -10,8 +10,8 @@ export default function Dashboard() {
     return (
       <div className="p-6 space-y-6">
         <Skeleton className="h-10 w-48" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          {[1, 2, 3, 4, 5].map((i) => (
             <Skeleton key={i} className="h-32 w-full" />
           ))}
         </div>
@@ -33,10 +33,11 @@ export default function Dashboard() {
   if (!data) return null;
 
   const stats = [
-    { label: 'Total de Produtos', value: data.totalProducts, icon: Package, color: 'text-blue-500' },
-    { label: 'Produtos Ativos', value: data.activeProducts, icon: CheckCircle2, color: 'text-green-500' },
-    { label: 'Simulações Realizadas', value: data.totalSimulations, icon: Calculator, color: 'text-purple-500' },
-    { label: 'Atenção Necessária', value: data.attentionCount, icon: AlertTriangle, color: 'text-amber-500' },
+    { label: 'Total de Produtos', value: (data as any).totalProducts, icon: Package, color: 'text-blue-500', href: '/produtos' },
+    { label: 'Produtos Ativos', value: (data as any).activeProducts, icon: CheckCircle2, color: 'text-green-500', href: '/produtos' },
+    { label: 'Simulações Realizadas', value: (data as any).totalSimulations, icon: Calculator, color: 'text-purple-500', href: '/simulacoes' },
+    { label: 'Atenção Necessária', value: (data as any).attentionCount, icon: AlertTriangle, color: 'text-amber-500', href: '/produtos' },
+    { label: 'Desejos Pendentes', value: (data as any).wishlistCounts?.novo ?? 0, icon: Heart, color: 'text-pink-500', href: '/desejos-admin' },
   ];
 
   return (
@@ -45,17 +46,19 @@ export default function Dashboard() {
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {stats.map((stat) => (
-          <Card key={stat.label}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{stat.label}</CardTitle>
-              <stat.icon className={`h-4 w-4 ${stat.color}`} />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stat.value}</div>
-            </CardContent>
-          </Card>
+          <Link key={stat.label} href={(stat as any).href ?? '#'}>
+            <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{stat.label}</CardTitle>
+                <stat.icon className={`h-4 w-4 ${stat.color}`} />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stat.value}</div>
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
 
