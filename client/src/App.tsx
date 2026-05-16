@@ -1,219 +1,77 @@
-/**
- * App.tsx — Roteamento por domínio
- *
- * shoop.permupay.com.br  → Vitrine pública (Marketplace, Desejos, Simulador)
- * autopay.permupay.com.br → Área logada (Dashboard, Produtos, Simulações, etc.)
- *
- * Em desenvolvimento (localhost) renderiza ambas as rotas normalmente.
- */
-
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import PricingSimulator from "./pages/PricingSimulator";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+
+// Páginas públicas
+import Marketplace from "./pages/Marketplace";
 import Login from "./pages/Login";
+import PricingSimulator from "./pages/PricingSimulator";
+
+// Páginas protegidas
 import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
 import ProductForm from "./pages/ProductForm";
 import SimulationsExport from "./pages/SimulationsExport";
 import SimulationDetail from "./pages/SimulationDetail";
-import Marketplace from "./pages/Marketplace";
 import BatchPricing from "./pages/BatchPricing";
-import WishlistPublic from "./pages/WishlistPublic";
-import WishlistAdmin from "./pages/WishlistAdmin";
-import { ProtectedRoute } from "./components/ProtectedRoute";
+import Estoque from "./pages/Estoque";
+import Usuarios from "./pages/Usuarios";
+import Configuracoes from "./pages/Configuracoes";
+import Relatorios from "./pages/Relatorios";
 
-// ─── Detecção de domínio ──────────────────────────────────────────────────────
+const P = ({ children }: { children: React.ReactNode }) => (
+  <ProtectedRoute>{children}</ProtectedRoute>
+);
 
-const hostname = window.location.hostname;
-
-const IS_STOREFRONT =
-  hostname === "shoop.permupay.com.br" ||
-  hostname.startsWith("shoop.");
-
-const IS_PANEL =
-  hostname === "autopay.permupay.com.br" ||
-  hostname.startsWith("autopay.");
-
-// Em localhost/dev: mostra tudo
-const IS_DEV = !IS_STOREFRONT && !IS_PANEL;
-
-// ─── Roteador da Vitrine (shoop.permupay.com.br) ─────────────────────────────
-
-function StorefrontRouter() {
+function Router() {
   return (
     <Switch>
+      {/* Públicas */}
       <Route path="/" component={Marketplace} />
       <Route path="/vitrine" component={Marketplace} />
-      <Route path="/simulador" component={PricingSimulator} />
-      <Route path="/desejos" component={WishlistPublic} />
-      <Route>{() => <Marketplace />}</Route>
-    </Switch>
-  );
-}
-
-// ─── Roteador do Painel (autopay.permupay.com.br) ────────────────────────────
-
-function PanelRouter() {
-  return (
-    <Switch>
-      <Route path="/" component={Login} />
       <Route path="/login" component={Login} />
+      <Route path="/simulador" component={PricingSimulator} />
 
-      <Route path="/dashboard">
-        {() => (
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        )}
-      </Route>
+      {/* Dashboard */}
+      <Route path="/dashboard">{() => <P><Dashboard /></P>}</Route>
 
-      <Route path="/produtos">
-        {() => (
-          <ProtectedRoute>
-            <Products />
-          </ProtectedRoute>
-        )}
-      </Route>
-
-      <Route path="/produtos/novo">
-        {() => (
-          <ProtectedRoute>
-            <ProductForm />
-          </ProtectedRoute>
-        )}
-      </Route>
-
+      {/* Produtos */}
+      <Route path="/produtos">{() => <P><Products /></P>}</Route>
+      <Route path="/produtos/novo">{() => <P><ProductForm /></P>}</Route>
       <Route path="/produtos/:id/editar">
-        {(params: any) => (
-          <ProtectedRoute>
-            <ProductForm id={Number(params.id)} />
-          </ProtectedRoute>
-        )}
+        {(params: any) => <P><ProductForm id={Number(params.id)} /></P>}
       </Route>
 
-      <Route path="/lotes/novo">
-        {() => (
-          <ProtectedRoute>
-            <BatchPricing />
-          </ProtectedRoute>
-        )}
-      </Route>
+      {/* Estoque */}
+      <Route path="/estoque">{() => <P><Estoque /></P>}</Route>
 
-      <Route path="/simulacoes">
-        {() => (
-          <ProtectedRoute>
-            <SimulationsExport />
-          </ProtectedRoute>
-        )}
-      </Route>
-
+      {/* Simulações */}
+      <Route path="/simulacoes">{() => <P><SimulationsExport /></P>}</Route>
       <Route path="/simulacoes/:id">
-        {(params: any) => (
-          <ProtectedRoute>
-            <SimulationDetail id={Number(params.id)} />
-          </ProtectedRoute>
-        )}
+        {(params: any) => <P><SimulationDetail id={Number(params.id)} /></P>}
       </Route>
 
-      <Route path="/desejos-admin">
-        {() => (
-          <ProtectedRoute>
-            <WishlistAdmin />
-          </ProtectedRoute>
-        )}
-      </Route>
+      {/* Lotes */}
+      <Route path="/lotes">{() => <P><BatchPricing /></P>}</Route>
+      <Route path="/lotes/novo">{() => <P><BatchPricing /></P>}</Route>
+
+      {/* Relatórios */}
+      <Route path="/relatorios">{() => <P><Relatorios /></P>}</Route>
+
+      {/* Admin */}
+      <Route path="/usuarios">{() => <P><Usuarios /></P>}</Route>
+      <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
 
       <Route component={NotFound} />
     </Switch>
   );
 }
-
-// ─── Roteador de Desenvolvimento (localhost) ──────────────────────────────────
-
-function DevRouter() {
-  return (
-    <Switch>
-      <Route path="/" component={Marketplace} />
-      <Route path="/vitrine" component={Marketplace} />
-      <Route path="/simulador" component={PricingSimulator} />
-      <Route path="/desejos" component={WishlistPublic} />
-      <Route path="/login" component={Login} />
-
-      <Route path="/dashboard">
-        {() => (
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/produtos">
-        {() => (
-          <ProtectedRoute>
-            <Products />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/produtos/novo">
-        {() => (
-          <ProtectedRoute>
-            <ProductForm />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/produtos/:id/editar">
-        {(params: any) => (
-          <ProtectedRoute>
-            <ProductForm id={Number(params.id)} />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/lotes/novo">
-        {() => (
-          <ProtectedRoute>
-            <BatchPricing />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/simulacoes">
-        {() => (
-          <ProtectedRoute>
-            <SimulationsExport />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/simulacoes/:id">
-        {(params: any) => (
-          <ProtectedRoute>
-            <SimulationDetail id={Number(params.id)} />
-          </ProtectedRoute>
-        )}
-      </Route>
-      <Route path="/desejos-admin">
-        {() => (
-          <ProtectedRoute>
-            <WishlistAdmin />
-          </ProtectedRoute>
-        )}
-      </Route>
-
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
-
-// ─── App principal ────────────────────────────────────────────────────────────
 
 export default function App() {
-  const Router = IS_STOREFRONT
-    ? StorefrontRouter
-    : IS_PANEL
-      ? PanelRouter
-      : DevRouter;
-
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
