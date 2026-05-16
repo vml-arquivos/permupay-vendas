@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "../../../shared/pricingCalculator";
@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import ImageGallery from "@/components/ImageGallery";
 import { toast } from "sonner";
 
 type Category = "CELULAR" | "ELETRONICO" | "PERFUME" | "OUTRO";
@@ -113,9 +114,6 @@ export default function ProductForm({ id }: { id?: number }) {
     { enabled: isEdit }
   );
   const [f, setF] = useState<FormData>(initial);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (data) {
@@ -135,17 +133,8 @@ export default function ProductForm({ id }: { id?: number }) {
         cardPaymentUrl: (data as any).cardPaymentUrl ?? "",
         boletoUrl: (data as any).boletoUrl ?? "",
       });
-      if (data.imageUrl) setImagePreview(data.imageUrl);
     }
   }, [data]);
-
-  const getUploadUrl = trpc.products.getImageUploadUrl.useMutation();
-  const setImageUrl = trpc.products.setImageUrl.useMutation({
-    onSuccess: (updated) => {
-      if (updated?.imageUrl) setImagePreview(updated.imageUrl);
-      toast.success("Imagem atualizada com sucesso!");
-    },
-  });
 
   const create = trpc.products.create.useMutation({
     onSuccess: async () => {
@@ -202,30 +191,7 @@ export default function ProductForm({ id }: { id?: number }) {
     setF((prev) => ({ ...prev, [k]: Number.isFinite(parsed) ? parsed : 0 }));
   };
 
-  const handleImageUpload = async (file: File) => {
-    if (!id) {
-      toast.error("Salve o produto primeiro para fazer upload da imagem.");
-      return;
-    }
-    setIsUploading(true);
-    try {
-      const { uploadUrl, publicUrl } = await getUploadUrl.mutateAsync({
-        productId: id,
-        filename: file.name,
-        mimeType: file.type as any,
-      });
-      await fetch(uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      await setImageUrl.mutateAsync({ productId: id, imageUrl: publicUrl });
-    } catch (e: any) {
-      toast.error("Erro ao fazer upload da imagem: " + e.message);
-    } finally {
-      setIsUploading(false);
-    }
-  };
+
 
   const save = () => {
     if (!f.name.trim()) {
@@ -284,51 +250,17 @@ export default function ProductForm({ id }: { id?: number }) {
           <CardTitle className="text-base">Identidade do Produto</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Upload de imagem */}
-            <div className="flex flex-col items-center gap-3">
-              <div
-                className="relative w-24 h-24 rounded-full overflow-hidden bg-muted border-2 border-dashed border-border cursor-pointer hover:border-primary transition-colors flex items-center justify-center"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {imagePreview ? (
-                  <img
-                    src={imagePreview}
-                    alt="Preview"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Camera className="w-8 h-8 text-muted-foreground/50" />
-                )}
-                {isUploading && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                    <Upload className="w-6 h-6 text-white animate-pulse" />
-                  </div>
-                )}
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (ev) =>
-                      setImagePreview(ev.target?.result as string);
-                    reader.readAsDataURL(file);
-                    handleImageUpload(file);
-                  }
-                }}
-              />
-              <p className="text-xs text-muted-foreground text-center">
-                {isEdit ? "Clique para alterar" : "Salve o produto primeiro"}
-              </p>
+          {/* Galeria de imagens */}
+          {isEdit ? (
+            <ImageGallery productId={id!} />
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground text-center">
+              Salve o produto primeiro para adicionar imagens à galeria.
             </div>
+          )}
 
-            {/* Nome e descrição curta */}
-            <div className="md:col-span-2 space-y-3">
+          {/* Nome e descrição curta */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="name">
                   Nome do Produto <span className="text-destructive">*</span>
@@ -360,7 +292,6 @@ export default function ProductForm({ id }: { id?: number }) {
                   {f.shortDescription.length}/120
                 </p>
               </div>
-            </div>
           </div>
 
           {/* Descrição completa */}

@@ -269,3 +269,21 @@ export const wishlistRequests = pgTable("permupay_wishlist_requests", {
 
 export type WishlistRequest = typeof wishlistRequests.$inferSelect;
 export type InsertWishlistRequest = typeof wishlistRequests.$inferInsert;
+
+// ─── Tabela: product_images (galeria de imagens) ──────────────────────────────
+
+export const productImages = pgTable("permupay_product_images", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id")
+    .notNull()
+    .references(() => products.id, { onDelete: "cascade" }),
+  url: text("url").notNull(),                          // URL pública no S3/R2
+  storageKey: text("storage_key"),                     // chave no bucket (para deletar)
+  isThumbnail: boolean("is_thumbnail").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  altText: text("alt_text"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ProductImage = typeof productImages.$inferSelect;
+export type InsertProductImage = typeof productImages.$inferInsert;

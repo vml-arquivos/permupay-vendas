@@ -43,6 +43,13 @@
       "when": 1747526400000,
       "tag": "0006_lista_desejos",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1747612800000,
+      "tag": "0007_galeria_imagens",
+      "breakpoints": true
     }
   ]
 }
