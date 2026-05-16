@@ -1,214 +1,147 @@
-/**
- * ImageUpload.tsx — Upload de imagem via POST multipart direto no servidor
- *
- * Fluxo simplificado (sem S3/presigned URL):
- *  1. Usuário seleciona imagem (drag & drop ou clique)
- *  2. Componente faz POST /api/upload/product-image com FormData
- *  3. Servidor salva localmente e retorna { url }
- *  4. Componente chama onSuccess(url) para o pai salvar no produto
- */
+import "dotenv/config";
+import express from "express";
+import { createServer } from "http";
+import net from "net";
+import path from "node:path";
+import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import crypto from "node:crypto";
+import { createExpressMiddleware } from "@trpc/server/adapters/express";
+import { registerOAuthRoutes } from "./oauth";
+import { registerStorageProxy } from "./storageProxy";
+import { appRouter } from "../routers";
+import { createContext } from "./context";
+import { serveStatic } from "./serveStatic";
 
-import { useState, useRef, DragEvent, ChangeEvent } from "react";
-import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Upload, X, ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+// ─── Dir de upload local ──────────────────────────────────────────────────────
+const UPLOAD_DIR =
+  process.env.DATA_DIR
+    ? path.join(process.env.DATA_DIR, "uploads", "products")
+    : path.join("/var/data/permupay", "uploads", "products");
 
-interface ImageUploadProps {
-  productId: number;
-  currentImageUrl?: string | null;
-  onSuccess: (publicUrl: string) => void;
-  className?: string;
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const server = net.createServer();
+    server.listen(port, () => {
+      server.close(() => resolve(true));
+    });
+    server.on("error", () => resolve(false));
+  });
 }
 
-type UploadState =
-  | { type: "idle" }
-  | { type: "preview"; file: File; objectUrl: string }
-  | { type: "uploading"; progress: number }
-  | { type: "success"; url: string }
-  | { type: "error"; message: string };
-
-const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-const MAX_SIZE_MB = 5;
-
-export function ImageUpload({
-  productId,
-  currentImageUrl,
-  onSuccess,
-  className,
-}: ImageUploadProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [state, setState] = useState<UploadState>({ type: "idle" });
-  const [isDragging, setIsDragging] = useState(false);
-
-  // Salva a URL pública no banco após upload
-  const setImageUrl = trpc.products.setImageUrl.useMutation();
-
-  function validateFile(file: File): string | null {
-    if (!ACCEPTED_TYPES.includes(file.type))
-      return "Formato não suportado. Use JPEG, PNG, WebP ou GIF.";
-    if (file.size > MAX_SIZE_MB * 1024 * 1024)
-      return `Arquivo muito grande. Máximo ${MAX_SIZE_MB}MB.`;
-    return null;
-  }
-
-  function handleFileSelect(file: File) {
-    const error = validateFile(file);
-    if (error) { setState({ type: "error", message: error }); return; }
-    setState({ type: "preview", file, objectUrl: URL.createObjectURL(file) });
-  }
-
-  function handleInputChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) handleFileSelect(file);
-    e.target.value = "";
-  }
-
-  function handleDragOver(e: DragEvent) { e.preventDefault(); setIsDragging(true); }
-  function handleDragLeave() { setIsDragging(false); }
-  function handleDrop(e: DragEvent) {
-    e.preventDefault(); setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFileSelect(file);
-  }
-
-  async function handleUpload() {
-    if (state.type !== "preview") return;
-    const { file } = state;
-    try {
-      setState({ type: "uploading", progress: 20 });
-
-      // Envio multipart para o servidor (sem S3)
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("productId", String(productId));
-
-      const resp = await fetch("/api/upload/product-image", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-
-      setState({ type: "uploading", progress: 70 });
-
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body.error ?? `Erro no servidor: ${resp.status}`);
-      }
-
-      const { url } = await resp.json() as { url: string };
-
-      setState({ type: "uploading", progress: 90 });
-
-      // Persiste a URL no produto via tRPC
-      await setImageUrl.mutateAsync({ productId, imageUrl: url });
-
-      setState({ type: "success", url });
-      onSuccess(url);
-    } catch (err: any) {
-      setState({ type: "error", message: err.message ?? "Erro ao fazer upload." });
+async function findAvailablePort(startPort: number = 3000): Promise<number> {
+  for (let port = startPort; port < startPort + 20; port++) {
+    if (await isPortAvailable(port)) {
+      return port;
     }
   }
+  throw new Error(`No available port found starting from ${startPort}`);
+}
 
-  function handleCancel() {
-    if (state.type === "preview") URL.revokeObjectURL(state.objectUrl);
-    setState({ type: "idle" });
+async function startServer() {
+  const app = express();
+  const server = createServer(app);
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  registerStorageProxy(app);
+  registerOAuthRoutes(app);
+
+  // ── Garantir diretório de uploads e servir imagens estáticas ──────────────
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  app.use(
+    "/uploads/products",
+    express.static(UPLOAD_DIR, { maxAge: "365d", immutable: true, fallthrough: false })
+  );
+
+  // ── Rota de upload multipart (substitui presigned URL S3) ─────────────────
+  app.post("/api/upload/product-image", async (req, res) => {
+    const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const MAX_MB = 5;
+    const EXT: Record<string, string> = {
+      "image/jpeg": ".jpg",
+      "image/png": ".png",
+      "image/webp": ".webp",
+      "image/gif": ".gif",
+    };
+
+    try {
+      const { default: busboy } = await import("busboy");
+      const bb = busboy({ headers: req.headers, limits: { fileSize: MAX_MB * 1024 * 1024 } });
+
+      let savedUrl: string | null = null;
+      let uploadError: string | null = null;
+
+      await new Promise<void>((resolve, reject) => {
+        bb.on("file", (_field: string, stream: NodeJS.ReadableStream, info: { mimeType: string }) => {
+          const { mimeType } = info;
+          if (!ALLOWED.includes(mimeType)) {
+            uploadError = `Tipo não permitido: ${mimeType}. Use JPEG, PNG, WebP ou GIF.`;
+            (stream as any).resume();
+            resolve();
+            return;
+          }
+          const ext = EXT[mimeType] ?? ".jpg";
+          const uid = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+          const filename = `${uid}${ext}`;
+          const filepath = path.join(UPLOAD_DIR, filename);
+          const write = createWriteStream(filepath);
+
+          (stream as any).on("limit", () => {
+            uploadError = `Arquivo muito grande. Máximo ${MAX_MB}MB.`;
+            (stream as any).destroy();
+            write.destroy();
+            fs.unlink(filepath).catch(() => {});
+          });
+
+          stream.pipe(write as any);
+          write.on("finish", () => {
+            const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
+            savedUrl = `${appUrl}/uploads/products/${filename}`;
+            resolve();
+          });
+          write.on("error", reject);
+        });
+        bb.on("error", reject);
+        bb.on("finish", () => resolve());
+        req.pipe(bb as any);
+      });
+
+      if (uploadError) { res.status(400).json({ error: uploadError }); return; }
+      if (!savedUrl) { res.status(400).json({ error: "Nenhum arquivo recebido." }); return; }
+      res.json({ url: savedUrl });
+    } catch (err: any) {
+      console.error("[Upload] Erro:", err);
+      res.status(500).json({ error: err.message ?? "Erro interno no upload." });
+    }
+  });
+
+  // tRPC API
+  app.use(
+    "/api/trpc",
+    createExpressMiddleware({
+      router: appRouter,
+      createContext,
+    })
+  );
+
+  if (process.env.NODE_ENV === "development") {
+    const viteDevModulePath = "./viteDev";
+    const { setupVite } = await import(viteDevModulePath);
+    await setupVite(app, server);
+  } else {
+    serveStatic(app);
   }
 
-  const previewSrc =
-    state.type === "preview"
-      ? state.objectUrl
-      : state.type === "success"
-      ? state.url
-      : currentImageUrl ?? null;
+  const preferredPort = parseInt(process.env.PORT || "3000");
+  const port = await findAvailablePort(preferredPort);
 
-  return (
-    <div className={cn("space-y-3", className)}>
-      <div
-        className={cn(
-          "relative rounded-xl border-2 border-dashed transition-colors cursor-pointer overflow-hidden",
-          isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30",
-          state.type === "uploading" && "pointer-events-none"
-        )}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        style={{ minHeight: 200 }}
-      >
-        {previewSrc ? (
-          <div className="relative">
-            <img src={previewSrc} alt="Preview" className="w-full max-h-64 object-contain" />
-            {state.type === "success" && (
-              <div className="absolute top-2 right-2">
-                <div className="bg-green-500 text-white rounded-full p-1">
-                  <CheckCircle2 className="w-4 h-4" />
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
-            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-              <ImageIcon className="w-6 h-6" />
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-medium">Clique ou arraste uma imagem</p>
-              <p className="text-xs mt-0.5">JPEG, PNG, WebP ou GIF — até {MAX_SIZE_MB}MB</p>
-            </div>
-          </div>
-        )}
-        {isDragging && (
-          <div className="absolute inset-0 bg-primary/10 flex items-center justify-center">
-            <Upload className="w-8 h-8 text-primary animate-bounce" />
-          </div>
-        )}
-      </div>
+  if (port !== preferredPort) {
+    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+  }
 
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPTED_TYPES.join(",")}
-        className="hidden"
-        onChange={handleInputChange}
-      />
-
-      {state.type === "uploading" && (
-        <div className="space-y-1">
-          <Progress value={state.progress} className="h-1.5" />
-          <p className="text-xs text-muted-foreground text-center">Enviando imagem…</p>
-        </div>
-      )}
-
-      {state.type === "error" && (
-        <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
-          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-          {state.message}
-        </div>
-      )}
-
-      {state.type === "preview" && (
-        <div className="flex gap-2">
-          <Button size="sm" onClick={handleUpload} className="flex-1 gap-2">
-            <Upload className="w-3.5 h-3.5" /> Enviar imagem
-          </Button>
-          <Button size="sm" variant="outline" onClick={handleCancel}>
-            <X className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      )}
-
-      {state.type === "success" && (
-        <p className="text-xs text-center text-green-600 font-medium">✓ Imagem salva com sucesso</p>
-      )}
-
-      {(state.type === "idle" || state.type === "error") && previewSrc && (
-        <Button size="sm" variant="outline" className="w-full"
-          onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}>
-          Trocar imagem
-        </Button>
-      )}
-    </div>
-  );
+  server.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}/`);
+  });
 }
+
+startServer().catch(console.error);
