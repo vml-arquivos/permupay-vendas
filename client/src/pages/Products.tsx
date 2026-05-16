@@ -1,9 +1,21 @@
+/**
+ * Products.tsx — Gerenciamento de Produtos com Painel de Catálogo
+ *
+ * Inclui:
+ * - Listagem de produtos com busca e filtro
+ * - Toggle de publicação na vitrine por produto
+ * - Badges de status (publicado, estoque baixo, sem pagamento)
+ * - Exportação CSV
+ */
+
 import { useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatPercent } from "../../../shared/pricingCalculator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Download,
   Plus,
@@ -13,93 +25,125 @@ import {
   Eye,
   Search,
   AlertCircle,
+  ShoppingBag,
+  CreditCard,
+  Globe,
 } from "lucide-react";
+import { toast } from "sonner";
+
+type ProductView = "todos" | "publicados" | "rascunhos";
 
 export default function Products() {
   const utils = trpc.useUtils();
   const { data: products = [] } = trpc.products.list.useQuery();
   const [searchTerm, setSearchTerm] = useState("");
+  const [view, setView] = useState<ProductView>("todos");
 
   const deactivate = trpc.products.deactivate.useMutation({
-    onSuccess: () => utils.products.list.invalidate(),
+    onSuccess: () => {
+      utils.products.list.invalidate();
+      toast.success("Produto desativado.");
+    },
   });
 
   const duplicate = trpc.products.duplicate.useMutation({
-    onSuccess: () => utils.products.list.invalidate(),
+    onSuccess: () => {
+      utils.products.list.invalidate();
+      toast.success("Produto duplicado.");
+    },
   });
 
-  const filteredProducts = products.filter(
-    (p: any) =>
+  const togglePublished = trpc.products.togglePublished.useMutation({
+    onSuccess: (updated: any) => {
+      utils.products.list.invalidate();
+      toast.success(
+        updated?.published
+          ? "Produto publicado na vitrine!"
+          : "Produto removido da vitrine."
+      );
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Filtros
+  const filteredProducts = (products as any[]).filter((p) => {
+    const matchSearch =
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+      p.category.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchView =
+      view === "todos" ||
+      (view === "publicados" && p.published) ||
+      (view === "rascunhos" && !p.published);
+    return matchSearch && matchView;
+  });
+
+  const publishedCount = (products as any[]).filter((p) => p.published).length;
+  const draftCount = (products as any[]).filter((p) => !p.published).length;
 
   const exportToExcel = () => {
     if (products.length === 0) {
-      alert("Nenhum produto para exportar");
+      toast.error("Nenhum produto para exportar");
       return;
     }
 
     const rows: any[] = [];
-
-    // Cabeçalho
     rows.push([
       "Nome do Produto",
       "Categoria",
+      "Descrição Curta",
       "NCM",
       "Moeda de Custo",
       "Preço de Custo",
-      "Preço em Dólar",
-      "Cotação do Dólar",
       "Custo em Real",
       "Custo de Embalagem",
       "Custo de Frete",
       "Custo Operacional",
-      "Custo Total",
+      "Custo Final Unitário",
+      "Preço Sugerido PIX",
+      "Preço Sugerido Cartão",
+      "Preço Sugerido Boleto",
       "Estoque Atual",
       "Estoque Mínimo",
-      "Custo Final Unitário",
       "Margem Desejada (%)",
       "Regime Tributário",
       "Alíquota Estimada (%)",
+      "Publicado",
+      "Tag de Promoção",
+      "Plataforma de Pagamento",
       "Status",
       "Data de Criação",
     ]);
 
-    // Dados
-    products.forEach((p: any) => {
-      const totalCost =
-        (p.costPrice || 0) +
-        (p.packagingCost || 0) +
-        (p.inboundShippingCost || 0) +
-        (p.operationalCost || 0);
+    (products as any[]).forEach((p) => {
       const createdAt = new Date(p.createdAt).toLocaleDateString("pt-BR");
-
       rows.push([
         p.name,
         p.category,
+        p.shortDescription || "—",
         p.ncm || "—",
         p.costCurrency || "BRL",
         formatCurrency(p.costPrice || 0),
-        p.costCurrency === "USD" ? formatCurrency(p.costPriceUsd || 0) : "—",
-        p.costCurrency === "USD" ? (p.usdExchangeRate || 0).toFixed(4) : "—",
         formatCurrency(p.costPriceBrl || 0),
         formatCurrency(p.packagingCost || 0),
         formatCurrency(p.inboundShippingCost || 0),
         formatCurrency(p.operationalCost || 0),
-        formatCurrency(totalCost),
+        formatCurrency(p.finalUnitCostBrl || 0),
+        formatCurrency(p.suggestedPricePix || 0),
+        formatCurrency(p.suggestedPriceCard || 0),
+        formatCurrency(p.suggestedPriceBoleto || 0),
         (p.stockQuantity || 0).toFixed(2),
         (p.minimumStock || 0).toFixed(2),
-        formatCurrency(p.finalUnitCostBrl || 0),
         formatPercent(p.desiredMarginRate || 0),
         p.taxRegime || "—",
         formatPercent(p.estimatedTaxRate || 0),
+        p.published ? "Sim" : "Não",
+        p.promoTag || "—",
+        p.paymentPlatform || "—",
         p.active ? "Ativo" : "Inativo",
         createdAt,
       ]);
     });
 
-    // Criar CSV
     const csv = rows
       .map((row) =>
         row
@@ -113,12 +157,14 @@ export default function Products() {
       )
       .join("\n");
 
-    // Download
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `produtos-${new Date().toISOString().split("T")[0]}.csv`);
+    link.setAttribute(
+      "download",
+      `produtos-${new Date().toISOString().split("T")[0]}.csv`
+    );
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
@@ -134,7 +180,7 @@ export default function Products() {
             <div>
               <h1 className="text-2xl font-bold text-foreground">Produtos</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Gerencie seus produtos e calcule preços
+                Gerencie produtos, preços e publicação na vitrine
               </p>
             </div>
             <div className="flex gap-3">
@@ -155,6 +201,31 @@ export default function Products() {
               </Link>
             </div>
           </div>
+
+          {/* Abas de filtro */}
+          {products.length > 0 && (
+            <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+              {(
+                [
+                  { key: "todos", label: `Todos (${products.length})` },
+                  { key: "publicados", label: `Publicados (${publishedCount})` },
+                  { key: "rascunhos", label: `Rascunhos (${draftCount})` },
+                ] as { key: ProductView; label: string }[]
+              ).map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setView(key)}
+                  className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                    view === key
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Barra de pesquisa */}
           {products.length > 0 && (
@@ -193,11 +264,14 @@ export default function Products() {
           ) : (
             <div className="grid gap-4">
               {filteredProducts.map((product: any) => {
-                const totalCost =
-                  (product.costPrice || 0) +
-                  (product.packagingCost || 0) +
-                  (product.inboundShippingCost || 0) +
-                  (product.operationalCost || 0);
+                const hasPaymentMethod =
+                  product.pixLink ||
+                  product.pixKey ||
+                  product.cardPaymentUrl ||
+                  product.boletoUrl;
+                const lowStock =
+                  product.minimumStock > 0 &&
+                  product.stockQuantity <= product.minimumStock;
 
                 return (
                   <div
@@ -211,100 +285,155 @@ export default function Products() {
                     <div className="p-4 space-y-4">
                       {/* Cabeçalho do card */}
                       <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-foreground truncate">
-                              {product.name}
-                            </h3>
-                            {!product.active && (
-                              <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground">
-                                Inativo
-                              </span>
-                            )}
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          {/* Thumbnail */}
+                          {product.imageUrl ? (
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="w-12 h-12 rounded-lg object-cover border shrink-0"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                              <ShoppingBag className="w-5 h-5 text-muted-foreground/40" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-foreground truncate">
+                                {product.name}
+                              </h3>
+                              {product.published && (
+                                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0 text-xs">
+                                  <Globe className="w-3 h-3 mr-1" />
+                                  Publicado
+                                </Badge>
+                              )}
+                              {!product.active && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Inativo
+                                </Badge>
+                              )}
+                              {product.promoTag && (
+                                <Badge className="bg-orange-100 text-orange-700 border-0 text-xs">
+                                  🏷️ {product.promoTag}
+                                </Badge>
+                              )}
+                              {lowStock && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-amber-600 border-amber-300 text-xs"
+                                >
+                                  ⚠️ Estoque baixo
+                                </Badge>
+                              )}
+                              {!hasPaymentMethod && product.published && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-red-600 border-red-300 text-xs"
+                                >
+                                  Sem pagamento configurado
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {product.category}
+                              {product.ncm && ` • NCM: ${product.ncm}`}
+                              {product.shortDescription && (
+                                <span className="ml-1 text-muted-foreground/70">
+                                  — {product.shortDescription}
+                                </span>
+                              )}
+                            </p>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {product.category}
-                            {product.ncm && ` • NCM: ${product.ncm}`}
-                          </p>
+                        </div>
+
+                        {/* Toggle de publicação */}
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {product.published ? "Na vitrine" : "Rascunho"}
+                            </span>
+                            <Switch
+                              checked={product.published ?? false}
+                              onCheckedChange={(checked) =>
+                                togglePublished.mutate({
+                                  productId: product.id,
+                                  published: checked,
+                                })
+                              }
+                              disabled={togglePublished.isPending}
+                            />
+                          </div>
                         </div>
                       </div>
 
                       {/* Informações de custos */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-3 rounded-lg bg-muted/30">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-muted/30">
                         <div>
                           <p className="text-xs text-muted-foreground">Preço de Custo</p>
                           <p className="text-sm font-semibold text-foreground">
-                            {product.costCurrency === "USD" ? `$${(product.costPriceUsd || 0).toFixed(2)}` : formatCurrency(product.costPrice || 0)}
+                            {product.costCurrency === "USD"
+                              ? `$${(product.costPriceUsd || 0).toFixed(2)}`
+                              : formatCurrency(product.costPrice || 0)}
                           </p>
-                          {product.costCurrency === "USD" && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Taxa: {(product.usdExchangeRate || 0).toFixed(4)}
-                            </p>
-                          )}
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">Custo em Real</p>
+                          <p className="text-xs text-muted-foreground">Custo Final</p>
                           <p className="text-sm font-semibold text-foreground">
-                            {formatCurrency(product.costPriceBrl || 0)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Embalagem</p>
-                          <p className="text-sm font-semibold text-foreground">
-                            {formatCurrency(product.packagingCost || 0)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Frete</p>
-                          <p className="text-sm font-semibold text-foreground">
-                            {formatCurrency(product.inboundShippingCost || 0)}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Informações de estoque */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Estoque Atual</p>
-                          <p className="text-sm font-semibold text-foreground">
-                            {(product.stockQuantity || 0).toFixed(2)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Estoque Mínimo</p>
-                          <p className="text-sm font-semibold text-foreground">
-                            {(product.minimumStock || 0).toFixed(2)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Custo Final Unitário</p>
-                          <p className="text-sm font-semibold text-amber-900">
                             {formatCurrency(product.finalUnitCostBrl || 0)}
                           </p>
                         </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Preço PIX</p>
+                          <p className="text-sm font-semibold text-green-600">
+                            {product.suggestedPricePix > 0
+                              ? formatCurrency(product.suggestedPricePix)
+                              : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Estoque</p>
+                          <p
+                            className={`text-sm font-semibold ${
+                              lowStock ? "text-amber-600" : "text-foreground"
+                            }`}
+                          >
+                            {(product.stockQuantity || 0).toFixed(0)} un.
+                          </p>
+                        </div>
                       </div>
 
-                      {/* Resumo de cálculo */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-3 rounded-lg bg-primary/5 border border-primary/20">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Custo Total</p>
-                          <p className="text-sm font-semibold text-foreground">
-                            {formatCurrency(totalCost)}
-                          </p>
+                      {/* Métodos de pagamento configurados */}
+                      {(product.pixKey ||
+                        product.pixLink ||
+                        product.cardPaymentUrl ||
+                        product.boletoUrl) && (
+                        <div className="flex flex-wrap gap-2">
+                          {(product.pixKey || product.pixLink) && (
+                            <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded-full">
+                              <svg
+                                viewBox="0 0 24 24"
+                                className="w-3 h-3 fill-current"
+                              >
+                                <path d="M11.944 17.97L4.58 10.607 7.408 7.78l4.536 4.536 4.536-4.536 2.828 2.828-7.364 7.364zm.056-15.97C6.477 2 2 6.477 2 12c0 5.522 4.477 10 10 10s10-4.478 10-10c0-5.523-4.477-10-10-10z" />
+                              </svg>
+                              PIX
+                            </span>
+                          )}
+                          {product.cardPaymentUrl && (
+                            <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-full">
+                              <CreditCard className="w-3 h-3" />
+                              Cartão
+                            </span>
+                          )}
+                          {product.boletoUrl && (
+                            <span className="inline-flex items-center gap-1 text-xs bg-gray-50 text-gray-700 border border-gray-200 px-2 py-1 rounded-full">
+                              Boleto
+                            </span>
+                          )}
                         </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Margem Desejada</p>
-                          <p className="text-sm font-semibold text-primary">
-                            {formatPercent(product.desiredMarginRate || 0)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Regime Tributário</p>
-                          <p className="text-sm font-semibold text-foreground">
-                            {product.taxRegime || "—"}
-                          </p>
-                        </div>
-                      </div>
+                      )}
 
                       {/* Ações */}
                       <div className="flex flex-wrap gap-2 pt-2">
@@ -334,7 +463,11 @@ export default function Products() {
                           size="sm"
                           className="gap-1.5 text-danger hover:text-danger ml-auto"
                           onClick={() => {
-                            if (confirm("Tem certeza que deseja desativar este produto?")) {
+                            if (
+                              confirm(
+                                "Tem certeza que deseja desativar este produto?"
+                              )
+                            ) {
                               deactivate.mutate({ id: product.id });
                             }
                           }}
