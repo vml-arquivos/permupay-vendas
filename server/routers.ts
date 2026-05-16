@@ -14,6 +14,7 @@ import { sdk } from "./_core/sdk";
 import * as db from "./db";
 import * as dbBatches from "./db.batches";
 import * as dbWishlist from "./db.wishlist";
+import * as dbImages from "./db.images";
 import { getPresignedUploadUrl } from "./storage.upload";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
@@ -131,7 +132,94 @@ export const appRouter = router({
         );
       }),
 
-    // Após o browser fazer o upload, salvar a URL pública no produto
+    // ── Galeria de imagens ────────────────────────────────────────────────────
+
+    // Listar imagens da galeria de um produto
+    getImages: protectedProcedure
+      .input(z.object({ productId: z.number() }))
+      .query(({ input }) => dbImages.getProductImages(input.productId)),
+
+    // Registrar imagem após upload direto no S3 (presigned URL)
+    addImage: protectedProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          url: z.string().url(),
+          storageKey: z.string().optional(),
+          altText: z.string().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.addProductImage(input.productId, ctx.user.id, {
+          url: input.url,
+          storageKey: input.storageKey,
+          altText: input.altText,
+        })
+      ),
+
+    // Definir thumbnail da galeria
+    setThumbnail: protectedProcedure
+      .input(
+        z.object({
+          imageId: z.number(),
+          productId: z.number(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.setThumbnail(input.imageId, input.productId, ctx.user.id)
+      ),
+
+    // Reordenar imagens da galeria
+    reorderImages: protectedProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          orderedIds: z.array(z.number()),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.reorderProductImages(
+          input.productId,
+          ctx.user.id,
+          input.orderedIds
+        )
+      ),
+
+    // Deletar imagem da galeria (banco + S3)
+    deleteImage: protectedProcedure
+      .input(
+        z.object({
+          imageId: z.number(),
+          productId: z.number(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.deleteProductImageRecord(
+          input.imageId,
+          input.productId,
+          ctx.user.id
+        )
+      ),
+
+    // Atualizar texto alternativo de uma imagem
+    updateImageAlt: protectedProcedure
+      .input(
+        z.object({
+          imageId: z.number(),
+          productId: z.number(),
+          altText: z.string(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.updateImageAltText(
+          input.imageId,
+          input.productId,
+          ctx.user.id,
+          input.altText
+        )
+      ),
+
+    // Após o browser fazer o upload, salvar a URL pública no produto (legado)
     setImageUrl: protectedProcedure
       .input(
         z.object({

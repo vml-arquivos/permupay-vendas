@@ -52,9 +52,16 @@
       "breakpoints": true
     },
     {
-      "idx": 8,
+      "idx": 7,
       "version": "7",
       "when": 1747612800000,
+      "tag": "0007_galeria_imagens",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1747699200000,
       "tag": "0008_seed_produtos_vitrine",
       "breakpoints": true
     }
