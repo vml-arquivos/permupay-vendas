@@ -1,15 +1,14 @@
 -- ============================================================
 -- Migration 0004: Batch Pricing, Stock Entries & Marketplace
--- Cada ALTER TABLE usa instrução separada para compatibilidade
--- com PostgreSQL (IF NOT EXISTS por coluna = instrução única)
+-- 100% idempotente: DO blocks nos índices toleram estado parcial
 -- ============================================================
 
--- 1. Adicionar colunas de marketplace na tabela de produtos
+-- 1. Colunas de marketplace (uma instrução por coluna)
 ALTER TABLE permupay_products ADD COLUMN IF NOT EXISTS image_url text;
 ALTER TABLE permupay_products ADD COLUMN IF NOT EXISTS promo_tag text;
 ALTER TABLE permupay_products ADD COLUMN IF NOT EXISTS published boolean NOT NULL DEFAULT false;
 
--- 2. Criar tabela de lotes de precificação
+-- 2. Tabela de lotes de precificação
 CREATE TABLE IF NOT EXISTS permupay_pricing_batches (
   id                     serial PRIMARY KEY,
   user_id                integer REFERENCES permupay_users(id) ON DELETE CASCADE,
@@ -22,7 +21,7 @@ CREATE TABLE IF NOT EXISTS permupay_pricing_batches (
   updated_at             timestamp NOT NULL DEFAULT now()
 );
 
--- 3. Criar tabela de itens do lote
+-- 3. Tabela de itens do lote
 CREATE TABLE IF NOT EXISTS permupay_batch_items (
   id                         serial PRIMARY KEY,
   batch_id                   integer NOT NULL REFERENCES permupay_pricing_batches(id) ON DELETE CASCADE,
@@ -38,7 +37,7 @@ CREATE TABLE IF NOT EXISTS permupay_batch_items (
   created_at                 timestamp NOT NULL DEFAULT now()
 );
 
--- 4. Criar tabela de entradas de estoque
+-- 4. Tabela de entradas de estoque
 CREATE TABLE IF NOT EXISTS permupay_stock_entries (
   id         serial PRIMARY KEY,
   product_id integer NOT NULL REFERENCES permupay_products(id) ON DELETE CASCADE,
@@ -50,13 +49,32 @@ CREATE TABLE IF NOT EXISTS permupay_stock_entries (
   created_at timestamp NOT NULL DEFAULT now()
 );
 
--- 5. Adicionar net_profit e net_margin na tabela de simulações
+-- 5. Colunas de simulação (uma instrução por coluna)
 ALTER TABLE permupay_pricing_simulations ADD COLUMN IF NOT EXISTS net_profit real NOT NULL DEFAULT 0;
 ALTER TABLE permupay_pricing_simulations ADD COLUMN IF NOT EXISTS net_margin real NOT NULL DEFAULT 0;
 
--- Índices de performance
-CREATE INDEX IF NOT EXISTS idx_batch_items_batch_id     ON permupay_batch_items(batch_id);
-CREATE INDEX IF NOT EXISTS idx_batch_items_product_id   ON permupay_batch_items(product_id);
-CREATE INDEX IF NOT EXISTS idx_stock_entries_product_id ON permupay_stock_entries(product_id);
-CREATE INDEX IF NOT EXISTS idx_stock_entries_batch_id   ON permupay_stock_entries(batch_id);
-CREATE INDEX IF NOT EXISTS idx_products_published       ON permupay_products(published) WHERE published = true;
+-- 6. Índices via DO block — ignora silenciosamente se já existir (42P07)
+DO $$ BEGIN
+  CREATE INDEX idx_batch_items_batch_id ON permupay_batch_items(batch_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_batch_items_product_id ON permupay_batch_items(product_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_stock_entries_product_id ON permupay_stock_entries(product_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_stock_entries_batch_id ON permupay_stock_entries(batch_id);
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_products_published ON permupay_products(published) WHERE published = true;
+EXCEPTION WHEN sqlstate '42P07' THEN NULL;
+END $$;
