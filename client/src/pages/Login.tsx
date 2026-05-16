@@ -121,11 +121,13 @@ export default function Login() {
 
         {/* Footer */}
         <p className="text-xs text-muted-foreground text-center">
-          Simulador público disponível em{" "}
-          <button
-            onClick={() => setLocation("/simulador")}
-            className="text-primary hover:underline font-medium"
-          >
+          Ver catálogo em{" "}
+          <button onClick={() => setLocation("/")} className="text-primary hover:underline font-medium">
+            Vitrine
+          </button>
+          {" · "}
+          Simulador em{" "}
+          <button onClick={() => setLocation("/simulador")} className="text-primary hover:underline font-medium">
             /simulador
           </button>
         </p>

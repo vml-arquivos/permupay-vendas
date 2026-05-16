@@ -25,10 +25,10 @@ function Router() {
   return (
     <Switch>
       {/* Rotas públicas */}
-      <Route path="/" component={PricingSimulator} />
+      <Route path="/" component={Marketplace} />
+      <Route path="/vitrine" component={Marketplace} />
       <Route path="/simulador" component={PricingSimulator} />
       <Route path="/login" component={Login} />
-      <Route path="/vitrine" component={Marketplace} />
 
       {/* Rotas protegidas */}
       <Route path="/dashboard">
