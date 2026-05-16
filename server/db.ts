@@ -435,19 +435,32 @@ export async function duplicateSimulation(id: number, userId?: number) {
 }
 
 export async function getDashboardData(userId?: number) {
-  const prods = await listProducts(userId);
-  const sims = await listSimulations(userId);
-  return {
-    totalProducts: prods.length,
-    activeProducts: prods.filter((p: any) => p.active).length,
-    totalSimulations: sims.length,
-    lastSimulation: sims[0] ?? null,
-    attentionCount: sims.filter((s: any) =>
-      ["RISCO", "ATENCAO", "PREJUIZO"].includes(s.diagnosis)
-    ).length,
-    healthyCount: sims.filter((s: any) =>
-      ["SAUDAVEL", "EXCELENTE"].includes(s.diagnosis)
-    ).length,
-    recentSimulations: sims.slice(0, 5),
-  };
+  try {
+    const prods = await listProducts(userId);
+    const sims = await listSimulations(userId);
+    return {
+      totalProducts: prods.length,
+      activeProducts: prods.filter((p: any) => p.active).length,
+      totalSimulations: sims.length,
+      lastSimulation: sims[0] ?? null,
+      attentionCount: sims.filter((s: any) =>
+        ["RISCO", "ATENCAO", "PREJUIZO"].includes(s.diagnosis)
+      ).length,
+      healthyCount: sims.filter((s: any) =>
+        ["SAUDAVEL", "EXCELENTE"].includes(s.diagnosis)
+      ).length,
+      recentSimulations: sims.slice(0, 5),
+    };
+  } catch (err) {
+    console.error("[DB] getDashboardData error:", err);
+    return {
+      totalProducts: 0,
+      activeProducts: 0,
+      totalSimulations: 0,
+      lastSimulation: null,
+      attentionCount: 0,
+      healthyCount: 0,
+      recentSimulations: [],
+    };
+  }
 }

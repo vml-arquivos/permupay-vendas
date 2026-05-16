@@ -116,23 +116,28 @@ export async function getWishlistCounts(): Promise<{
   const db = await getDb();
   if (!db) return { total: 0, novo: 0, contatado: 0, atendido: 0 };
 
-  const rows = await db
-    .select({
-      status: wishlistRequests.status,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(wishlistRequests)
-    .groupBy(wishlistRequests.status);
+  try {
+    const rows = await db
+      .select({
+        status: wishlistRequests.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(wishlistRequests)
+      .groupBy(wishlistRequests.status);
 
-  const counts: Record<string, number> = {};
-  rows.forEach((r) => {
-    counts[r.status] = r.count;
-  });
+    const counts: Record<string, number> = {};
+    rows.forEach((r) => {
+      counts[r.status] = r.count;
+    });
 
-  return {
-    total: rows.reduce((s, r) => s + r.count, 0),
-    novo: counts["NOVO"] ?? 0,
-    contatado: counts["CONTATADO"] ?? 0,
-    atendido: counts["ATENDIDO"] ?? 0,
-  };
+    return {
+      total: rows.reduce((s, r) => s + r.count, 0),
+      novo: counts["NOVO"] ?? 0,
+      contatado: counts["CONTATADO"] ?? 0,
+      atendido: counts["ATENDIDO"] ?? 0,
+    };
+  } catch {
+    // Tabela ainda não existe (migration pendente) — retorna zeros sem quebrar o dashboard
+    return { total: 0, novo: 0, contatado: 0, atendido: 0 };
+  }
 }
