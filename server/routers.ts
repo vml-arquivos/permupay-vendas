@@ -28,6 +28,8 @@ const productInput = z.object({
   inboundShippingCost: z.number().min(0),
   operationalCost: z.number().min(0),
   desiredMarginRate: z.number().min(0),
+  desiredMarginValue: z.number().min(0).optional(),
+  marginMode: z.enum(["PERCENT", "VALUE"]).optional(),
   taxRegime: z.enum([
     "SIMPLES_NACIONAL",
     "LUCRO_PRESUMIDO",

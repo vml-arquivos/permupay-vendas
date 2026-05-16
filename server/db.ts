@@ -229,6 +229,26 @@ export async function createProduct(data: any) {
       minimumStock,
       averageCostBrl: costPriceBrl,
       finalUnitCostBrl,
+      // Campos de vitrine
+      shortDescription: data.shortDescription ? String(data.shortDescription).trim() : null,
+      description: data.description ? String(data.description).trim() : null,
+      categoryLabel: data.categoryLabel ? String(data.categoryLabel).trim() : null,
+      promoTag: data.promoTag ? String(data.promoTag).trim() : null,
+      published: data.published === true,
+      // Preços calculados para vitrine
+      suggestedPrice: Math.max(0, Number(data.suggestedPrice) || 0),
+      suggestedPricePix: Math.max(0, Number(data.suggestedPricePix) || 0),
+      suggestedPriceCard: Math.max(0, Number(data.suggestedPriceCard) || 0),
+      suggestedPriceBoleto: Math.max(0, Number(data.suggestedPriceBoleto) || 0),
+      // Links de pagamento
+      paymentPlatform: data.paymentPlatform || "MERCADO_PAGO",
+      pixKey: data.pixKey ? String(data.pixKey).trim() : null,
+      pixLink: data.pixLink ? String(data.pixLink).trim() : null,
+      cardPaymentUrl: data.cardPaymentUrl ? String(data.cardPaymentUrl).trim() : null,
+      boletoUrl: data.boletoUrl ? String(data.boletoUrl).trim() : null,
+      // Margem
+      desiredMarginValue: Math.max(0, Number(data.desiredMarginValue) || 0),
+      marginMode: data.marginMode || "PERCENT",
     };
 
     const [r] = await db.insert(products).values(productData).returning();
@@ -301,6 +321,26 @@ export async function updateProduct(id: number, data: any, userId?: number) {
     if (data.estimatedTaxRate !== undefined) updateData.estimatedTaxRate = Number(data.estimatedTaxRate) || 0;
     if (data.notes !== undefined) updateData.notes = data.notes ? String(data.notes).trim() : null;
     if (data.active !== undefined) updateData.active = data.active;
+    // Campos de vitrine
+    if (data.shortDescription !== undefined) updateData.shortDescription = data.shortDescription ? String(data.shortDescription).trim() : null;
+    if (data.description !== undefined) updateData.description = data.description ? String(data.description).trim() : null;
+    if (data.categoryLabel !== undefined) updateData.categoryLabel = data.categoryLabel ? String(data.categoryLabel).trim() : null;
+    if (data.promoTag !== undefined) updateData.promoTag = data.promoTag ? String(data.promoTag).trim() : null;
+    if (data.published !== undefined) updateData.published = data.published === true;
+    // Preços calculados para vitrine
+    if (data.suggestedPrice !== undefined) updateData.suggestedPrice = Math.max(0, Number(data.suggestedPrice) || 0);
+    if (data.suggestedPricePix !== undefined) updateData.suggestedPricePix = Math.max(0, Number(data.suggestedPricePix) || 0);
+    if (data.suggestedPriceCard !== undefined) updateData.suggestedPriceCard = Math.max(0, Number(data.suggestedPriceCard) || 0);
+    if (data.suggestedPriceBoleto !== undefined) updateData.suggestedPriceBoleto = Math.max(0, Number(data.suggestedPriceBoleto) || 0);
+    // Links de pagamento
+    if (data.paymentPlatform !== undefined) updateData.paymentPlatform = data.paymentPlatform || "MERCADO_PAGO";
+    if (data.pixKey !== undefined) updateData.pixKey = data.pixKey ? String(data.pixKey).trim() : null;
+    if (data.pixLink !== undefined) updateData.pixLink = data.pixLink ? String(data.pixLink).trim() : null;
+    if (data.cardPaymentUrl !== undefined) updateData.cardPaymentUrl = data.cardPaymentUrl ? String(data.cardPaymentUrl).trim() : null;
+    if (data.boletoUrl !== undefined) updateData.boletoUrl = data.boletoUrl ? String(data.boletoUrl).trim() : null;
+    // Margem
+    if (data.desiredMarginValue !== undefined) updateData.desiredMarginValue = Math.max(0, Number(data.desiredMarginValue) || 0);
+    if (data.marginMode !== undefined) updateData.marginMode = data.marginMode || "PERCENT";
 
     // Recalcular custo em BRL e custo final unitário se houver alterações relevantes
     if (
