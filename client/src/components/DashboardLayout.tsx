@@ -1,8 +1,6 @@
 /**
- * DashboardLayout.tsx — Painel Administrativo "Silent Wealth" · Shoop Permupay
- * Refatorado: sidebar grafite profundo, topbar alabastro escuro, tipografia Montserrat + Lato.
- * Logo Shoop unificada — fundo transparente — consistente com vitrine pública.
- * LÓGICA DE AUTENTICAÇÃO, ROTAS E HOOKS INTACTOS — apenas visual alterado.
+ * DashboardLayout.tsx — Painel Administrativo "Silent Wealth"
+ * Topbar horizontal (sem sidebar). Logo PNG real. Fundo alabaster.
  */
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -10,21 +8,19 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider,
-  SidebarTrigger, useSidebar,
-} from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   LayoutDashboard, Package, Calculator, Layers, Store,
-  Users, Settings, LogOut, PanelLeft, Warehouse,
-  BarChart3, Heart, ExternalLink, ChevronRight,
+  Users, Settings, LogOut, Warehouse, BarChart3, Heart,
+  ExternalLink, Menu, X,
 } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
+
+// ── Logo PNG ──────────────────────────────────────────────────────────────────
+const LOGO_DARK = "data:image/png;base64,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";
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
 const menuItems = [
@@ -41,448 +37,137 @@ const adminItems = [
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
 ];
 
-const SIDEBAR_WIDTH_KEY = "permupay-sidebar-width";
-const DEFAULT_WIDTH = 248;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 320;
-
-// ── Logo Shoop Permupay — idêntica à vitrine pública ─────────────────────────
-function ShoopLogo({ collapsed }: { collapsed: boolean }) {
-  const gold = "#C8B99A";
-  const goldMuted = "#6A5E50";
-
-  if (collapsed) {
-    // Apenas ícone quando sidebar colapsada
-    return (
-      <div className="flex items-center justify-center w-7 h-7 mx-auto">
-        <svg width="26" height="26" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 24C8 13.507 16.507 5 27 5" stroke={goldMuted} strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-          <path d="M36 20C36 30.493 27.493 39 17 39" stroke={goldMuted} strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-          <path d="M11 23C11 15.268 17.268 9 25 9C32.732 9 39 15.268 39 23" stroke={gold} strokeWidth="2" strokeLinecap="round" fill="none"/>
-          <path d="M39 13L39 23" stroke={gold} strokeWidth="2" strokeLinecap="round"/>
-          <path d="M33 21C33 28.732 26.732 35 19 35C11.268 35 5 28.732 5 21" stroke={gold} strokeWidth="2" strokeLinecap="round" fill="none"/>
-          <path d="M5 21L5 31" stroke={gold} strokeWidth="2" strokeLinecap="round"/>
-        </svg>
-      </div>
-    );
-  }
-
-  return (
-    <svg width="120" height="34" viewBox="0 0 130 38" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Shoop Permupay">
-      {/* Ícone */}
-      <g transform="translate(0, 1)">
-        <path d="M4 20C4 11.163 11.163 4 20 4" stroke={goldMuted} strokeWidth="1.2" strokeLinecap="round" fill="none"/>
-        <path d="M32 17C32 25.837 24.837 33 16 33" stroke={goldMuted} strokeWidth="1.2" strokeLinecap="round" fill="none"/>
-        <path d="M7 19C7 13.477 11.477 9 17 9C22.523 9 27 13.477 27 19" stroke={gold} strokeWidth="1.8" strokeLinecap="round" fill="none"/>
-        <path d="M27 11L27 19" stroke={gold} strokeWidth="1.8" strokeLinecap="round"/>
-        <path d="M29 18C29 23.523 24.523 28 19 28C13.477 28 9 23.523 9 18" stroke={gold} strokeWidth="1.8" strokeLinecap="round" fill="none"/>
-        <path d="M9 18L9 26" stroke={gold} strokeWidth="1.8" strokeLinecap="round"/>
-      </g>
-      {/* SHOOP */}
-      <text x="40" y="21" fontFamily="'Montserrat', sans-serif" fontSize="12" fontWeight="700" letterSpacing="0.15em" fill="#E8E3D8">
-        SHOOP
-      </text>
-      {/* PERMUPAY */}
-      <text x="40" y="32" fontFamily="'Lato', sans-serif" fontSize="7" fontWeight="300" letterSpacing="0.32em" fill="#5A5A52">
-        PERMUPAY
-      </text>
-    </svg>
-  );
-}
-
-// ── Componente raiz ───────────────────────────────────────────────────────────
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
-  });
   const { loading, user } = useAuth();
-
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
-
   if (loading) return <DashboardLayoutSkeleton />;
 
   if (!user) {
     return (
-      <div
-        className="flex items-center justify-center min-h-screen"
-        style={{ backgroundColor: "#0F0F0E", fontFamily: "'Lato', sans-serif" }}
-      >
-        <div
-          className="text-center space-y-7 p-8 max-w-sm w-full border border-[#1E1E1B]"
-          style={{ backgroundColor: "#111110" }}
-        >
-          <div className="flex justify-center">
-            <ShoopLogo collapsed={false} />
-          </div>
-          <div>
-            <h1
-              className="text-lg text-[#E8E3D8]"
-              style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, letterSpacing: "0.03em" }}
-            >
-              Acesso restrito
-            </h1>
-            <p
-              className="text-sm text-[#4A4A44] mt-2"
-              style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300 }}
-            >
-              Faça login para acessar o painel.
-            </p>
-          </div>
-          <Button
-            onClick={() => { window.location.href = "/login"; }}
-            className="w-full bg-[#C8B99A] hover:bg-[#D9CEBA] text-[#0F0F0E] rounded-none h-11 border-0"
-            style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.25em" }}
-          >
-            ENTRAR
+      <div className="flex items-center justify-center min-h-screen bg-[#FAF9F6]">
+        <div className="text-center space-y-6 p-10 max-w-sm w-full">
+          <img src={LOGO_DARK} alt="Shoop Permupay" className="h-16 mx-auto" />
+          <p className="text-sm text-neutral-500">Acesso restrito ao painel administrativo.</p>
+          <Button onClick={() => { window.location.href = "/login"; }} size="lg"
+            className="w-full bg-neutral-900 hover:bg-neutral-700 text-white text-[11px] tracking-[0.15em] uppercase font-semibold">
+            Entrar
           </Button>
         </div>
       </div>
     );
   }
 
-  return (
-    <SidebarProvider style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
-      <DashboardContent setSidebarWidth={setSidebarWidth}>
-        {children}
-      </DashboardContent>
-    </SidebarProvider>
-  );
+  return <DashboardContent>{children}</DashboardContent>;
 }
 
-// ── Inner content ─────────────────────────────────────────────────────────────
-function DashboardContent({
-  children, setSidebarWidth,
-}: { children: React.ReactNode; setSidebarWidth: (w: number) => void }) {
+function DashboardContent({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
-  const isCollapsed = state === "collapsed";
-  const [isResizing, setIsResizing] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const isMobile = useIsMobile();
   const isAdmin = user?.role === "admin";
 
-  useEffect(() => { if (isCollapsed) setIsResizing(false); }, [isCollapsed]);
+  const allItems = [...menuItems, ...(isAdmin ? adminItems : [])];
 
-  useEffect(() => {
-    const mm = (e: MouseEvent) => {
-      if (!isResizing) return;
-      const left = sidebarRef.current?.getBoundingClientRect().left ?? 0;
-      const w = e.clientX - left;
-      if (w >= MIN_WIDTH && w <= MAX_WIDTH) setSidebarWidth(w);
-    };
-    const mu = () => setIsResizing(false);
-    if (isResizing) {
-      document.addEventListener("mousemove", mm);
-      document.addEventListener("mouseup", mu);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    }
-    return () => {
-      document.removeEventListener("mousemove", mm);
-      document.removeEventListener("mouseup", mu);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [isResizing, setSidebarWidth]);
-
-  const allItems = [...menuItems, ...adminItems];
-  const active = allItems.find(i => location.startsWith(i.path));
-  const breadcrumb = buildBreadcrumb(location, active?.label);
-
-  // Estilos de label comuns para menu items
-  const menuLabelStyle: CSSProperties = {
-    fontFamily: "'Montserrat', sans-serif",
-    fontWeight: 500,
-    fontSize: "10px",
-    letterSpacing: "0.06em",
+  const NavLink = ({ item }: { item: typeof menuItems[0] }) => {
+    const isActive = location === item.path || location.startsWith(item.path + "/");
+    return (
+      <button
+        onClick={() => { setLocation(item.path); setMobileOpen(false); }}
+        className={`flex items-center gap-2 px-3 py-2 text-[11px] font-semibold tracking-[0.12em] uppercase transition-all whitespace-nowrap ${
+          isActive
+            ? "text-neutral-900 border-b-2 border-neutral-900"
+            : "text-neutral-400 border-b-2 border-transparent hover:text-neutral-700"
+        }`}
+      >
+        <item.icon className="w-3 h-3 shrink-0" />
+        {item.label}
+      </button>
+    );
   };
 
   return (
-    <>
-      {/* ── SIDEBAR ─────────────────────────────────────────────────────── */}
-      <div className="relative" ref={sidebarRef}>
-        <Sidebar
-          collapsible="icon"
-          className="border-r border-[#1A1A17]"
-          style={{ backgroundColor: "#0A0A09" } as CSSProperties}
-          disableTransition={isResizing}
-        >
-          {/* Header */}
-          <SidebarHeader
-            className="h-[60px] justify-center border-b border-[#1A1A17]"
-            style={{ backgroundColor: "#0A0A09" }}
-          >
-            <div className="flex items-center w-full px-2">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-[#161614] transition-colors focus:outline-none shrink-0"
-              >
-                <PanelLeft className="h-3.5 w-3.5 text-[#3A3A34]" />
-              </button>
-              <div className="ml-2 flex-1 min-w-0 overflow-hidden">
-                {!isCollapsed && <ShoopLogo collapsed={false} />}
-              </div>
-            </div>
-          </SidebarHeader>
+    <div className="min-h-screen flex flex-col bg-[#FAF9F6]">
 
-          {/* Nav */}
-          <SidebarContent
-            className="gap-0 py-4"
-            style={{ backgroundColor: "#0A0A09" }}
-          >
-            <SidebarMenu className="px-2 gap-0.5">
-              {menuItems.map((item) => {
-                const isActive = location.startsWith(item.path);
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className={`h-8 rounded-none transition-colors ${
-                        isActive
-                          ? "text-[#C8B99A]"
-                          : "text-[#4A4A44] hover:text-[#B0A898]"
-                      }`}
-                      style={{
-                        backgroundColor: isActive ? "#161614" : "transparent",
-                        ...(isActive ? { borderLeft: "2px solid #C8B99A" } : { borderLeft: "2px solid transparent" }),
-                      }}
-                    >
-                      <item.icon
-                        className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-[#C8B99A]" : "text-[#3A3A34]"}`}
-                      />
-                      <span className="truncate" style={menuLabelStyle}>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
+      {/* ── TOPBAR ───────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-neutral-100">
+        {/* Linha 1: Logo + User */}
+        <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center justify-between">
+          {/* Logo */}
+          <button onClick={() => setLocation("/dashboard")} className="shrink-0">
+            <img src={LOGO_DARK} alt="Shoop Permupay" className="h-9 object-contain" />
+          </button>
 
-            {isAdmin && (
-              <div className="mt-5">
-                {!isCollapsed && (
-                  <p
-                    className="px-4 mb-2 text-[#2E2E2A] uppercase"
-                    style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "7px", letterSpacing: "0.35em" }}
-                  >
-                    Administração
-                  </p>
-                )}
-                {isCollapsed && <div className="mx-3 my-3 border-t border-[#1A1A17]" />}
-                <SidebarMenu className="px-2 gap-0.5">
-                  {adminItems.map((item) => {
-                    const isActive = location === item.path;
-                    return (
-                      <SidebarMenuItem key={item.path}>
-                        <SidebarMenuButton
-                          isActive={isActive}
-                          onClick={() => setLocation(item.path)}
-                          tooltip={item.label}
-                          className={`h-8 rounded-none transition-colors ${
-                            isActive ? "text-[#C8B99A]" : "text-[#4A4A44] hover:text-[#B0A898]"
-                          }`}
-                          style={{
-                            backgroundColor: isActive ? "#161614" : "transparent",
-                            ...(isActive ? { borderLeft: "2px solid #C8B99A" } : { borderLeft: "2px solid transparent" }),
-                          }}
-                        >
-                          <item.icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-[#C8B99A]" : "text-[#3A3A34]"}`} />
-                          <span className="truncate" style={menuLabelStyle}>{item.label}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </div>
-            )}
-          </SidebarContent>
-
-          {/* Footer */}
-          <SidebarFooter
-            className="p-2 border-t border-[#1A1A17] space-y-0.5"
-            style={{ backgroundColor: "#0A0A09" }}
-          >
-            {/* Ver Vitrine */}
-            <a
-              href="/vitrine"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`flex items-center gap-2 px-2.5 py-2 hover:bg-[#161614] transition-colors w-full text-[#3A3A34] hover:text-[#7A7268] ${isCollapsed ? "justify-center" : ""}`}
-              title="Ver Vitrine Pública"
-            >
-              <Store className="h-3.5 w-3.5 shrink-0" />
-              {!isCollapsed && (
-                <>
-                  <span className="flex-1 truncate" style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 500, fontSize: "10px", letterSpacing: "0.06em" }}>
-                    Ver Vitrine
-                  </span>
-                  <ExternalLink className="h-3 w-3 opacity-25" />
-                </>
-              )}
+          {/* Direita: Vitrine + Usuário */}
+          <div className="flex items-center gap-4">
+            <a href="/vitrine" target="_blank" rel="noopener noreferrer"
+              className="hidden sm:inline-flex items-center gap-1.5 text-[9px] font-semibold tracking-[0.18em] uppercase text-neutral-400 hover:text-neutral-700 transition-colors border border-neutral-200 hover:border-neutral-400 px-3 py-1.5">
+              <Store className="w-3 h-3" />
+              Vitrine
+              <ExternalLink className="w-2.5 h-2.5 opacity-50" />
             </a>
 
-            {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  className={`flex items-center gap-2.5 px-2.5 py-2 hover:bg-[#161614] transition-colors w-full text-left focus:outline-none ${isCollapsed ? "justify-center" : ""}`}
-                >
-                  <Avatar className="h-6 w-6 shrink-0 border border-[#2A2A26] rounded-none">
-                    <AvatarFallback
-                      className="rounded-none text-[9px] font-bold"
-                      style={{ backgroundColor: "#1A1A17", color: "#C8B99A", fontFamily: "'Montserrat', sans-serif" }}
-                    >
+                <button className="flex items-center gap-2 hover:opacity-80 transition-opacity focus:outline-none">
+                  <Avatar className="h-7 w-7 border border-neutral-200">
+                    <AvatarFallback className="text-[10px] font-bold bg-neutral-100 text-neutral-600">
                       {user?.name?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  {!isCollapsed && (
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className="text-[#E8E3D8] truncate leading-none"
-                        style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "10px", letterSpacing: "0.04em" }}
-                      >
-                        {user?.name || "—"}
-                      </p>
-                      <p
-                        className="text-[#3A3A34] truncate mt-0.5"
-                        style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "9px" }}
-                      >
-                        {user?.email || "—"}
-                      </p>
-                    </div>
-                  )}
+                  <span className="hidden sm:block text-[11px] font-medium text-neutral-700 max-w-[120px] truncate">
+                    {user?.name}
+                  </span>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-52 border-[#222220] shadow-2xl rounded-none"
-                style={{ backgroundColor: "#0F0F0E" }}
-              >
+              <DropdownMenuContent align="end" className="w-52 bg-white border-neutral-200 shadow-lg">
                 <div className="px-3 py-2.5">
-                  <p
-                    className="text-[#E8E3D8]"
-                    style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "11px" }}
-                  >
-                    {user?.name}
-                  </p>
-                  <p
-                    className="text-[#4A4A44] mt-0.5"
-                    style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "9px" }}
-                  >
-                    {user?.email}
-                  </p>
+                  <p className="text-[12px] font-semibold text-neutral-800">{user?.name}</p>
+                  <p className="text-[10px] text-neutral-400 mt-0.5">{user?.email}</p>
                 </div>
-                <DropdownMenuSeparator className="bg-[#1A1A17]" />
-                <DropdownMenuItem
-                  onClick={() => setLocation("/configuracoes")}
-                  className="cursor-pointer text-[#5A5A52] hover:text-[#E8E3D8] focus:bg-[#161614] focus:text-[#E8E3D8]"
-                  style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 500, fontSize: "10px", letterSpacing: "0.04em" }}
-                >
+                <DropdownMenuSeparator className="bg-neutral-100" />
+                <DropdownMenuItem onClick={() => setLocation("/configuracoes")}
+                  className="cursor-pointer text-[12px] text-neutral-600 hover:text-neutral-900 focus:bg-neutral-50">
                   <Settings className="mr-2 h-3.5 w-3.5" /> Configurações
                 </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-[#1A1A17]" />
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-rose-700 hover:text-rose-400 focus:bg-rose-950/20 focus:text-rose-400"
-                  style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 500, fontSize: "10px", letterSpacing: "0.04em" }}
-                >
+                <DropdownMenuSeparator className="bg-neutral-100" />
+                <DropdownMenuItem onClick={logout}
+                  className="cursor-pointer text-[12px] text-rose-500 focus:text-rose-600 focus:bg-rose-50">
                   <LogOut className="mr-2 h-3.5 w-3.5" /> Sair
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </SidebarFooter>
-        </Sidebar>
 
-        {/* Resize handle */}
-        <div
-          className={`absolute top-0 right-0 w-px h-full cursor-col-resize hover:bg-[#C8B99A]/15 active:bg-[#C8B99A]/30 transition-colors ${isCollapsed ? "hidden" : ""}`}
-          onMouseDown={() => { if (!isCollapsed) setIsResizing(true); }}
-          style={{ zIndex: 50 }}
-        />
-      </div>
-
-      {/* ── CONTENT AREA ────────────────────────────────────────────────── */}
-      <SidebarInset style={{ backgroundColor: "#111110", fontFamily: "'Lato', sans-serif" }}>
-        {/* Topbar / Breadcrumb */}
-        <div
-          className="flex border-b border-[#1A1A17] h-[60px] items-center px-6 sticky top-0 z-40 justify-between backdrop-blur-md"
-          style={{ backgroundColor: "rgba(17,17,16,0.94)" }}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            {isMobile && (
-              <SidebarTrigger className="h-8 w-8 rounded-none text-[#3A3A34] hover:bg-[#161614]" />
-            )}
-            {!isMobile && (
-              <SidebarTrigger className="h-7 w-7 rounded-none text-[#3A3A34] hover:bg-[#161614]" />
-            )}
-            {/* Breadcrumb */}
-            <nav className="flex items-center gap-1 min-w-0">
-              {breadcrumb.map((crumb, i) => (
-                <span key={i} className="flex items-center gap-1 min-w-0">
-                  {i > 0 && <ChevronRight className="h-3 w-3 text-[#2A2A26] shrink-0" />}
-                  {crumb.href ? (
-                    <button
-                      onClick={() => setLocation(crumb.href!)}
-                      className="text-[#3A3A34] hover:text-[#7A7268] transition-colors truncate"
-                      style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 500, fontSize: "10px", letterSpacing: "0.06em" }}
-                    >
-                      {crumb.label}
-                    </button>
-                  ) : (
-                    <span
-                      className="text-[#8A8278] truncate"
-                      style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "10px", letterSpacing: "0.06em" }}
-                    >
-                      {crumb.label}
-                    </span>
-                  )}
-                </span>
-              ))}
-            </nav>
+            {/* Mobile: hamburger */}
+            <button onClick={() => setMobileOpen(!mobileOpen)}
+              className="sm:hidden p-1.5 text-neutral-400 hover:text-neutral-700 transition-colors">
+              {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            </button>
           </div>
-
-          {/* Ver Vitrine */}
-          <a
-            href="/vitrine"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#222220] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A] transition-all"
-            style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "7px", letterSpacing: "0.22em" }}
-          >
-            <Store className="h-3 w-3" />
-            VITRINE
-            <ExternalLink className="h-2.5 w-2.5 opacity-40" />
-          </a>
         </div>
 
-        {/* Page content */}
-        <main className="flex-1 p-6">{children}</main>
-      </SidebarInset>
-    </>
+        {/* Linha 2: Navegação (desktop) */}
+        <nav className="hidden sm:flex max-w-screen-xl mx-auto px-4 border-t border-neutral-50 overflow-x-auto no-scrollbar h-10 items-end gap-1">
+          {allItems.map((item) => (
+            <NavLink key={item.path} item={item} />
+          ))}
+        </nav>
+      </header>
+
+      {/* Mobile nav */}
+      {mobileOpen && (
+        <div className="sm:hidden fixed inset-0 z-40 bg-white pt-28">
+          <nav className="px-6 space-y-1">
+            {allItems.map((item) => (
+              <NavLink key={item.path} item={item} />
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {/* ── PAGE CONTENT ────────────────────────────────────────────────── */}
+      <main className="flex-1 max-w-screen-xl mx-auto w-full px-6 py-8">
+        {children}
+      </main>
+    </div>
   );
-}
-
-// ── Breadcrumb builder ────────────────────────────────────────────────────────
-function buildBreadcrumb(location: string, activeLabel?: string) {
-  const crumbs: { label: string; href?: string }[] = [{ label: "Shoop", href: "/dashboard" }];
-
-  if (location.startsWith("/produtos") && location.includes("/editar")) {
-    crumbs.push({ label: "Produtos", href: "/produtos" });
-    crumbs.push({ label: "Editar Produto" });
-  } else if (location === "/produtos/novo") {
-    crumbs.push({ label: "Produtos", href: "/produtos" });
-    crumbs.push({ label: "Novo Produto" });
-  } else if (location.startsWith("/simulacoes/")) {
-    crumbs.push({ label: "Simulações", href: "/simulacoes" });
-    crumbs.push({ label: "Detalhe" });
-  } else if (activeLabel) {
-    crumbs.push({ label: activeLabel });
-  }
-
-  return crumbs;
 }
