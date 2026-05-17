@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import DashboardLayout from "@/components/DashboardLayout";
 import {
   Download,
   Plus,
@@ -237,8 +236,7 @@ export default function Products() {
   };
 
   return (
-    <DashboardLayout>
-      <div className="space-y-6">
+    <div className="space-y-6">
           {/* Cabeçalho */}
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -616,7 +614,6 @@ export default function Products() {
               })}
             </div>
           )}
-      </div>
-    </DashboardLayout>
+    </div>
   );
 }
