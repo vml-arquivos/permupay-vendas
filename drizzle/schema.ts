@@ -291,6 +291,18 @@ export const wishlistRequests = pgTable("permupay_wishlist_requests", {
 export type WishlistRequest = typeof wishlistRequests.$inferSelect;
 export type InsertWishlistRequest = typeof wishlistRequests.$inferInsert;
 
+
+// ─── Tabela: app_settings (configurações globais) ─────────────────────────────
+
+export const appSettings = pgTable("permupay_app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type AppSetting = typeof appSettings.$inferSelect;
+export type InsertAppSetting = typeof appSettings.$inferInsert;
+
 // ─── Tabela: product_images (galeria de imagens) ──────────────────────────────
 
 export const productImages = pgTable("permupay_product_images", {
