@@ -251,12 +251,24 @@ export default function ProductPage() {
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-stone-100">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <Link href="/vitrine">
-            <button className="flex items-center gap-1.5 text-stone-500 hover:text-stone-900 text-sm font-medium transition-colors">
-              <ArrowLeft className="w-4 h-4" />
+            <button className="flex items-center gap-2 text-stone-500 hover:text-stone-900 text-sm font-medium transition-colors group">
+              <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
               <span className="hidden sm:inline">Catálogo</span>
             </button>
           </Link>
-          <span className="font-black text-stone-900 tracking-widest text-base">PERMUPAY</span>
+
+          {/* Logo Shop Permapay */}
+          <Link href="/vitrine">
+            <div className="flex items-center gap-2 cursor-pointer select-none group">
+              <svg width="26" height="26" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="34" height="34" rx="9" fill="#1c1917"/>
+                <path d="M8 12.5C8 10.567 9.567 9 11.5 9H22.5C24.433 9 26 10.567 26 12.5V12.5C26 14.433 24.433 16 22.5 16H11.5C9.567 16 8 14.433 8 12.5V12.5Z" fill="#f5f0e8"/>
+                <path d="M8 21.5C8 19.567 9.567 18 11.5 18H18.5C20.433 18 22 19.567 22 21.5V21.5C22 23.433 20.433 25 18.5 25H11.5C9.567 25 8 23.433 8 21.5V21.5Z" fill="#a8a29e"/>
+              </svg>
+              <span className="font-black text-stone-900 tracking-widest text-sm group-hover:text-stone-700 transition-colors">PERMAPAY</span>
+            </div>
+          </Link>
+
           <button
             onClick={handleShare}
             className="flex items-center gap-1.5 text-stone-400 hover:text-stone-800 text-sm transition-colors"
@@ -395,21 +407,21 @@ export default function ProductPage() {
 
             {/* ── BOTÕES DE PAGAMENTO ─────────────────────────────── */}
             {inStock ? (
-              <div className="space-y-3">
-                {/* PIX — abre modal com QR Code */}
+              <div className="space-y-2.5">
+                {/* PIX — botão compacto e elegante */}
                 {hasPixPayment && (
                   <button
                     onClick={() => setShowPixModal(true)}
-                    className="w-full flex items-center justify-between gap-2 py-3.5 px-5 rounded-2xl bg-stone-900 hover:bg-stone-700 text-white font-semibold text-sm transition-colors"
+                    className="w-full flex items-center justify-between gap-2 py-3 px-4 rounded-xl bg-stone-900 hover:bg-stone-700 text-white font-semibold text-sm transition-colors"
                   >
-                    <span className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center">
-                        <QrCode className="w-4 h-4" />
+                    <span className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md bg-white/10 flex items-center justify-center shrink-0">
+                        <QrCode className="w-3.5 h-3.5" />
                       </div>
-                      Pagar com PIX
+                      <span>Pagar com PIX</span>
                     </span>
                     {pixPrice && (
-                      <span className="text-stone-300 text-sm font-bold">{fmt(pixPrice)}</span>
+                      <span className="text-stone-300 text-sm font-bold shrink-0">{fmt(pixPrice)}</span>
                     )}
                   </button>
                 )}
@@ -504,8 +516,8 @@ export default function ProductPage() {
         {/* ── VOLTAR ──────────────────────────────────────────────────── */}
         <div className="mt-14 pt-8 border-t border-stone-100">
           <Link href="/vitrine">
-            <button className="flex items-center gap-2 text-stone-400 hover:text-stone-800 text-sm font-medium transition-colors">
-              <ArrowLeft className="w-4 h-4" />
+            <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 hover:bg-stone-50 text-sm font-medium transition-all group">
+              <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
               Voltar ao catálogo
             </button>
           </Link>
