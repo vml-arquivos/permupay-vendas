@@ -537,6 +537,99 @@ export const appRouter = router({
       return { success: true } as const;
     }),
   }),
+
+  // ── Admin ───────────────────────────────────────────────────────────────────
+  admin: router({
+    // Listar todos os usuários
+    listUsers: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+      const dbConn = await db.getDb();
+      if (!dbConn) return [];
+      const { users } = await import("../drizzle/schema");
+      const { desc } = await import("drizzle-orm");
+      return dbConn
+        .select({
+          id: users.id,
+          email: users.email,
+          name: users.name,
+          role: users.role,
+          active: users.active,
+          createdAt: users.createdAt,
+          lastSignedIn: users.lastSignedIn,
+        })
+        .from(users)
+        .orderBy(desc(users.createdAt));
+    }),
+
+    // Criar novo usuário
+    createUser: protectedProcedure
+      .input(z.object({
+        email: z.string().email(),
+        name: z.string().min(2),
+        password: z.string().min(8),
+        role: z.enum(["user", "admin"]).default("user"),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+        const existing = await db.getUserByEmail(input.email);
+        if (existing) throw new Error("Email já cadastrado");
+        return db.createUser(input);
+      }),
+
+    // Alterar role do usuário
+    updateUserRole: protectedProcedure
+      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin"]) }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+        if (input.userId === ctx.user.id) throw new Error("Não é possível alterar seu próprio papel");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const { users } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const [updated] = await dbConn
+          .update(users)
+          .set({ role: input.role, updatedAt: new Date() })
+          .where(eq(users.id, input.userId))
+          .returning({ id: users.id, email: users.email, name: users.name, role: users.role, active: users.active });
+        return updated;
+      }),
+
+    // Ativar/desativar usuário
+    toggleUserActive: protectedProcedure
+      .input(z.object({ userId: z.number(), active: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+        if (input.userId === ctx.user.id) throw new Error("Não é possível desativar sua própria conta");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const { users } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const [updated] = await dbConn
+          .update(users)
+          .set({ active: input.active, updatedAt: new Date() })
+          .where(eq(users.id, input.userId))
+          .returning({ id: users.id, email: users.email, name: users.name, role: users.role, active: users.active });
+        return updated;
+      }),
+
+    // Redefinir senha de usuário
+    resetUserPassword: protectedProcedure
+      .input(z.object({ userId: z.number(), newPassword: z.string().min(8) }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+        const dbConn = await db.getDb();
+        if (!dbConn) throw new Error("Database not available");
+        const { users } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const bcrypt = await import("bcryptjs");
+        const passwordHash = await bcrypt.hash(input.newPassword, 12);
+        await dbConn
+          .update(users)
+          .set({ passwordHash, updatedAt: new Date() })
+          .where(eq(users.id, input.userId));
+        return { success: true };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

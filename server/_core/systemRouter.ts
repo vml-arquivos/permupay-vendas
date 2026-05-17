@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { notifyOwner } from "./notification";
-import { adminProcedure, publicProcedure, router } from "./trpc";
+import { adminProcedure, publicProcedure, protectedProcedure, router } from "./trpc";
 
 export const systemRouter = router({
   health: publicProcedure
@@ -12,6 +12,31 @@ export const systemRouter = router({
     .query(() => ({
       ok: true,
     })),
+
+  // Status do sistema para a página de Configurações
+  status: protectedProcedure.query(async () => {
+    // Verificar banco de dados
+    let dbConnected = false;
+    try {
+      const { getDb } = await import("../db");
+      const db = await getDb();
+      dbConnected = !!db;
+    } catch {
+      dbConnected = false;
+    }
+
+    // Verificar S3
+    const s3Configured = !!(
+      process.env.AWS_ACCESS_KEY_ID &&
+      process.env.AWS_SECRET_ACCESS_KEY &&
+      process.env.S3_BUCKET
+    );
+
+    return {
+      database: { connected: dbConnected },
+      storage: { configured: s3Configured },
+    };
+  }),
 
   notifyOwner: adminProcedure
     .input(

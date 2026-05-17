@@ -285,6 +285,8 @@ export async function getPublishedProducts() {
       pixLink: products.pixLink,
       cardPaymentUrl: products.cardPaymentUrl,
       boletoUrl: products.boletoUrl,
+      cardInstallments: products.cardInstallments,
+      boletoMonths: products.boletoMonths,
     })
     .from(products)
     .where(and(eq(products.published, true), eq(products.active, true)))
@@ -316,6 +318,8 @@ export async function getPublishedProductsByCategory(category?: string) {
       pixLink: products.pixLink,
       cardPaymentUrl: products.cardPaymentUrl,
       boletoUrl: products.boletoUrl,
+      cardInstallments: products.cardInstallments,
+      boletoMonths: products.boletoMonths,
     })
     .from(products)
     .where(
@@ -352,6 +356,8 @@ export async function getPublishedProductById(id: number) {
       pixLink: products.pixLink,
       cardPaymentUrl: products.cardPaymentUrl,
       boletoUrl: products.boletoUrl,
+      cardInstallments: products.cardInstallments,
+      boletoMonths: products.boletoMonths,
     })
     .from(products)
     .where(and(eq(products.id, id), eq(products.published, true), eq(products.active, true)))
