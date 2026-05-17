@@ -15,6 +15,7 @@ import * as db from "./db";
 import * as dbBatches from "./db.batches";
 import * as dbWishlist from "./db.wishlist";
 import * as dbImages from "./db.images";
+import * as dbOrders from "./db.orders";
 // Upload de imagens agora é feito via POST /api/upload/product-image (server/index.ts)
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
@@ -446,6 +447,52 @@ export const appRouter = router({
 
     // Admin/Dashboard: contadores
     counts: protectedProcedure.query(() => dbWishlist.getWishlistCounts()),
+  }),
+
+  // ── Pedidos / Reservas ────────────────────────────────────────────────────────
+  orders: router({
+    create: publicProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          quantity: z.number().int().min(1).default(1),
+          buyerName: z.string().min(2, "Informe seu nome"),
+          buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
+          buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO"]),
+          unitPrice: z.number().min(0),
+        })
+      )
+      .mutation(({ input }) => dbOrders.createOrder(input)),
+
+    list: protectedProcedure
+      .input(
+        z.object({
+          status: z.enum(["RESERVADO", "AGUARDANDO_PAGAMENTO", "PAGO", "CANCELADO", "EXPIRADO"]).optional(),
+          productId: z.number().optional(),
+        }).optional()
+      )
+      .query(({ input }) => dbOrders.listOrders(input)),
+
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => dbOrders.getOrderById(input.id)),
+
+    confirm: protectedProcedure
+      .input(z.object({ orderId: z.number(), adminNotes: z.string().optional() }))
+      .mutation(({ input, ctx }) =>
+        dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes)
+      ),
+
+    cancel: protectedProcedure
+      .input(z.object({ orderId: z.number(), adminNotes: z.string().optional() }))
+      .mutation(({ input }) => dbOrders.cancelOrder(input.orderId, input.adminNotes)),
+
+    expireStale: protectedProcedure
+      .mutation(() => dbOrders.expireStaleReservations()),
+
+    counts: protectedProcedure
+      .query(() => dbOrders.getOrderCounts()),
   }),
 
   // ── Dashboard ─────────────────────────────────────────────────────────────────
