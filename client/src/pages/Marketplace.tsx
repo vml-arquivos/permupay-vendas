@@ -298,30 +298,32 @@ export default function Marketplace() {
       </header>
 
       {/* ── HERO ────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden" style={{ minHeight: "420px" }}>
-        {/* Imagem de fundo */}
-        <div
-          className="absolute inset-0 bg-cover bg-center scale-105"
-          style={{
-            backgroundImage:
-              "url('https://images.unsplash.com/photo-1541643600914-78b084683702?w=1600&q=80')",
-          }}
-        />
-        {/* Gradiente duplo: escuro embaixo, levemente dourado */}
-        <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(28,25,23,0.80) 0%, rgba(28,25,23,0.60) 50%, rgba(87,70,50,0.70) 100%)" }} />
+      <section className="relative overflow-hidden" style={{ minHeight: "340px" }}>
+        {/* Fundo decorativo SVG — sem dependência externa */}
+        <div className="absolute inset-0 overflow-hidden">
+          {/* Grade decorativa */}
+          <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(180,160,130,0.12)" strokeWidth="1"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
+          {/* Círculos decorativos */}
+          <div className="absolute -top-20 -right-20 w-96 h-96 rounded-full" style={{background:"radial-gradient(circle, rgba(180,150,100,0.15) 0%, transparent 70%)"}}/>
+          <div className="absolute -bottom-10 -left-10 w-64 h-64 rounded-full" style={{background:"radial-gradient(circle, rgba(160,130,90,0.12) 0%, transparent 70%)"}}/>
+        </div>
+        {/* Gradiente suave premium */}
+        <div className="absolute inset-0" style={{ background: "linear-gradient(150deg, rgba(245,240,232,0.96) 0%, rgba(237,232,224,0.92) 50%, rgba(220,210,195,0.88) 100%)" }} />
 
         {/* Conteúdo hero */}
-        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center text-center py-24">
-          {/* Badge superior */}
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-white text-xs font-semibold tracking-widest uppercase mb-5 backdrop-blur-sm">
-            ✦ Vitrine Premium
-          </span>
-
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-tight tracking-tight mb-4">
+        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center text-center py-16">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-stone-900 leading-tight tracking-tight mb-4">
             A Sua Vitrine<br />
-            <span className="text-amber-300">dos Desejos.</span>
+            <span style={{color:"#92400e"}}>dos Desejos.</span>
           </h1>
-          <p className="text-stone-300 text-base sm:text-lg max-w-2xl mb-8 leading-relaxed">
+          <p className="text-stone-500 text-base sm:text-lg max-w-2xl mb-8 leading-relaxed">
             Produtos selecionados com cuidado. Preços transparentes.
             Experiência de compra simples e sofisticada.
           </p>
@@ -330,12 +332,12 @@ export default function Marketplace() {
               onClick={() =>
                 document.getElementById("catalogo")?.scrollIntoView({ behavior: "smooth" })
               }
-              className="px-8 py-3.5 rounded-xl bg-white text-stone-900 text-sm font-bold hover:bg-stone-100 transition-colors shadow-lg"
+              className="px-8 py-3.5 rounded-xl bg-stone-900 text-white text-sm font-bold hover:bg-stone-700 transition-colors shadow-lg"
             >
               Explorar Catálogo
             </button>
             <Link href="/desejos">
-              <button className="px-8 py-3.5 rounded-xl border-2 border-white/40 text-white text-sm font-semibold hover:border-white hover:bg-white/10 transition-colors backdrop-blur-sm">
+              <button className="px-8 py-3.5 rounded-xl border-2 border-stone-300 text-stone-700 text-sm font-semibold hover:border-stone-500 hover:bg-stone-100 transition-colors">
                 Lista de Desejos
               </button>
             </Link>
