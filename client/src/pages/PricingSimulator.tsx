@@ -52,6 +52,7 @@ import {
   Smartphone,
   Star,
   RefreshCcw,
+  Save,
 } from "lucide-react";
 
 // ─── Tipos auxiliares ─────────────────────────────────────────────────────────
@@ -123,6 +124,78 @@ const defaultForm: FormState = {
   stockQuantity: "0",
   minimumStock: "0",
 };
+
+const pricingDefaultFields = [
+  "taxRegime",
+  "taxCash",
+  "taxBoleto",
+  "taxDebit",
+  "taxCreditCash",
+  "taxCreditInstallment",
+  "boletoMonths",
+  "boletoMonthlyRate",
+  "boletoFixedFee",
+  "boletoDefaultRisk",
+  "boletoCustomerPaysInterest",
+  "cardDebitFee",
+  "cardCreditCashFee",
+  "cardCreditInstallmentFee",
+  "cardInstallments",
+  "cardAnticipationRate",
+  "cardMonthlyRate",
+  "cardCustomerPaysInterest",
+] as const;
+
+type PricingDefaultsPayload = Pick<FormState, (typeof pricingDefaultFields)[number]>;
+
+function pickPricingDefaults(form: FormState): PricingDefaultsPayload {
+  return {
+    taxRegime: form.taxRegime,
+    taxCash: form.taxCash,
+    taxBoleto: form.taxBoleto,
+    taxDebit: form.taxDebit,
+    taxCreditCash: form.taxCreditCash,
+    taxCreditInstallment: form.taxCreditInstallment,
+    boletoMonths: form.boletoMonths,
+    boletoMonthlyRate: form.boletoMonthlyRate,
+    boletoFixedFee: form.boletoFixedFee,
+    boletoDefaultRisk: form.boletoDefaultRisk,
+    boletoCustomerPaysInterest: form.boletoCustomerPaysInterest,
+    cardDebitFee: form.cardDebitFee,
+    cardCreditCashFee: form.cardCreditCashFee,
+    cardCreditInstallmentFee: form.cardCreditInstallmentFee,
+    cardInstallments: form.cardInstallments,
+    cardAnticipationRate: form.cardAnticipationRate,
+    cardMonthlyRate: form.cardMonthlyRate,
+    cardCustomerPaysInterest: form.cardCustomerPaysInterest,
+  };
+}
+
+function normalizePricingDefaults(value: unknown): Partial<PricingDefaultsPayload> {
+  if (!value || typeof value !== "object") return {};
+  const source = value as Partial<Record<keyof PricingDefaultsPayload, unknown>>;
+  const out: Partial<PricingDefaultsPayload> = {};
+
+  for (const field of pricingDefaultFields) {
+    const raw = source[field];
+    if (raw === undefined || raw === null) continue;
+    if (field === "boletoCustomerPaysInterest" || field === "cardCustomerPaysInterest") {
+      out[field] = Boolean(raw) as never;
+    } else {
+      out[field] = String(raw) as never;
+    }
+  }
+
+  if (
+    out.taxRegime &&
+    !["SIMPLES_NACIONAL", "LUCRO_PRESUMIDO", "LUCRO_REAL", "MANUAL"].includes(out.taxRegime)
+  ) {
+    delete out.taxRegime;
+  }
+
+  return out;
+}
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -416,6 +489,7 @@ export default function PricingSimulator() {
   const [showCard, setShowCard] = useState(true);
   const [simulationName, setSimulationName] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
+  const [defaultsApplied, setDefaultsApplied] = useState(false);
   const [location, setLocation] = useLocation();
   const { user } = useAuth();
   const searchParams = new URLSearchParams(location.split("?")[1] || "");
@@ -430,6 +504,12 @@ export default function PricingSimulator() {
     { enabled: !!productId && !!user }
   );
 
+  const pricingDefaultsQuery = trpc.settings.getPricingDefaults.useQuery(undefined, {
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+  });
+  const updatePricingDefaults = trpc.settings.updatePricingDefaults.useMutation();
+
   const utils = trpc.useUtils();
   const saveSimulation = trpc.simulations.create.useMutation({
     onSuccess: () => {
@@ -438,6 +518,52 @@ export default function PricingSimulator() {
       setIsSaving(false);
     },
   });
+
+  const applyPricingDefaultsToForm = useCallback((defaults: unknown) => {
+    const normalized = normalizePricingDefaults(defaults);
+    setForm((prev) => ({ ...prev, ...normalized }));
+  }, []);
+
+  useEffect(() => {
+    if (!productId && !defaultsApplied && pricingDefaultsQuery.data) {
+      applyPricingDefaultsToForm(pricingDefaultsQuery.data);
+      setDefaultsApplied(true);
+    }
+  }, [productId, defaultsApplied, pricingDefaultsQuery.data, applyPricingDefaultsToForm]);
+
+  const handleSavePricingDefaults = useCallback(async () => {
+    try {
+      await updatePricingDefaults.mutateAsync(pickPricingDefaults(form));
+      await utils.settings.getPricingDefaults.invalidate();
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || "Não foi possível salvar os padrões de taxa.");
+    }
+  }, [form, updatePricingDefaults, utils.settings.getPricingDefaults]);
+
+  const handleRestorePricingDefaults = useCallback(async () => {
+    try {
+      const restored = pickPricingDefaults(defaultForm);
+      setForm((prev) => ({ ...prev, ...restored }));
+      await updatePricingDefaults.mutateAsync(restored);
+      await utils.settings.getPricingDefaults.invalidate();
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || "Não foi possível restaurar os padrões.");
+    }
+  }, [updatePricingDefaults, utils.settings.getPricingDefaults]);
+
+  const handleApplySuggestedTaxes = useCallback(() => {
+    const rates = SUGGESTED_TAX_RATES[form.taxRegime];
+    setForm((prev) => ({
+      ...prev,
+      taxCash: String(rates.cash),
+      taxBoleto: String(rates.boleto),
+      taxDebit: String(rates.debit),
+      taxCreditCash: String(rates.creditCash),
+      taxCreditInstallment: String(rates.creditInstallment),
+    }));
+  }, [form.taxRegime]);
 
   // Preencher formulário se houver um produto selecionado via URL
   useEffect(() => {
@@ -456,7 +582,24 @@ export default function PricingSimulator() {
         inboundShippingCost: String(p.inboundShippingCost || "0"),
         operationalCost: String(p.operationalCost || "0"),
         desiredMarginRate: String(p.desiredMarginRate || "30"),
-        taxRegime: (p.taxRegime as TaxRegime) || "SIMPLES_NACIONAL",
+        taxRegime: (p.taxRegime as TaxRegime) || prev.taxRegime,
+        taxCash: (p as any).taxCash != null ? String((p as any).taxCash) : prev.taxCash,
+        taxBoleto: (p as any).taxBoleto != null ? String((p as any).taxBoleto) : prev.taxBoleto,
+        taxDebit: (p as any).taxDebit != null ? String((p as any).taxDebit) : prev.taxDebit,
+        taxCreditCash: (p as any).taxCreditCash != null ? String((p as any).taxCreditCash) : prev.taxCreditCash,
+        taxCreditInstallment: (p as any).taxCreditInstallment != null ? String((p as any).taxCreditInstallment) : prev.taxCreditInstallment,
+        boletoMonths: (p as any).boletoMonths != null ? String((p as any).boletoMonths) : prev.boletoMonths,
+        boletoMonthlyRate: (p as any).boletoMonthlyRate != null ? String((p as any).boletoMonthlyRate) : prev.boletoMonthlyRate,
+        boletoFixedFee: (p as any).boletoFixedFee != null ? String((p as any).boletoFixedFee) : prev.boletoFixedFee,
+        boletoDefaultRisk: (p as any).boletoDefaultRisk != null ? String((p as any).boletoDefaultRisk) : prev.boletoDefaultRisk,
+        boletoCustomerPaysInterest: (p as any).boletoCustomerPaysInterest ?? prev.boletoCustomerPaysInterest,
+        cardDebitFee: (p as any).cardDebitFee != null ? String((p as any).cardDebitFee) : prev.cardDebitFee,
+        cardCreditCashFee: (p as any).cardCreditCashFee != null ? String((p as any).cardCreditCashFee) : prev.cardCreditCashFee,
+        cardCreditInstallmentFee: (p as any).cardCreditInstallmentFee != null ? String((p as any).cardCreditInstallmentFee) : prev.cardCreditInstallmentFee,
+        cardInstallments: (p as any).cardInstallments != null ? String((p as any).cardInstallments) : prev.cardInstallments,
+        cardAnticipationRate: (p as any).cardAnticipationRate != null ? String((p as any).cardAnticipationRate) : prev.cardAnticipationRate,
+        cardMonthlyRate: (p as any).cardMonthlyRate != null ? String((p as any).cardMonthlyRate) : prev.cardMonthlyRate,
+        cardCustomerPaysInterest: (p as any).cardCustomerPaysInterest ?? prev.cardCustomerPaysInterest,
         stockQuantity: String(p.stockQuantity || "0"),
         minimumStock: String(p.minimumStock || "0"),
       }));
@@ -472,16 +615,8 @@ export default function PricingSimulator() {
 
   const handleTaxRegimeChange = useCallback(
     (regime: TaxRegime) => {
-      const rates = SUGGESTED_TAX_RATES[regime];
-      setForm((prev) => ({
-        ...prev,
-        taxRegime: regime,
-        taxCash: String(rates.cash),
-        taxBoleto: String(rates.boleto),
-        taxDebit: String(rates.debit),
-        taxCreditCash: String(rates.creditCash),
-        taxCreditInstallment: String(rates.creditInstallment),
-      }));
+      // Não sobrescreve taxas configuradas; use o botão explícito para aplicar sugestões.
+      setForm((prev) => ({ ...prev, taxRegime: regime }));
     },
     []
   );
@@ -581,10 +716,13 @@ export default function PricingSimulator() {
   }, [form, derivedCostPriceBrl]);
 
   const handleReset = useCallback(() => {
-    setForm(defaultForm);
+    setForm({
+      ...defaultForm,
+      ...normalizePricingDefaults(pricingDefaultsQuery.data),
+    });
     setResult(null);
     setError(null);
-  }, []);
+  }, [pricingDefaultsQuery.data]);
 
   const handleSaveSimulation = useCallback(async () => {
     if (!result) return;
@@ -886,6 +1024,40 @@ export default function PricingSimulator() {
                       </SelectContent>
                     </Select>
                   </FormField>
+
+                  <div className="flex flex-col sm:flex-row gap-2 rounded-lg border bg-muted/20 p-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSavePricingDefaults}
+                      disabled={updatePricingDefaults.isPending}
+                      className="h-8 text-xs"
+                    >
+                      <Save className="w-3.5 h-3.5 mr-1.5" />
+                      Salvar estes valores como padrão
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRestorePricingDefaults}
+                      disabled={updatePricingDefaults.isPending}
+                      className="h-8 text-xs"
+                    >
+                      <RefreshCcw className="w-3.5 h-3.5 mr-1.5" />
+                      Restaurar padrão
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleApplySuggestedTaxes}
+                      className="h-8 text-xs"
+                    >
+                      Aplicar taxas sugeridas do regime
+                    </Button>
+                  </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                     {[
