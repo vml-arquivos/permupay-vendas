@@ -32,31 +32,45 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
-
-  // Servir uploads locais
+  // Servir uploads locais ANTES dos parsers
   const uploadDir = process.env.UPLOAD_DIR ?? "/var/data/permupay/uploads";
-  import("node:fs").then(fs => {
+  import("node:fs").then(({ default: fs }) => {
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+  }).catch(() => {
+    const fs = require("node:fs");
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
   });
   app.use("/uploads", express.static(uploadDir));
 
-  // Rota de upload multipart
-  app.post("/api/upload/image", express.raw({ type: /image\/.*/, limit: "5mb" }), async (req, res) => {
-    try {
-      const { uploadProductImageBuffer } = await import("../storage.upload");
-      const productId = Number(req.query.productId) || 0;
-      const filename = String(req.query.filename || "image.jpg");
-      const mimeType = req.headers["content-type"]?.split(";")[0] || "image/jpeg";
-      const url = await uploadProductImageBuffer(productId, req.body as Buffer, filename, mimeType);
-      res.json({ url });
-    } catch (e: any) {
-      res.status(400).json({ error: e.message });
+  // Rota de upload — usa raw parser próprio, ANTES do express.json global
+  app.post("/api/upload/image",
+    (req, res, next) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        (req as any).rawBody = Buffer.concat(chunks);
+        next();
+      });
+      req.on("error", next);
+    },
+    async (req: any, res: any) => {
+      try {
+        const { uploadProductImageBuffer } = await import("../storage.upload");
+        const productId = Number(req.query.productId) || 0;
+        const filename = String(req.query.filename || "image.jpg");
+        const mimeType = (req.headers["content-type"] as string)?.split(";")[0] || "image/jpeg";
+        const url = await uploadProductImageBuffer(productId, req.rawBody, filename, mimeType);
+        res.json({ url });
+      } catch (e: any) {
+        res.status(400).json({ error: e.message });
+      }
     }
-  });
+  );
+
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  registerStorageProxy(app);
+  registerOAuthRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",
