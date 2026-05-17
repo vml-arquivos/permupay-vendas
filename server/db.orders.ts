@@ -1,20 +1,19 @@
 /**
- * server/db.orders.ts — Pedidos (fluxo refatorado)
+ * server/db.orders.ts — Pedidos (fluxo com confirmação atômica)
  *
- * NOVO FLUXO DE NEGÓCIO:
- * 1. Cliente clica "Ir para o pagamento" → pedido criado (AGUARDANDO_PAGAMENTO)
- *    - Estoque NÃO é debitado neste momento
- *    - Pedido já aparece no painel admin imediatamente
- * 2. Admin confirma pagamento manualmente → status vira "PAGO"
- *    - SOMENTE aqui o estoque é debitado (stockQuantity - quantity)
- *    - Gatilho FIFO: se estoque chegar a 0, próximo lote é ativado
- * 3. Admin pode cancelar sem impacto no estoque
- *    (estoque nunca foi debitado na criação)
+ * FLUXO DE NEGÓCIO:
+ * 1. Cliente cria pedido → status AGUARDANDO_PAGAMENTO (sem débito de estoque)
+ * 2. Admin confirma manualmente → status PAGO
+ *    - Valida estoque suficiente (lança erro se insuficiente — sem Math.max silencioso)
+ *    - Debita stockQuantity em transação atômica
+ *    - Registra saída em permupay_stock_entries (quantity negativo)
+ *    - Atualiza confirmed_at / confirmed_by
+ * 3. Admin pode cancelar → sem impacto no estoque (nunca foi debitado)
  */
 
-import { and, desc, eq, lt, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { products } from "../drizzle/schema";
+import { products, stockEntries } from "../drizzle/schema";
 import {
   orders,
   type Order,
@@ -50,7 +49,6 @@ export async function createOrder(data: {
   }
 
   const totalPrice = data.unitPrice * data.quantity;
-  // expiresAt: 30 dias — apenas para fins de arquivamento/limpeza futura
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   const [order] = await db
@@ -72,7 +70,17 @@ export async function createOrder(data: {
   return order;
 }
 
-// ── Confirmar pagamento (admin) — AQUI ocorre o débito de estoque ─────────────
+// ── Confirmar pagamento (admin) — TRANSAÇÃO ATÔMICA ──────────────────────────
+//
+// Tudo ocorre em uma única transação:
+//   1. busca e valida pedido
+//   2. busca e valida produto
+//   3. verifica estoque suficiente (erro explícito se insuficiente)
+//   4. debita stockQuantity
+//   5. insere registro em stock_entries (saída negativa)
+//   6. atualiza pedido para PAGO
+//
+// Se qualquer etapa falhar, tudo é revertido.
 
 export async function confirmOrder(
   orderId: number,
@@ -82,61 +90,90 @@ export async function confirmOrder(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const existing = await db
-    .select()
-    .from(orders)
-    .where(eq(orders.id, orderId))
-    .limit(1);
+  return await db.transaction(async (tx) => {
+    // 1. Buscar pedido
+    const existingRows = await tx
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
 
-  if (!existing[0]) throw new Error("Pedido não encontrado");
+    if (!existingRows[0]) throw new Error("Pedido não encontrado");
+    const existing = existingRows[0];
 
-  const confirmable = ["AGUARDANDO_PAGAMENTO", "RESERVADO"];
-  if (!confirmable.includes(existing[0].status)) {
-    throw new Error(
-      `Pedido não pode ser confirmado (status atual: ${existing[0].status})`
-    );
-  }
-
-  // Debitar estoque SOMENTE na confirmação manual
-  const product = await db
-    .select()
-    .from(products)
-    .where(eq(products.id, existing[0].productId))
-    .limit(1);
-
-  if (!product[0]) throw new Error("Produto não encontrado ao confirmar");
-
-  const currentStock = product[0].stockQuantity ?? 0;
-  const newStock = Math.max(0, currentStock - existing[0].quantity);
-
-  await db
-    .update(products)
-    .set({ stockQuantity: newStock, updatedAt: new Date() })
-    .where(eq(products.id, existing[0].productId));
-
-  // Gatilho FIFO: se estoque chegou a zero, ativar próximo lote
-  if (newStock === 0) {
-    try {
-      const { activateNextBatchIfNeeded } = await import("./db.batches");
-      await activateNextBatchIfNeeded(existing[0].productId);
-    } catch (err) {
-      console.warn("[orders] activateNextBatchIfNeeded indisponível:", err);
+    // 2. Validar status permitido
+    const confirmable = ["AGUARDANDO_PAGAMENTO", "RESERVADO"];
+    if (!confirmable.includes(existing.status)) {
+      throw new Error(
+        `Pedido não pode ser confirmado (status atual: ${existing.status})`
+      );
     }
-  }
 
-  const [updated] = await db
-    .update(orders)
-    .set({
-      status: "PAGO",
-      confirmedAt: new Date(),
-      confirmedBy: adminUserId,
-      adminNotes: adminNotes ?? existing[0].adminNotes,
-      updatedAt: new Date(),
-    })
-    .where(eq(orders.id, orderId))
-    .returning();
+    // 3. Buscar produto
+    const productRows = await tx
+      .select()
+      .from(products)
+      .where(eq(products.id, existing.productId))
+      .limit(1);
 
-  return updated;
+    if (!productRows[0]) throw new Error("Produto não encontrado ao confirmar");
+    const product = productRows[0];
+
+    // 4. Validar estoque suficiente — erro explícito, sem Math.max silencioso
+    const currentStock = product.stockQuantity ?? 0;
+    if (currentStock < existing.quantity) {
+      throw new Error(
+        `Estoque insuficiente: disponível ${currentStock}, necessário ${existing.quantity}`
+      );
+    }
+
+    const newStock = currentStock - existing.quantity;
+
+    // 5. Debitar estoque do produto
+    await tx
+      .update(products)
+      .set({
+        stockQuantity: newStock,
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, existing.productId));
+
+    // 6. Registrar saída em stock_entries (quantity negativo = saída)
+    await tx.insert(stockEntries).values({
+      productId: existing.productId,
+      userId: adminUserId,
+      quantity: -existing.quantity,          // negativo = saída
+      unitCost: product.finalUnitCostBrl ?? product.averageCostBrl ?? 0,
+      notes: `Saída por venda — Pedido #${orderId}${adminNotes ? ` | ${adminNotes}` : ""}`,
+    });
+
+    // 7. Marcar pedido como PAGO
+    const [updated] = await tx
+      .update(orders)
+      .set({
+        status: "PAGO",
+        confirmedAt: new Date(),
+        confirmedBy: adminUserId,
+        adminNotes: adminNotes ?? existing.adminNotes,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId))
+      .returning();
+
+    // 8. Gatilho FIFO fora da transação (opcional, falha suave)
+    if (newStock === 0) {
+      setImmediate(async () => {
+        try {
+          const { activateNextBatchIfNeeded } = await import("./db.batches");
+          await activateNextBatchIfNeeded(existing.productId);
+        } catch (err) {
+          console.warn("[orders] activateNextBatchIfNeeded falhou:", err);
+        }
+      });
+    }
+
+    return updated;
+  });
 }
 
 // ── Cancelar pedido — SEM devolver estoque (nunca foi debitado) ───────────────
@@ -163,8 +200,6 @@ export async function cancelOrder(
     );
   }
 
-  // Sem devolução de estoque — o estoque nunca foi debitado na criação
-
   const [updated] = await db
     .update(orders)
     .set({
@@ -179,17 +214,16 @@ export async function cancelOrder(
   return updated;
 }
 
-// ── Job de expiração (apenas cosmético — sem impacto de estoque) ──────────────
+// ── Job de expiração ──────────────────────────────────────────────────────────
 
 export async function expireStaleReservations(): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
 
-  // Verificar se a tabela existe antes de tentar a query
   try {
     const tableCheck = await db.execute(
-      `SELECT 1 FROM information_schema.tables
-       WHERE table_name = 'permupay_orders' LIMIT 1`
+      sql`SELECT 1 FROM information_schema.tables
+          WHERE table_name = 'permupay_orders' LIMIT 1`
     );
     if (!tableCheck.rows?.length) return 0;
   } catch {
@@ -210,7 +244,6 @@ export async function expireStaleReservations(): Promise<number> {
 
   if (stale.length === 0) return 0;
 
-  // No novo fluxo, a expiração NÃO devolve estoque (nunca foi debitado)
   const ids = stale.map((o) => o.id);
   await db
     .update(orders)
@@ -262,7 +295,10 @@ export async function getOrderById(
     .limit(1);
 
   if (!rows[0]) return null;
-  return { ...rows[0].order, productName: rows[0].productName ?? "Produto removido" };
+  return {
+    ...rows[0].order,
+    productName: rows[0].productName ?? "Produto removido",
+  };
 }
 
 export async function getOrderCounts(): Promise<{
@@ -270,18 +306,36 @@ export async function getOrderCounts(): Promise<{
   pagos: number;
   cancelados: number;
   expirados: number;
+  faturamento: number;
+  ticketMedio: number;
 }> {
   const db = await getDb();
-  if (!db) return { aguardando: 0, pagos: 0, cancelados: 0, expirados: 0 };
+  if (!db)
+    return {
+      aguardando: 0,
+      pagos: 0,
+      cancelados: 0,
+      expirados: 0,
+      faturamento: 0,
+      ticketMedio: 0,
+    };
 
-  const all = await db.select({ status: orders.status }).from(orders);
+  const all = await db
+    .select({ status: orders.status, totalPrice: orders.totalPrice })
+    .from(orders);
+
+  const pagos = all.filter((o) => o.status === "PAGO");
+  const faturamento = pagos.reduce((acc, o) => acc + (o.totalPrice ?? 0), 0);
+  const ticketMedio = pagos.length > 0 ? faturamento / pagos.length : 0;
+
   return {
     aguardando: all.filter(
-      (o) =>
-        o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
+      (o) => o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
     ).length,
-    pagos: all.filter((o) => o.status === "PAGO").length,
+    pagos: pagos.length,
     cancelados: all.filter((o) => o.status === "CANCELADO").length,
     expirados: all.filter((o) => o.status === "EXPIRADO").length,
+    faturamento,
+    ticketMedio,
   };
 }
