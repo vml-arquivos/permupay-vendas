@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import DashboardLayout from "@/components/DashboardLayout";
 import {
   Download,
   Plus,
@@ -236,6 +237,7 @@ export default function Products() {
   };
 
   return (
+    <DashboardLayout>
     <div className="min-h-screen bg-background">
       <main className="container py-8">
         <div className="space-y-6">
@@ -366,13 +368,16 @@ export default function Products() {
                         <div className="flex items-start gap-3 flex-1 min-w-0">
                           {/* Thumbnail */}
                           {product.imageUrl ? (
-                            <img
-                              src={product.imageUrl}
-                              alt={product.name}
-                              className="w-12 h-12 rounded-lg object-cover border shrink-0"
-                            />
+                            <div className="w-14 h-14 rounded-lg border shrink-0 overflow-hidden bg-muted">
+                              <img
+                                src={product.imageUrl}
+                                alt={product.name}
+                                className="w-full h-full object-cover"
+                                style={{ aspectRatio: "1/1" }}
+                              />
+                            </div>
                           ) : (
-                            <div className="w-12 h-12 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                            <div className="w-14 h-14 rounded-lg bg-muted border flex items-center justify-center shrink-0">
                               <ShoppingBag className="w-5 h-5 text-muted-foreground/40" />
                             </div>
                           )}
@@ -616,5 +621,6 @@ export default function Products() {
         </div>
       </main>
     </div>
+    </DashboardLayout>
   );
 }
