@@ -34,6 +34,8 @@ import {
   Warehouse,
   BarChart3,
   Heart,
+  ExternalLink,
+  Store,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -46,7 +48,6 @@ const menuItems = [
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
   { icon: Calculator, label: "Simulações", path: "/simulacoes" },
   { icon: Layers, label: "Lotes", path: "/lotes" },
-  { icon: ShoppingBag, label: "Vitrine", path: "/vitrine" },
   { icon: Heart, label: "Lista de Desejos", path: "/desejos-admin" },
   { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
 ];
@@ -219,6 +220,20 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3 border-t">
+            {/* Botão rápido para a vitrine */}
+            <a
+              href="/vitrine"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-accent/60 transition-colors w-full text-sm font-medium mb-1 ${isCollapsed ? "justify-center" : ""}`}
+              title="Ver Vitrine Pública"
+            >
+              <Store className="h-4 w-4 text-primary shrink-0" />
+              {!isCollapsed && (
+                <span className="flex-1 truncate text-primary">Ver Vitrine</span>
+              )}
+              {!isCollapsed && <ExternalLink className="h-3 w-3 text-primary opacity-60" />}
+            </a>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent/50 transition-colors w-full text-left focus:outline-none">
@@ -263,12 +278,27 @@ function DashboardLayoutContent({
       </div>
 
       <SidebarInset>
-        {isMobile && (
-          <div className="flex border-b h-14 items-center gap-2 bg-background/95 px-4 backdrop-blur sticky top-0 z-40">
-            <SidebarTrigger className="h-9 w-9 rounded-lg" />
+        {/* Topbar sempre visível com breadcrumb e acesso rápido */}
+        <div className="flex border-b h-14 items-center gap-2 bg-background/95 px-4 backdrop-blur sticky top-0 z-40 justify-between">
+          <div className="flex items-center gap-2">
+            {isMobile && <SidebarTrigger className="h-9 w-9 rounded-lg" />}
+            {!isMobile && <SidebarTrigger className="h-8 w-8 rounded-md text-muted-foreground" />}
+            <span className="text-muted-foreground text-sm hidden sm:inline">/</span>
             <span className="font-medium text-sm">{activeLabel}</span>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <a
+              href="/vitrine"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 text-primary text-xs font-medium hover:bg-primary/5 transition-colors"
+            >
+              <Store className="h-3.5 w-3.5" />
+              Ver Vitrine
+              <ExternalLink className="h-3 w-3 opacity-60" />
+            </a>
+          </div>
+        </div>
         <main className="flex-1 p-6">{children}</main>
       </SidebarInset>
     </>
