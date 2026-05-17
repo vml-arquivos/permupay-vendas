@@ -1,18 +1,22 @@
 /**
  * Marketplace.tsx — Vitrine Pública PermuPay
- * Layout REFATORADO seguindo modelo premium:
- * - Fundo creme (#f0ebe0)
- * - Header: logo centralizado, nav escura abaixo
- * - Hero: imagem de fundo com perfumes reais + flores, overlay escuro
- * - Grid de 4 colunas com cards compactos (foto + info + 2 botões CTA)
- * - Seção de Lista de Desejos com formulário inline
- * - Footer limpo
+ *
+ * REGRAS NÃO NEGOCIÁVEIS:
+ * - Fundo bege/creme (#f5f0e8)
+ * - Cards SEM borda, fundo branco, sombra suave
+ * - Foto NÃO cortada: object-contain dentro de área quadrada com padding
+ * - Grid: 1 coluna mobile, 2 tablet, 3 desktop
+ * - Cards GRANDES (foto alta, nome, descrição, preço)
+ * - SEM botão "CTA Pagar com PIX" no card — apenas link para /vitrine/:id
+ * - Clicar no card leva para /vitrine/:id
+ * - Preços exibidos de forma discreta abaixo do nome
  */
 import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { Heart, Zap, CreditCard, FileText, MessageCircle } from "lucide-react";
+import { Heart, ChevronRight } from "lucide-react";
 
+// ── Tipos ─────────────────────────────────────────────────────────────────────
 interface CatalogProduct {
   id: number;
   name: string;
@@ -37,6 +41,7 @@ interface CatalogProduct {
   boletoMonths?: number | null;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 const formatBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -47,182 +52,161 @@ const CATEGORY_META: Record<string, { label: string; icon: string }> = {
   OUTRO:      { label: "Outros",      icon: "🛍️" },
 };
 
-function getStockStatus(p: CatalogProduct): "in_stock" | "low_stock" | "out_of_stock" {
-  const qty = p.stockQuantity ?? 0;
-  const min = p.minimumStock ?? 0;
-  if (qty <= 0) return "out_of_stock";
-  if (min > 0 && qty <= min) return "low_stock";
-  return "in_stock";
-}
-
-function displayPricePix(p: CatalogProduct): number | null {
-  if ((p.suggestedPricePix ?? 0) > 0) return p.suggestedPricePix;
-  if ((p.suggestedPrice ?? 0) > 0) return p.suggestedPrice;
+function getDisplayPrice(p: CatalogProduct): { value: number; label: string } | null {
+  if ((p.suggestedPricePix    ?? 0) > 0) return { value: p.suggestedPricePix,    label: "PIX" };
+  if ((p.suggestedPriceCard   ?? 0) > 0) return { value: p.suggestedPriceCard,   label: "Cartão" };
+  if ((p.suggestedPriceBoleto ?? 0) > 0) return { value: p.suggestedPriceBoleto, label: "Boleto" };
+  if ((p.suggestedPrice       ?? 0) > 0) return { value: p.suggestedPrice,       label: "" };
   return null;
 }
 
+function getStockStatus(p: CatalogProduct) {
+  const qty = p.stockQuantity ?? 0;
+  const min = p.minimumStock  ?? 0;
+  if (qty <= 0)             return "out_of_stock" as const;
+  if (min > 0 && qty <= min) return "low_stock"   as const;
+  return "in_stock" as const;
+}
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 function ProductSkeleton() {
   return (
-    <div className="rounded-2xl overflow-hidden animate-pulse" style={{ backgroundColor: "#fff", border: "1px solid #e8e0d0" }}>
-      <div className="flex gap-3 p-3">
-        <div className="w-20 h-20 rounded-xl shrink-0" style={{ backgroundColor: "#e8e0d0" }} />
-        <div className="flex-1 space-y-2 pt-1">
-          <div className="h-2.5 rounded w-14" style={{ backgroundColor: "#e8e0d0" }} />
-          <div className="h-3.5 rounded w-full" style={{ backgroundColor: "#e8e0d0" }} />
-          <div className="h-3 rounded w-3/4" style={{ backgroundColor: "#e8e0d0" }} />
-        </div>
-      </div>
-      <div className="px-3 pb-3 space-y-2">
-        <div className="h-8 rounded-lg" style={{ backgroundColor: "#e8e0d0" }} />
-        <div className="h-8 rounded-lg" style={{ backgroundColor: "#e8e0d0" }} />
+    <div className="bg-white rounded-3xl overflow-hidden shadow-sm animate-pulse">
+      <div className="aspect-square bg-stone-100" />
+      <div className="p-5 space-y-3">
+        <div className="h-3 bg-stone-100 rounded w-20" />
+        <div className="h-5 bg-stone-100 rounded w-4/5" />
+        <div className="h-3 bg-stone-100 rounded w-3/5" />
+        <div className="h-7 bg-stone-100 rounded w-1/3 mt-2" />
       </div>
     </div>
   );
 }
 
+// ── Card de Produto ───────────────────────────────────────────────────────────
 function ProductCard({ product }: { product: CatalogProduct }) {
-  const stockStatus = getStockStatus(product);
-  const inStock = stockStatus !== "out_of_stock";
-  const pix = displayPricePix(product);
-  const card = (product.suggestedPriceCard ?? 0) > 0 ? product.suggestedPriceCard : null;
-  const installments = product.cardInstallments ?? 3;
+  const stockStatus   = getStockStatus(product);
+  const inStock       = stockStatus !== "out_of_stock";
+  const price         = getDisplayPrice(product);
+  const cardInstallments = Math.max(1, Math.round(product.cardInstallments ?? 3));
+  const cardPrice     = (product.suggestedPriceCard ?? 0) > 0 ? product.suggestedPriceCard : null;
+  const catMeta       = CATEGORY_META[product.category];
 
   return (
-    <div className="rounded-2xl overflow-hidden flex flex-col hover:shadow-lg transition-shadow" style={{ backgroundColor: "#fff", border: "1px solid #e8e0d0" }}>
-      <Link href={`/vitrine/${product.id}`}>
-        <div className="flex gap-3 p-3 cursor-pointer">
-          <div className="w-20 h-20 rounded-xl shrink-0 overflow-hidden relative flex items-center justify-center" style={{ backgroundColor: "#f5f0e8" }}>
-            {product.imageUrl ? (
-              <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-2xl select-none">✨</span>
-            )}
-            {product.promoTag && (
-              <span className="absolute top-1 left-1 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full uppercase" style={{ backgroundColor: "#c0392b" }}>
-                {product.promoTag}
-              </span>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: "#8a7a6a" }}>
-              {CATEGORY_META[product.category]?.label ?? product.category}
+    <Link href={`/vitrine/${product.id}`}>
+      <div
+        className={`bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group ${!inStock ? "opacity-70" : ""}`}
+      >
+        {/* ── Imagem — NÃO cortada ── */}
+        <div className="relative bg-stone-50" style={{ aspectRatio: "1 / 1" }}>
+          {product.imageUrl ? (
+            <img
+              src={product.imageUrl}
+              alt={product.name}
+              className="w-full h-full object-contain p-6 group-hover:scale-105 transition-transform duration-500"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <span className="text-7xl opacity-15 select-none">✨</span>
+            </div>
+          )}
+
+          {/* Badges */}
+          {product.promoTag && inStock && (
+            <span className="absolute top-3 left-3 bg-rose-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide shadow-sm">
+              {product.promoTag}
             </span>
-            <h3 className="font-semibold text-sm leading-snug mt-0.5 line-clamp-2" style={{ color: "#1a1a1a" }}>
-              {product.name}
-            </h3>
-            {product.shortDescription && (
-              <p className="text-xs line-clamp-2 mt-1 leading-relaxed" style={{ color: "#7a6a5a" }}>
-                {product.shortDescription}
-              </p>
-            )}
-            {inStock && (
-              <p className="text-xs mt-1" style={{ color: "#5a4a3a" }}>
-                Em Estoque: {product.stockQuantity}
-              </p>
-            )}
-          </div>
+          )}
+          {stockStatus === "low_stock" && (
+            <span className="absolute top-3 right-3 bg-amber-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm">
+              Últimas unidades
+            </span>
+          )}
+          {!inStock && (
+            <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
+              <span className="bg-stone-700 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
+                Indisponível
+              </span>
+            </div>
+          )}
         </div>
-      </Link>
 
-      <div className="px-3 pb-3 flex flex-col gap-2 mt-auto">
-        {inStock ? (
-          <>
-            {pix !== null ? (
+        {/* ── Conteúdo ── */}
+        <div className="p-5">
+          {/* Categoria */}
+          <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-widest mb-1.5">
+            {catMeta?.icon && <span className="mr-1">{catMeta.icon}</span>}
+            {catMeta?.label ?? product.category}
+          </p>
+
+          {/* Nome */}
+          <h3 className="font-semibold text-stone-900 text-base leading-snug line-clamp-2 group-hover:text-stone-600 transition-colors">
+            {product.name}
+          </h3>
+
+          {/* Descrição curta */}
+          {product.shortDescription && (
+            <p className="text-xs text-stone-400 line-clamp-2 mt-1.5 leading-relaxed">
+              {product.shortDescription}
+            </p>
+          )}
+
+          {/* Preço + seta */}
+          {inStock && price ? (
+            <div className="mt-4 flex items-end justify-between">
               <div>
-                <span className="text-base font-black" style={{ color: "#1a1a1a" }}>
-                  {formatBRL(pix)}
-                </span>
-                {card !== null && installments > 1 && (
-                  <span className="text-[10px] ml-1.5" style={{ color: "#8a7a6a" }}>
-                    ou {installments}x {formatBRL(card / installments)}
-                  </span>
-                )}
+                <p className="text-xl font-bold text-stone-900 leading-none">
+                  {formatBRL(price.value)}
+                </p>
+                <p className="text-xs text-stone-400 mt-1">
+                  {price.label === "PIX" && (
+                    <span className="text-emerald-600 font-semibold">no PIX</span>
+                  )}
+                  {price.label === "Cartão" && cardPrice && cardInstallments > 1 && (
+                    <span>ou {cardInstallments}x de {formatBRL(cardPrice / cardInstallments)}</span>
+                  )}
+                  {price.label === "Boleto" && (
+                    <span>no boleto</span>
+                  )}
+                </p>
               </div>
-            ) : (
-              <p className="text-sm italic" style={{ color: "#8a7a6a" }}>Consulte o preço</p>
-            )}
-
-            {(product.pixLink || product.pixKey) && (
-              <a
-                href={product.pixLink ?? "#"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wide hover:opacity-85 transition-opacity"
-                style={{ backgroundColor: "#c8b89a", color: "#1a1a1a" }}
-              >
-                <Zap className="w-3 h-3" />
-                CTA Pagar com PIX
-              </a>
-            )}
-
-            {product.cardPaymentUrl && (
-              <a
-                href={product.cardPaymentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wide hover:opacity-85 transition-opacity"
-                style={{ backgroundColor: "#3d3530", color: "#fff" }}
-              >
-                <CreditCard className="w-3 h-3" />
-                Pagar com Cartão
-              </a>
-            )}
-
-            {product.boletoUrl && (
-              <a
-                href={product.boletoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border text-xs font-semibold hover:opacity-80 transition-opacity"
-                style={{ borderColor: "#c8b89a", color: "#3d3530" }}
-              >
-                <FileText className="w-3 h-3" />
-                Gerar Boleto
-              </a>
-            )}
-
-            {!product.pixLink && !product.pixKey && !product.cardPaymentUrl && !product.boletoUrl && (
-              <a
-                href="https://wa.me/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold hover:opacity-80 transition-opacity"
-                style={{ backgroundColor: "#3d7a4a", color: "#fff" }}
-              >
-                <MessageCircle className="w-3 h-3" />
-                Consultar via WhatsApp
-              </a>
-            )}
-
-            {stockStatus === "low_stock" && (
-              <p className="text-center text-[10px] font-semibold" style={{ color: "#b8860b" }}>
-                ⚠ Últimas unidades
-              </p>
-            )}
-          </>
-        ) : (
-          <>
-            <p className="text-xs font-medium" style={{ color: "#8a7a6a" }}>Produto indisponível</p>
-            <Link href="/desejos">
-              <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border-2 border-dashed text-xs font-medium hover:opacity-80 transition-opacity" style={{ borderColor: "#c8b89a", color: "#8a7a6a" }}>
-                <Heart className="w-3 h-3" />
-                Avisar quando chegar
-              </button>
-            </Link>
-          </>
-        )}
+              <div className="w-9 h-9 rounded-full bg-stone-900 group-hover:bg-stone-700 flex items-center justify-center transition-colors shrink-0">
+                <ChevronRight className="w-4 h-4 text-white" />
+              </div>
+            </div>
+          ) : inStock ? (
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-sm text-stone-400 italic">Consulte o preço</p>
+              <div className="w-9 h-9 rounded-full bg-stone-900 group-hover:bg-stone-700 flex items-center justify-center transition-colors">
+                <ChevronRight className="w-4 h-4 text-white" />
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <Link href="/desejos">
+                <button
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-stone-400 hover:text-stone-700 flex items-center gap-1 transition-colors"
+                >
+                  <Heart className="w-3 h-3" />
+                  Avisar quando chegar
+                </button>
+              </Link>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </Link>
   );
 }
 
+// ── Componente Principal ──────────────────────────────────────────────────────
 export default function Marketplace() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [wishlistForm, setWishlistForm] = useState({ product: "", brand: "", model: "", description: "" });
 
   const productsQuery = trpc.marketplace.products.useQuery();
-  const products = (productsQuery.data ?? []) as CatalogProduct[];
-  const isLoading = productsQuery.isLoading;
+  const products      = (productsQuery.data ?? []) as CatalogProduct[];
+  const isLoading     = productsQuery.isLoading;
 
   const availableCategories = useMemo(
     () => [...new Set(products.map((p) => p.category))],
@@ -230,200 +214,194 @@ export default function Marketplace() {
   );
 
   const filtered = useMemo(
-    () => (activeCategory ? products.filter((p) => p.category === activeCategory) : products),
+    () => activeCategory ? products.filter((p) => p.category === activeCategory) : products,
     [products, activeCategory]
   );
 
   const PANEL_URL = import.meta.env.VITE_PANEL_URL ?? "";
 
-  // Hero: perfumes luxuosos em superfície de mármore com flores
-  const HERO_IMAGE = "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?w=1800&q=90";
-
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#f0ebe0" }}>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#f5f0e8" }}>
 
-      {/* HEADER */}
-      <header className="sticky top-0 z-50" style={{ backgroundColor: "#f0ebe0" }}>
+      {/* ── HEADER ──────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-50" style={{ backgroundColor: "#f5f0e8" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex-1" />
           <Link href="/vitrine">
-            <span className="text-xl font-black tracking-widest cursor-pointer select-none" style={{ color: "#1a1a1a" }}>
+            <span className="text-xl font-black tracking-widest text-stone-900 cursor-pointer select-none">
               PERMUPAY
             </span>
           </Link>
-          <div className="flex-1 flex justify-end gap-2">
-            <a
-              href="/dashboard"
-              className="hidden sm:inline-flex px-4 py-1.5 rounded-lg text-sm font-medium hover:opacity-80 transition-opacity"
-              style={{ color: "#8a7a6a" }}
-            >
-              Dashboard
-            </a>
+          <div className="flex-1 flex justify-end">
             <a
               href={`${PANEL_URL}/login`}
-              className="px-5 py-1.5 rounded-lg border text-sm font-medium hover:opacity-80 transition-opacity"
-              style={{ borderColor: "#1a1a1a", color: "#1a1a1a" }}
+              className="px-5 py-2 rounded-lg border border-stone-900 text-stone-900 text-sm font-medium hover:bg-stone-900 hover:text-white transition-colors"
             >
               Entrar
             </a>
           </div>
         </div>
 
-        {/* Nav escura */}
-        <nav style={{ backgroundColor: "#2a2218" }}>
+        {/* Nav secundária */}
+        <div className="border-t border-stone-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-center gap-10 h-11">
+            <nav className="flex items-center justify-center gap-10 h-11">
               <button
                 onClick={() => setActiveCategory(null)}
-                className="text-sm font-medium transition-opacity hover:opacity-80"
-                style={{ color: activeCategory === null ? "#f0ebe0" : "#a89880" }}
+                className={`text-sm font-medium pb-0.5 transition-colors ${activeCategory === null ? "text-stone-900 border-b-2 border-stone-900" : "text-stone-500 hover:text-stone-900"}`}
               >
                 Catálogo
               </button>
               <Link href="/desejos">
-                <span className="text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity" style={{ color: "#a89880" }}>
-                  Vender
+                <span className="text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors cursor-pointer">
+                  Lista de Desejos
                 </span>
               </Link>
-              <a href={`${PANEL_URL}/login`} className="text-sm font-medium hover:opacity-80 transition-opacity" style={{ color: "#a89880" }}>
+              <a
+                href={`${PANEL_URL}/login`}
+                className="text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors"
+              >
                 Gerenciar
               </a>
-            </div>
+            </nav>
           </div>
-        </nav>
+        </div>
       </header>
 
-      {/* HERO */}
-      <section className="relative overflow-hidden" style={{ minHeight: "320px" }}>
+      {/* ── HERO ────────────────────────────────────────────────────────── */}
+      <section className="relative overflow-hidden" style={{ minHeight: "360px" }}>
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url('${HERO_IMAGE}')` }}
+          style={{
+            backgroundImage:
+              "url('https://images.unsplash.com/photo-1541643600914-78b084683702?w=1600&q=80')",
+          }}
         />
-        <div className="absolute inset-0" style={{ backgroundColor: "rgba(28,22,14,0.62)" }} />
+        <div className="absolute inset-0 bg-stone-900/65" />
         <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center text-center py-20">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight tracking-tight mb-4" style={{ color: "#fff" }}>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-tight tracking-tight mb-4">
             A SUA VITRINE PREMIUM DE<br />
-            <span style={{ color: "#c8b89a" }}>PRODUTOS EXCLUSIVOS.</span>
+            <span className="text-stone-300">PRODUTOS EXCLUSIVOS.</span>
           </h1>
-          <p className="text-base sm:text-lg max-w-2xl mb-8" style={{ color: "#d4c9b8" }}>
+          <p className="text-stone-300 text-base sm:text-lg max-w-2xl mb-8">
             Crie catálogos prontos, gerencie estoque e finalize vendas com a simplicidade
             e a sofisticação que seu negócio merece. Permupay transforma sua vitrine.
           </p>
           <button
-            onClick={() => document.getElementById("catalogo")?.scrollIntoView({ behavior: "smooth" })}
-            className="px-8 py-3 rounded-lg border-2 text-sm font-semibold hover:opacity-85 transition-opacity"
-            style={{ borderColor: "#c8b89a", color: "#c8b89a", backgroundColor: "transparent" }}
+            onClick={() =>
+              document.getElementById("catalogo")?.scrollIntoView({ behavior: "smooth" })
+            }
+            className="px-8 py-3 rounded-lg border-2 border-white text-white text-sm font-semibold hover:bg-white hover:text-stone-900 transition-colors"
           >
-            Explorar Catálogo Privado
+            Explorar Catálogo
           </button>
         </div>
       </section>
 
-      {/* FILTROS */}
-      <div className="py-4 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => setActiveCategory(null)}
-            className="px-5 py-1.5 rounded-full text-sm font-medium transition-colors"
-            style={activeCategory === null ? { backgroundColor: "#2a2218", color: "#fff" } : { backgroundColor: "#e0d8cc", color: "#5a4a3a" }}
-          >
-            Fragrâncias
-          </button>
-          {availableCategories.filter((c) => c !== "PERFUME").map((cat) => (
+      {/* ── FILTROS DE CATEGORIA ─────────────────────────────────────────── */}
+      {availableCategories.length > 1 && (
+        <div className="border-b border-stone-200 bg-white/60 backdrop-blur-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-2 overflow-x-auto">
             <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className="px-5 py-1.5 rounded-full text-sm font-medium transition-colors"
-              style={activeCategory === cat ? { backgroundColor: "#2a2218", color: "#fff" } : { backgroundColor: "#e0d8cc", color: "#5a4a3a" }}
+              onClick={() => setActiveCategory(null)}
+              className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === null ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
             >
-              {CATEGORY_META[cat]?.icon} {CATEGORY_META[cat]?.label ?? cat}
+              Todos
             </button>
-          ))}
-          <button className="px-5 py-1.5 rounded-full text-sm font-medium" style={{ backgroundColor: "#e0d8cc", color: "#5a4a3a" }}>
-            Acessórios
-          </button>
-          <button className="px-5 py-1.5 rounded-full text-sm font-medium" style={{ backgroundColor: "#e0d8cc", color: "#5a4a3a" }}>
-            Presentes
-          </button>
+            {availableCategories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === cat ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
+              >
+                {CATEGORY_META[cat]?.icon} {CATEGORY_META[cat]?.label ?? cat}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* VITRINE */}
-      <main id="catalogo" className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pb-10">
-        <div className="flex items-baseline justify-between mb-6">
-          <h2 className="text-2xl font-bold" style={{ color: "#1a1a1a" }}>Vitrine de Destaques</h2>
-          {!isLoading && (
-            <p className="text-sm" style={{ color: "#8a7a6a" }}>
-              {filtered.length} produto{filtered.length !== 1 ? "s" : ""} encontrado{filtered.length !== 1 ? "s" : ""}
+      {/* ── VITRINE DE PRODUTOS ──────────────────────────────────────────── */}
+      <main id="catalogo" className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-12">
+        <div className="flex items-baseline justify-between mb-8">
+          <h2 className="text-2xl font-bold text-stone-900">Vitrine de Destaques</h2>
+          {!isLoading && filtered.length > 0 && (
+            <p className="text-sm text-stone-400">
+              {filtered.length} produto{filtered.length !== 1 ? "s" : ""}
             </p>
           )}
         </div>
 
         {isLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, i) => <ProductSkeleton key={i} />)}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center" style={{ backgroundColor: "#e0d8cc" }}>
-              <span className="text-3xl">✨</span>
+          <div className="text-center py-24">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-stone-100 flex items-center justify-center">
+              <span className="text-4xl">✨</span>
             </div>
-            <h3 className="text-lg font-semibold mb-2" style={{ color: "#3a2a1a" }}>Vitrine em breve</h3>
-            <p className="mb-6" style={{ color: "#8a7a6a" }}>Estamos preparando os produtos. Volte em breve!</p>
+            <h3 className="text-xl font-semibold text-stone-700 mb-2">Vitrine em breve</h3>
+            <p className="text-stone-400 mb-8">Estamos preparando os produtos. Volte em breve!</p>
             <Link href="/desejos">
-              <button className="px-6 py-2.5 rounded-lg border text-sm font-medium hover:opacity-80 transition-opacity inline-flex items-center gap-2" style={{ borderColor: "#c8b89a", color: "#5a4a3a" }}>
+              <button className="px-6 py-2.5 rounded-xl border border-stone-300 text-stone-700 text-sm font-medium hover:bg-stone-100 transition-colors inline-flex items-center gap-2">
                 <Heart className="w-4 h-4" />
                 Cadastrar na Lista de Desejos
               </button>
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {filtered.map((p) => <ProductCard key={p.id} product={p} />)}
+          /* Grid: 1 col mobile, 2 col tablet, 3 col desktop */
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
           </div>
         )}
       </main>
 
-      {/* LISTA DE DESEJOS */}
-      <section className="py-16" style={{ backgroundColor: "#f0ebe0" }}>
-        <div className="max-w-5xl mx-auto px-4 text-center">
-          <h2 className="text-2xl font-bold mb-2" style={{ color: "#1a1a1a" }}>Sua Lista de Desejos Personalizada</h2>
-          <p className="mb-8" style={{ color: "#8a7a6a" }}>Peça o produto que você deseja!</p>
-          <div className="flex flex-wrap gap-3 items-center justify-center">
-            {(["Produto", "Marca", "Modelo", "Descrição"] as const).map((placeholder) => {
-              const key = placeholder.toLowerCase() as keyof typeof wishlistForm;
-              return (
-                <input
-                  key={placeholder}
-                  type="text"
-                  placeholder={placeholder}
-                  value={wishlistForm[key]}
-                  onChange={(e) => setWishlistForm((f) => ({ ...f, [key]: e.target.value }))}
-                  className="px-4 py-2.5 rounded-lg border text-sm outline-none"
-                  style={{ borderColor: "#c8b89a", backgroundColor: "#fff", color: "#1a1a1a", minWidth: "130px" }}
-                />
-              );
-            })}
-            <Link href="/desejos">
-              <button className="px-6 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wide hover:opacity-80 transition-opacity whitespace-nowrap" style={{ backgroundColor: "#2a2218", color: "#fff" }}>
-                Registrar Demanda
-              </button>
-            </Link>
-          </div>
+      {/* ── SEÇÃO LISTA DE DESEJOS ───────────────────────────────────────── */}
+      <section className="py-20 mt-8" style={{ backgroundColor: "#ede8e0" }}>
+        <div className="max-w-3xl mx-auto px-4 text-center">
+          <h2 className="text-2xl font-bold text-stone-900 mb-3">
+            Sua Lista de Desejos Personalizada
+          </h2>
+          <p className="text-stone-500 mb-8 text-sm">
+            Não encontrou o que procura? Registre sua demanda e entraremos em contato.
+          </p>
+          <Link href="/desejos">
+            <button className="px-8 py-3.5 rounded-xl bg-stone-900 text-white text-sm font-semibold hover:bg-stone-700 transition-colors inline-flex items-center gap-2">
+              <Heart className="w-4 h-4" />
+              Registrar Demanda
+            </button>
+          </Link>
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer className="border-t" style={{ backgroundColor: "#f0ebe0", borderColor: "#d8d0c0" }}>
+      {/* ── RODAPÉ ──────────────────────────────────────────────────────── */}
+      <footer className="border-t border-stone-200" style={{ backgroundColor: "#f5f0e8" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <nav className="flex items-center gap-6 text-sm" style={{ color: "#8a7a6a" }}>
-              <button onClick={() => setActiveCategory(null)} className="hover:opacity-70 transition-opacity">Catálogo</button>
-              <Link href="/desejos"><span className="hover:opacity-70 transition-opacity cursor-pointer">Vender</span></Link>
-              <a href={`${PANEL_URL}/login`} className="hover:opacity-70 transition-opacity">Gerenciar</a>
-              <a href={`${PANEL_URL}/login`} className="hover:opacity-70 transition-opacity">Entrar</a>
+            <nav className="flex items-center gap-6 text-sm text-stone-500">
+              <button
+                onClick={() => setActiveCategory(null)}
+                className="hover:text-stone-900 transition-colors"
+              >
+                Catálogo
+              </button>
+              <Link href="/desejos">
+                <span className="hover:text-stone-900 transition-colors cursor-pointer">
+                  Lista de Desejos
+                </span>
+              </Link>
+              <a
+                href={`${PANEL_URL}/login`}
+                className="hover:text-stone-900 transition-colors"
+              >
+                Entrar
+              </a>
             </nav>
-            <p className="text-xs" style={{ color: "#a89880" }}>
+            <p className="text-xs text-stone-400">
               © {new Date().getFullYear()} Permupay Vendas. Todos os direitos reservados.
             </p>
           </div>
