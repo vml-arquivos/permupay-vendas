@@ -9,7 +9,7 @@
  * - Salva preços calculados (suggestedPrice*) para exibição pública.
  * - Motor de cálculo importado de shared/pricingCalculator.ts (fonte única).
  */
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, type ChangeEvent } from "react";
 import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
@@ -178,6 +178,78 @@ const defaultForm: FormState = {
   cardPaymentUrl: "",
   boletoUrl: "",
 };
+
+const pricingDefaultFields = [
+  "taxRegime",
+  "taxCash",
+  "taxBoleto",
+  "taxDebit",
+  "taxCreditCash",
+  "taxCreditInstallment",
+  "boletoMonths",
+  "boletoMonthlyRate",
+  "boletoFixedFee",
+  "boletoDefaultRisk",
+  "boletoCustomerPaysInterest",
+  "cardDebitFee",
+  "cardCreditCashFee",
+  "cardCreditInstallmentFee",
+  "cardInstallments",
+  "cardAnticipationRate",
+  "cardMonthlyRate",
+  "cardCustomerPaysInterest",
+] as const;
+
+type PricingDefaultsPayload = Pick<FormState, (typeof pricingDefaultFields)[number]>;
+
+function pickPricingDefaults(form: FormState): PricingDefaultsPayload {
+  return {
+    taxRegime: form.taxRegime,
+    taxCash: form.taxCash,
+    taxBoleto: form.taxBoleto,
+    taxDebit: form.taxDebit,
+    taxCreditCash: form.taxCreditCash,
+    taxCreditInstallment: form.taxCreditInstallment,
+    boletoMonths: form.boletoMonths,
+    boletoMonthlyRate: form.boletoMonthlyRate,
+    boletoFixedFee: form.boletoFixedFee,
+    boletoDefaultRisk: form.boletoDefaultRisk,
+    boletoCustomerPaysInterest: form.boletoCustomerPaysInterest,
+    cardDebitFee: form.cardDebitFee,
+    cardCreditCashFee: form.cardCreditCashFee,
+    cardCreditInstallmentFee: form.cardCreditInstallmentFee,
+    cardInstallments: form.cardInstallments,
+    cardAnticipationRate: form.cardAnticipationRate,
+    cardMonthlyRate: form.cardMonthlyRate,
+    cardCustomerPaysInterest: form.cardCustomerPaysInterest,
+  };
+}
+
+function normalizePricingDefaults(value: unknown): Partial<PricingDefaultsPayload> {
+  if (!value || typeof value !== "object") return {};
+  const source = value as Partial<Record<keyof PricingDefaultsPayload, unknown>>;
+  const out: Partial<PricingDefaultsPayload> = {};
+
+  for (const field of pricingDefaultFields) {
+    const raw = source[field];
+    if (raw === undefined || raw === null) continue;
+    if (field === "boletoCustomerPaysInterest" || field === "cardCustomerPaysInterest") {
+      out[field] = Boolean(raw) as never;
+    } else {
+      out[field] = String(raw) as never;
+    }
+  }
+
+  if (
+    out.taxRegime &&
+    !["SIMPLES_NACIONAL", "LUCRO_PRESUMIDO", "LUCRO_REAL", "MANUAL"].includes(out.taxRegime)
+  ) {
+    delete out.taxRegime;
+  }
+
+  return out;
+}
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function n(val: string): number {
@@ -376,6 +448,7 @@ export default function ProductForm() {
   const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [defaultsApplied, setDefaultsApplied] = useState(false);
   // Imagens pendentes para upload ao criar produto novo
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
@@ -387,36 +460,46 @@ export default function ProductForm() {
   );
   const utils = trpc.useUtils();
   const addImageMutation = trpc.products.addImage.useMutation();
+  const pricingDefaultsQuery = trpc.settings.getPricingDefaults.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+  });
+  const updatePricingDefaults = trpc.settings.updatePricingDefaults.useMutation();
 
   const createProduct = trpc.products.create.useMutation({
     onSuccess: async (newProduct) => {
-      // Após criar, fazer upload das imagens pendentes
+      // Após criar, fazer upload das imagens pendentes usando o mesmo endpoint da galeria.
       if (pendingImages.length > 0) {
         for (const file of pendingImages) {
           try {
-            const formData = new FormData();
-            formData.append("file", file);
-            formData.append("productId", String(newProduct.id));
-            const res = await fetch(`/api/upload/product-image`, {
-              method: "POST",
-              body: formData,
-            });
-            if (res.ok) {
-              const { url, storageKey } = await res.json();
-              await addImageMutation.mutateAsync({
-                productId: newProduct.id,
-                url,
-                storageKey,
-                altText: file.name,
-              });
-            } else {
-              toast.warning(`Imagem "${file.name}" não pôde ser enviada.`);
+            const uploadResp = await fetch(
+              `/api/upload/image?productId=${newProduct.id}&filename=${encodeURIComponent(file.name)}`,
+              {
+                method: "POST",
+                body: file,
+                headers: { "Content-Type": file.type || "application/octet-stream" },
+              }
+            );
+
+            if (!uploadResp.ok) {
+              throw new Error(`Falha no upload: ${uploadResp.statusText}`);
             }
-          } catch {
-            toast.warning(`Falha ao enviar "${file.name}". O produto foi criado.`);
+
+            const { url } = await uploadResp.json();
+
+            await addImageMutation.mutateAsync({
+              productId: newProduct.id,
+              url,
+              storageKey: url,
+              altText: file.name,
+            });
+          } catch (err: any) {
+            toast.warning(
+              `Imagem "${file.name}" não pôde ser enviada. Produto criado normalmente.`
+            );
           }
         }
       }
+
       utils.products.list.invalidate();
       setLocation("/produtos");
       toast.success("Produto criado!");
@@ -429,12 +512,52 @@ export default function ProductForm() {
   });
 
   // Seleção de imagens pendentes (novo produto)
-  const handlePendingImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []).slice(0, 10);
+  const handlePendingImageSelect = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).slice(0, 4);
     setPendingImages(files);
     setPendingPreviews(files.map((f) => URL.createObjectURL(f)));
     e.target.value = "";
   }, []);
+
+  useEffect(() => {
+    return () => {
+      pendingPreviews.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [pendingPreviews]);
+
+  const applyPricingDefaultsToForm = useCallback((defaults: unknown) => {
+    const normalized = normalizePricingDefaults(defaults);
+    setForm((prev) => ({ ...prev, ...normalized }));
+  }, []);
+
+  useEffect(() => {
+    if (!isEditing && !defaultsApplied && pricingDefaultsQuery.data) {
+      applyPricingDefaultsToForm(pricingDefaultsQuery.data);
+      setDefaultsApplied(true);
+    }
+  }, [isEditing, defaultsApplied, pricingDefaultsQuery.data, applyPricingDefaultsToForm]);
+
+  const handleSavePricingDefaults = useCallback(async () => {
+    try {
+      await updatePricingDefaults.mutateAsync(pickPricingDefaults(form));
+      await utils.settings.getPricingDefaults.invalidate();
+      toast.success("Taxas e juros salvos como padrão.");
+    } catch (err: any) {
+      toast.error(err?.message || "Não foi possível salvar os padrões.");
+    }
+  }, [form, updatePricingDefaults, utils.settings.getPricingDefaults]);
+
+  const handleRestorePricingDefaults = useCallback(async () => {
+    try {
+      const restored = pickPricingDefaults(defaultForm);
+      setForm((prev) => ({ ...prev, ...restored }));
+      await updatePricingDefaults.mutateAsync(restored);
+      await utils.settings.getPricingDefaults.invalidate();
+      toast.success("Padrões restaurados.");
+    } catch (err: any) {
+      toast.error(err?.message || "Não foi possível restaurar os padrões.");
+    }
+  }, [updatePricingDefaults, utils.settings.getPricingDefaults]);
 
   const set = useCallback((field: keyof FormState) => (value: string | boolean) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -793,8 +916,32 @@ export default function ProductForm() {
             {isEditing && productId ? (
               <ImageGallery productId={productId} />
             ) : (
-              <div className="rounded-lg border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-                Salve o produto primeiro para adicionar imagens
+              <div className="rounded-lg border border-dashed border-border p-4 space-y-3">
+                <Input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  multiple
+                  onChange={handlePendingImageSelect}
+                  className="text-xs"
+                />
+
+                {pendingPreviews.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {pendingPreviews.map((src, index) => (
+                      <div key={`${src}-${index}`} className="aspect-square overflow-hidden rounded-lg border bg-muted">
+                        <img
+                          src={src}
+                          alt={pendingImages[index]?.name ?? `Imagem ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Selecione até 4 imagens. Elas serão enviadas automaticamente após criar o produto.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -934,6 +1081,41 @@ export default function ProductForm() {
               </SelectContent>
             </Select>
           </FF>
+
+          <div className="flex flex-col sm:flex-row gap-2 rounded-lg border bg-muted/20 p-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleSavePricingDefaults}
+              disabled={updatePricingDefaults.isPending}
+              className="h-8 text-xs"
+            >
+              <Save className="w-3.5 h-3.5 mr-1.5" />
+              Salvar estes valores como padrão
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRestorePricingDefaults}
+              disabled={updatePricingDefaults.isPending}
+              className="h-8 text-xs"
+            >
+              <RefreshCcw className="w-3.5 h-3.5 mr-1.5" />
+              Restaurar padrão
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleApplySuggestedTaxes}
+              className="h-8 text-xs"
+            >
+              Aplicar taxas sugeridas do regime
+            </Button>
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[
               { label: "Pix / À Vista", field: "taxCash" as const },
