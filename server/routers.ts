@@ -1,147 +1,519 @@
-import "dotenv/config";
-import express from "express";
-import { createServer } from "http";
-import net from "net";
-import path from "node:path";
-import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
-import crypto from "node:crypto";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
-import { appRouter } from "../routers";
-import { createContext } from "./context";
-import { serveStatic } from "./serveStatic";
+/**
+ * routers.ts — Router tRPC completo
+ *
+ * Substitui server/routers.ts existente.
+ * Adiciona: batches, marketplace, image upload (presigned URL)
+ */
 
-// ─── Dir de upload local ──────────────────────────────────────────────────────
-const UPLOAD_DIR =
-  process.env.DATA_DIR
-    ? path.join(process.env.DATA_DIR, "uploads", "products")
-    : path.join("/var/data/permupay", "uploads", "products");
+import { z } from "zod";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { sdk } from "./_core/sdk";
+import * as db from "./db";
+import * as dbBatches from "./db.batches";
+import * as dbWishlist from "./db.wishlist";
+import * as dbImages from "./db.images";
+// Upload de imagens agora é feito via POST /api/upload/product-image (server/index.ts)
 
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-    server.on("error", () => resolve(false));
-  });
-}
+// ─── Schemas reutilizáveis ────────────────────────────────────────────────────
 
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
-    }
-  }
-  throw new Error(`No available port found starting from ${startPort}`);
-}
+const productInput = z.object({
+  name: z.string().min(1),
+  category: z.enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"]),
+  ncm: z.string().optional(),
+  costPrice: z.number().min(0),
+  packagingCost: z.number().min(0),
+  inboundShippingCost: z.number().min(0),
+  operationalCost: z.number().min(0),
+  desiredMarginRate: z.number().min(0),
+  desiredMarginValue: z.number().min(0).optional(),
+  marginMode: z.enum(["PERCENT", "VALUE"]).optional(),
+  taxRegime: z.enum([
+    "SIMPLES_NACIONAL",
+    "LUCRO_PRESUMIDO",
+    "LUCRO_REAL",
+    "MANUAL",
+  ]),
+  estimatedTaxRate: z.number().min(0),
+  notes: z.string().optional(),
+  active: z.boolean().optional(),
+  costCurrency: z.enum(["BRL", "USD"]).optional(),
+  costPriceUsd: z.number().min(0).optional(),
+  usdExchangeRate: z.number().min(0).optional(),
+  stockQuantity: z.number().min(0).optional(),
+  minimumStock: z.number().min(0).optional(),
+  shortDescription: z.string().optional(),
+  description: z.string().optional(),
+  suggestedPrice: z.number().min(0).optional(),
+  suggestedPricePix: z.number().min(0).optional(),
+  suggestedPriceCard: z.number().min(0).optional(),
+  suggestedPriceBoleto: z.number().min(0).optional(),
+  paymentPlatform: z.enum(["MERCADO_PAGO", "PAGSEGURO", "OUTRO"]).optional(),
+  pixKey: z.string().optional(),
+  pixLink: z.string().optional(),
+  cardPaymentUrl: z.string().optional(),
+  boletoUrl: z.string().optional(),
+  categoryLabel: z.string().optional(),
+  promoTag: z.string().optional(),
+  published: z.boolean().optional(),
+});
 
-async function startServer() {
-  const app = express();
-  const server = createServer(app);
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
+const batchItemSchema = z.object({
+  productId: z.number().optional(),
+  productName: z.string().min(1),
+  unitCostBrl: z.number().min(0),
+  quantity: z.number().int().min(1),
+  desiredMarginRate: z.number().min(0).max(99.9),
+  estimatedTaxRate: z.number().min(0).max(99.9).optional(),
+});
 
-  // ── Garantir diretório de uploads e servir imagens estáticas ──────────────
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
-  app.use(
-    "/uploads/products",
-    express.static(UPLOAD_DIR, { maxAge: "365d", immutable: true, fallthrough: false })
-  );
+// ─── Router principal ─────────────────────────────────────────────────────────
 
-  // ── Rota de upload multipart (substitui presigned URL S3) ─────────────────
-  app.post("/api/upload/product-image", async (req, res) => {
-    const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-    const MAX_MB = 5;
-    const EXT: Record<string, string> = {
-      "image/jpeg": ".jpg",
-      "image/png": ".png",
-      "image/webp": ".webp",
-      "image/gif": ".gif",
-    };
+export const appRouter = router({
+  system: systemRouter,
 
-    try {
-      const { default: busboy } = await import("busboy");
-      const bb = busboy({ headers: req.headers, limits: { fileSize: MAX_MB * 1024 * 1024 } });
+  // ── Produtos ───────────────────────────────────────────────────────────────
+  products: router({
+    create: protectedProcedure
+      .input(productInput)
+      .mutation(({ input, ctx }) =>
+        db.createProduct({ ...input, userId: ctx.user.id })
+      ),
 
-      let savedUrl: string | null = null;
-      let uploadError: string | null = null;
+    list: protectedProcedure.query(({ ctx }) =>
+      db.listProducts(ctx.user.id)
+    ),
 
-      await new Promise<void>((resolve, reject) => {
-        bb.on("file", (_field: string, stream: NodeJS.ReadableStream, info: { mimeType: string }) => {
-          const { mimeType } = info;
-          if (!ALLOWED.includes(mimeType)) {
-            uploadError = `Tipo não permitido: ${mimeType}. Use JPEG, PNG, WebP ou GIF.`;
-            (stream as any).resume();
-            resolve();
-            return;
-          }
-          const ext = EXT[mimeType] ?? ".jpg";
-          const uid = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-          const filename = `${uid}${ext}`;
-          const filepath = path.join(UPLOAD_DIR, filename);
-          const write = createWriteStream(filepath);
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input, ctx }) => db.getProductById(input.id, ctx.user.id)),
 
-          (stream as any).on("limit", () => {
-            uploadError = `Arquivo muito grande. Máximo ${MAX_MB}MB.`;
-            (stream as any).destroy();
-            write.destroy();
-            fs.unlink(filepath).catch(() => {});
-          });
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), data: productInput.partial() }))
+      .mutation(({ input, ctx }) =>
+        db.updateProduct(input.id, input.data, ctx.user.id)
+      ),
 
-          stream.pipe(write as any);
-          write.on("finish", () => {
-            const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
-            savedUrl = `${appUrl}/uploads/products/${filename}`;
-            resolve();
-          });
-          write.on("error", reject);
+    deactivate: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input, ctx }) =>
+        db.deactivateProduct(input.id, ctx.user.id)
+      ),
+
+    duplicate: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input, ctx }) =>
+        db.duplicateProduct(input.id, ctx.user.id)
+      ),
+
+    // ── Galeria de imagens ────────────────────────────────────────────────────
+    // Upload: POST /api/upload/product-image (ver server/_core/index.ts)
+
+    // Listar imagens da galeria de um produto
+    getImages: protectedProcedure
+      .input(z.object({ productId: z.number() }))
+      .query(({ input }) => dbImages.getProductImages(input.productId)),
+
+    // Registrar imagem após upload direto no S3 (presigned URL)
+    addImage: protectedProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          url: z.string().url(),
+          storageKey: z.string().optional(),
+          altText: z.string().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.addProductImage(input.productId, ctx.user.id, {
+          url: input.url,
+          storageKey: input.storageKey,
+          altText: input.altText,
+        })
+      ),
+
+    // Definir thumbnail da galeria
+    setThumbnail: protectedProcedure
+      .input(
+        z.object({
+          imageId: z.number(),
+          productId: z.number(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.setThumbnail(input.imageId, input.productId, ctx.user.id)
+      ),
+
+    // Reordenar imagens da galeria
+    reorderImages: protectedProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          orderedIds: z.array(z.number()),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.reorderProductImages(
+          input.productId,
+          ctx.user.id,
+          input.orderedIds
+        )
+      ),
+
+    // Deletar imagem da galeria (banco + S3)
+    deleteImage: protectedProcedure
+      .input(
+        z.object({
+          imageId: z.number(),
+          productId: z.number(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.deleteProductImageRecord(
+          input.imageId,
+          input.productId,
+          ctx.user.id
+        )
+      ),
+
+    // Atualizar texto alternativo de uma imagem
+    updateImageAlt: protectedProcedure
+      .input(
+        z.object({
+          imageId: z.number(),
+          productId: z.number(),
+          altText: z.string(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbImages.updateImageAltText(
+          input.imageId,
+          input.productId,
+          ctx.user.id,
+          input.altText
+        )
+      ),
+
+    // Após o browser fazer o upload, salvar a URL pública no produto (legado)
+    setImageUrl: protectedProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          imageUrl: z.string().url(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbBatches.updateProductImage(
+          input.productId,
+          ctx.user.id,
+          input.imageUrl
+        )
+      ),
+
+    // Publicar/despublicar na vitrine
+    togglePublished: protectedProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          published: z.boolean(),
+          promoTag: z.string().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbBatches.togglePublished(
+          input.productId,
+          ctx.user.id,
+          input.published,
+          input.promoTag
+        )
+      ),
+
+    // Ajuste manual de estoque
+    adjustStock: protectedProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          quantity: z.number(),
+          unitCost: z.number().min(0),
+          notes: z.string().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbBatches.adjustStock(
+          input.productId,
+          ctx.user.id,
+          input.quantity,
+          input.unitCost,
+          input.notes
+        )
+      ),
+
+    stockEntries: protectedProcedure
+      .input(z.object({ productId: z.number() }))
+      .query(({ input }) => dbBatches.getStockEntries(input.productId)),
+  }),
+
+  // ── Lotes de Precificação ──────────────────────────────────────────────────
+  batches: router({
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          description: z.string().optional(),
+          totalOperationalCost: z.number().min(0),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbBatches.createBatch({ ...input, userId: ctx.user.id })
+      ),
+
+    list: protectedProcedure.query(({ ctx }) =>
+      dbBatches.listBatches(ctx.user.id)
+    ),
+
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input, ctx }) =>
+        dbBatches.getBatchById(input.id, ctx.user.id)
+      ),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input, ctx }) =>
+        dbBatches.deleteBatch(input.id, ctx.user.id)
+      ),
+
+    /**
+     * Processa o rateio dos itens do lote.
+     * Se commitToStock=true, dá entrada no estoque e fecha o lote.
+     */
+    process: protectedProcedure
+      .input(
+        z.object({
+          batchId: z.number(),
+          items: z.array(batchItemSchema).min(1),
+          totalOperationalCost: z.number().min(0),
+          commitToStock: z.boolean().default(false),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbBatches.processBatch(
+          input.batchId,
+          ctx.user.id,
+          input.items,
+          input.totalOperationalCost,
+          input.commitToStock
+        )
+      ),
+  }),
+
+  // ── Marketplace / Vitrine pública ──────────────────────────────────────────
+  marketplace: router({
+    /** Rota pública — não requer autenticação */
+    products: publicProcedure.query(() => dbBatches.getPublishedProducts()),
+    productsByCategory: publicProcedure
+      .input(z.object({ category: z.string().optional() }))
+      .query(({ input }) => dbBatches.getPublishedProductsByCategory(input.category)),
+  }),
+
+  // ── Simulações ─────────────────────────────────────────────────────────────
+  simulations: router({
+    create: protectedProcedure
+      .input(z.any())
+      .mutation(({ input, ctx }) =>
+        db.createSimulation({ ...input, userId: ctx.user.id })
+      ),
+
+    list: protectedProcedure.query(({ ctx }) =>
+      db.listSimulations(ctx.user.id)
+    ),
+
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input, ctx }) =>
+        db.getSimulationById(input.id, ctx.user.id)
+      ),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input, ctx }) =>
+        db.deleteSimulation(input.id, ctx.user.id)
+      ),
+
+    duplicate: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input, ctx }) =>
+        db.duplicateSimulation(input.id, ctx.user.id)
+      ),
+  }),
+
+  // ── Dashboard ───────────────────────────────────────────────────────────────
+  // ── Lista de Desejos ──────────────────────────────────────────────────────────
+  wishlist: router({
+    // Público: criar um desejo
+    create: publicProcedure
+      .input(
+        z.object({
+          visitorName: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
+          contact: z.string().min(8, "Informe WhatsApp ou email"),
+          contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          category: z.enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"]).optional(),
+          brand: z.string().optional(),
+          model: z.string().optional(),
+          description: z.string().min(10, "Descreva melhor o que procura (mín. 10 caracteres)"),
+          budgetMin: z.number().min(0).default(0),
+          budgetMax: z.number().min(0).default(0),
+          isAnonymous: z.boolean().default(false),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        const ipRaw =
+          (ctx.req.headers["x-forwarded-for"] as string | undefined) ??
+          (ctx.req as any).ip ??
+          "";
+        const ipHash = ipRaw
+          ? Buffer.from(ipRaw).toString("base64").slice(0, 16)
+          : undefined;
+        return dbWishlist.createWishlistRequest({ ...input, ipHash });
+      }),
+
+    // Público: listar os próprios desejos pelo contato
+    myRequests: publicProcedure
+      .input(z.object({ contact: z.string().min(1) }))
+      .query(({ input }) => dbWishlist.getWishlistByContact(input.contact)),
+
+    // Admin: listar todos com filtros
+    list: protectedProcedure
+      .input(
+        z
+          .object({
+            status: z
+              .enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"])
+              .optional(),
+            category: z.string().optional(),
+          })
+          .optional()
+      )
+      .query(({ input }) => dbWishlist.listWishlistRequests(input)),
+
+    // Admin: atualizar status
+    updateStatus: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          status: z.enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"]),
+          adminNotes: z.string().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbWishlist.updateWishlistStatus(
+          input.id,
+          input.status,
+          input.adminNotes,
+          ctx.user.id
+        )
+      ),
+
+    // Admin: deletar
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input }) => dbWishlist.deleteWishlistRequest(input.id)),
+
+    // Admin/Dashboard: contadores
+    counts: protectedProcedure.query(() => dbWishlist.getWishlistCounts()),
+  }),
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────────
+  dashboard: protectedProcedure.query(async ({ ctx }) => {
+    const [dashData, wishlistCounts] = await Promise.all([
+      db.getDashboardData(ctx.user.id),
+      dbWishlist.getWishlistCounts(),
+    ]);
+    return { ...dashData, wishlistCounts };
+  }),
+
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  auth: router({
+    me: publicProcedure.query((opts) => opts.ctx.user),
+
+    login: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email("Email inválido"),
+          password: z.string().min(1, "Senha obrigatória"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const user = await db.getUserByEmail(input.email);
+        if (!user || !user.active) throw new Error("Credenciais inválidas");
+
+        const valid = await db.verifyPassword(user, input.password);
+        if (!valid) throw new Error("Credenciais inválidas");
+
+        await db.updateLastSignedIn(user.id);
+
+        const token = await sdk.createSessionToken({
+          userId: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
         });
-        bb.on("error", reject);
-        bb.on("finish", () => resolve());
-        req.pipe(bb as any);
-      });
 
-      if (uploadError) { res.status(400).json({ error: uploadError }); return; }
-      if (!savedUrl) { res.status(400).json({ error: "Nenhum arquivo recebido." }); return; }
-      res.json({ url: savedUrl });
-    } catch (err: any) {
-      console.error("[Upload] Erro:", err);
-      res.status(500).json({ error: err.message ?? "Erro interno no upload." });
-    }
-  });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, token, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
 
-  // tRPC API
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    })
-  );
+        return { success: true as const, user: db.toSafeUser(user) };
+      }),
 
-  if (process.env.NODE_ENV === "development") {
-    const viteDevModulePath = "./viteDev";
-    const { setupVite } = await import(viteDevModulePath);
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+    register: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email("Email inválido"),
+          password: z.string().min(8, "Senha deve ter no mínimo 8 caracteres"),
+          name: z.string().min(2, "Nome deve ter no mínimo 2 caracteres"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const existing = await db.getUserByEmail(input.email);
+        if (existing) throw new Error("Email já cadastrado");
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+        const totalUsers = await db.countUsers();
+        const role: "admin" | "user" = totalUsers === 0 ? "admin" : "user";
 
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
+        const user = await db.createUser({
+          email: input.email,
+          password: input.password,
+          name: input.name,
+          role,
+        });
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
-  });
-}
+        const token = await sdk.createSessionToken({
+          userId: (user as any).id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        });
 
-startServer().catch(console.error);
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, token, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return { success: true as const, user };
+      }),
+
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+  }),
+});
+
+export type AppRouter = typeof appRouter;
