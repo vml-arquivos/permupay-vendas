@@ -224,77 +224,121 @@ export default function Marketplace() {
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#f5f0e8" }}>
 
       {/* ── HEADER ──────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-50" style={{ backgroundColor: "#f5f0e8" }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex-1" />
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md shadow-sm border-b border-stone-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+          {/* Logo Shop Permapay */}
           <Link href="/vitrine">
-            <span className="text-xl font-black tracking-widest text-stone-900 cursor-pointer select-none">
-              PERMUPAY
-            </span>
+            <div className="flex items-center gap-2.5 cursor-pointer select-none group">
+              {/* Ícone SVG inline */}
+              <svg width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                <rect width="34" height="34" rx="9" fill="#1c1917"/>
+                <path d="M8 12.5C8 10.567 9.567 9 11.5 9H22.5C24.433 9 26 10.567 26 12.5V12.5C26 14.433 24.433 16 22.5 16H11.5C9.567 16 8 14.433 8 12.5V12.5Z" fill="#f5f0e8"/>
+                <path d="M8 21.5C8 19.567 9.567 18 11.5 18H18.5C20.433 18 22 19.567 22 21.5V21.5C22 23.433 20.433 25 18.5 25H11.5C9.567 25 8 23.433 8 21.5V21.5Z" fill="#a8a29e"/>
+              </svg>
+              <div className="leading-none">
+                <span className="block text-[10px] font-semibold text-stone-400 tracking-[0.18em] uppercase">Shop</span>
+                <span className="block text-lg font-black tracking-widest text-stone-900 group-hover:text-stone-700 transition-colors">PERMAPAY</span>
+              </div>
+            </div>
           </Link>
-          <div className="flex-1 flex justify-end">
+
+          {/* Nav central */}
+          <nav className="hidden sm:flex items-center gap-8">
+            <button
+              onClick={() => setActiveCategory(null)}
+              className={`text-sm font-medium pb-0.5 transition-colors border-b-2 ${activeCategory === null ? "text-stone-900 border-stone-900" : "text-stone-500 border-transparent hover:text-stone-900"}`}
+            >
+              Catálogo
+            </button>
+            <Link href="/desejos">
+              <span className="text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors cursor-pointer border-b-2 border-transparent pb-0.5">
+                Lista de Desejos
+              </span>
+            </Link>
             <a
               href={`${PANEL_URL}/login`}
-              className="px-5 py-2 rounded-lg border border-stone-900 text-stone-900 text-sm font-medium hover:bg-stone-900 hover:text-white transition-colors"
+              className="text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors border-b-2 border-transparent pb-0.5"
             >
-              Entrar
+              Gerenciar
             </a>
-          </div>
+          </nav>
+
+          {/* CTA Entrar */}
+          <a
+            href={`${PANEL_URL}/login`}
+            className="shrink-0 px-4 py-2 rounded-lg border border-stone-900 text-stone-900 text-sm font-medium hover:bg-stone-900 hover:text-white transition-colors"
+          >
+            Entrar
+          </a>
         </div>
 
-        {/* Nav secundária */}
-        <div className="border-t border-stone-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <nav className="flex items-center justify-center gap-10 h-11">
-              <button
-                onClick={() => setActiveCategory(null)}
-                className={`text-sm font-medium pb-0.5 transition-colors ${activeCategory === null ? "text-stone-900 border-b-2 border-stone-900" : "text-stone-500 hover:text-stone-900"}`}
-              >
-                Catálogo
-              </button>
-              <Link href="/desejos">
-                <span className="text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors cursor-pointer">
-                  Lista de Desejos
-                </span>
-              </Link>
-              <a
-                href={`${PANEL_URL}/login`}
-                className="text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors"
-              >
-                Gerenciar
-              </a>
-            </nav>
-          </div>
+        {/* Nav mobile */}
+        <div className="sm:hidden border-t border-stone-100 bg-white">
+          <nav className="flex items-center justify-center gap-8 h-10">
+            <button
+              onClick={() => setActiveCategory(null)}
+              className={`text-xs font-medium pb-0.5 transition-colors ${activeCategory === null ? "text-stone-900 border-b-2 border-stone-900" : "text-stone-500"}`}
+            >
+              Catálogo
+            </button>
+            <Link href="/desejos">
+              <span className="text-xs font-medium text-stone-500 hover:text-stone-900 cursor-pointer">Lista de Desejos</span>
+            </Link>
+            <a href={`${PANEL_URL}/login`} className="text-xs font-medium text-stone-500 hover:text-stone-900">Gerenciar</a>
+          </nav>
         </div>
       </header>
 
       {/* ── HERO ────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden" style={{ minHeight: "360px" }}>
+      <section className="relative overflow-hidden" style={{ minHeight: "420px" }}>
+        {/* Imagem de fundo */}
         <div
-          className="absolute inset-0 bg-cover bg-center"
+          className="absolute inset-0 bg-cover bg-center scale-105"
           style={{
             backgroundImage:
               "url('https://images.unsplash.com/photo-1541643600914-78b084683702?w=1600&q=80')",
           }}
         />
-        <div className="absolute inset-0 bg-stone-900/65" />
-        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center text-center py-20">
+        {/* Gradiente duplo: escuro embaixo, levemente dourado */}
+        <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, rgba(28,25,23,0.80) 0%, rgba(28,25,23,0.60) 50%, rgba(87,70,50,0.70) 100%)" }} />
+
+        {/* Conteúdo hero */}
+        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center text-center py-24">
+          {/* Badge superior */}
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-white text-xs font-semibold tracking-widest uppercase mb-5 backdrop-blur-sm">
+            ✦ Vitrine Premium
+          </span>
+
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-tight tracking-tight mb-4">
-            A SUA VITRINE PREMIUM DE<br />
-            <span className="text-stone-300">PRODUTOS EXCLUSIVOS.</span>
+            A Sua Vitrine<br />
+            <span className="text-amber-300">dos Desejos.</span>
           </h1>
-          <p className="text-stone-300 text-base sm:text-lg max-w-2xl mb-8">
-            Crie catálogos prontos, gerencie estoque e finalize vendas com a simplicidade
-            e a sofisticação que seu negócio merece. Permupay transforma sua vitrine.
+          <p className="text-stone-300 text-base sm:text-lg max-w-2xl mb-8 leading-relaxed">
+            Produtos selecionados com cuidado. Preços transparentes.
+            Experiência de compra simples e sofisticada.
           </p>
-          <button
-            onClick={() =>
-              document.getElementById("catalogo")?.scrollIntoView({ behavior: "smooth" })
-            }
-            className="px-8 py-3 rounded-lg border-2 border-white text-white text-sm font-semibold hover:bg-white hover:text-stone-900 transition-colors"
-          >
-            Explorar Catálogo
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() =>
+                document.getElementById("catalogo")?.scrollIntoView({ behavior: "smooth" })
+              }
+              className="px-8 py-3.5 rounded-xl bg-white text-stone-900 text-sm font-bold hover:bg-stone-100 transition-colors shadow-lg"
+            >
+              Explorar Catálogo
+            </button>
+            <Link href="/desejos">
+              <button className="px-8 py-3.5 rounded-xl border-2 border-white/40 text-white text-sm font-semibold hover:border-white hover:bg-white/10 transition-colors backdrop-blur-sm">
+                Lista de Desejos
+              </button>
+            </Link>
+          </div>
+        </div>
+
+        {/* Wave bottom */}
+        <div className="absolute bottom-0 left-0 right-0">
+          <svg viewBox="0 0 1440 40" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" style={{ display: "block", height: "40px", width: "100%" }}>
+            <path d="M0,40 C360,0 1080,0 1440,40 L1440,40 L0,40 Z" fill="#f5f0e8"/>
+          </svg>
         </div>
       </section>
 
@@ -323,10 +367,15 @@ export default function Marketplace() {
 
       {/* ── VITRINE DE PRODUTOS ──────────────────────────────────────────── */}
       <main id="catalogo" className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-12">
-        <div className="flex items-baseline justify-between mb-8">
-          <h2 className="text-2xl font-bold text-stone-900">Vitrine de Destaques</h2>
+        <div className="flex items-end justify-between mb-10">
+          <div>
+            <p className="text-xs font-semibold text-stone-400 uppercase tracking-widest mb-1.5">Coleção em destaque</p>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-stone-900 leading-tight">
+              Vitrine dos <span className="italic font-black" style={{ color: "#b45309" }}>Desejos</span>
+            </h2>
+          </div>
           {!isLoading && filtered.length > 0 && (
-            <p className="text-sm text-stone-400">
+            <p className="text-sm text-stone-400 shrink-0">
               {filtered.length} produto{filtered.length !== 1 ? "s" : ""}
             </p>
           )}
@@ -380,8 +429,17 @@ export default function Marketplace() {
 
       {/* ── RODAPÉ ──────────────────────────────────────────────────────── */}
       <footer className="border-t border-stone-200" style={{ backgroundColor: "#f5f0e8" }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+            {/* Logo no rodapé */}
+            <div className="flex items-center gap-2">
+              <svg width="28" height="28" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="34" height="34" rx="9" fill="#1c1917"/>
+                <path d="M8 12.5C8 10.567 9.567 9 11.5 9H22.5C24.433 9 26 10.567 26 12.5V12.5C26 14.433 24.433 16 22.5 16H11.5C9.567 16 8 14.433 8 12.5V12.5Z" fill="#f5f0e8"/>
+                <path d="M8 21.5C8 19.567 9.567 18 11.5 18H18.5C20.433 18 22 19.567 22 21.5V21.5C22 23.433 20.433 25 18.5 25H11.5C9.567 25 8 23.433 8 21.5V21.5Z" fill="#a8a29e"/>
+              </svg>
+              <span className="font-black tracking-widest text-stone-700 text-sm">PERMAPAY</span>
+            </div>
             <nav className="flex items-center gap-6 text-sm text-stone-500">
               <button
                 onClick={() => setActiveCategory(null)}
