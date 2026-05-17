@@ -2,7 +2,14 @@ import bcrypt from "bcryptjs";
 import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { InsertUser, SafeUser, User, pricingSimulations, products, users } from "../drizzle/schema";
+import {
+  InsertUser,
+  SafeUser,
+  User,
+  pricingSimulations,
+  products,
+  users,
+} from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: Pool | null = null;
@@ -100,9 +107,6 @@ export async function countUsers(): Promise<number> {
 
 // ─── Helpers de cálculo de custo ──────────────────────────────────────────────
 
-/**
- * Calcula o custo em BRL baseado na moeda e cotação
- */
 function calculateCostPriceBrl(data: any): number {
   if (data.costCurrency === "USD") {
     if (!data.usdExchangeRate || data.usdExchangeRate <= 0) {
@@ -113,9 +117,6 @@ function calculateCostPriceBrl(data: any): number {
   return Number(data.costPrice || 0);
 }
 
-/**
- * Calcula o custo final unitário
- */
 function calculateFinalUnitCost(costPriceBrl: number, data: any): number {
   return (
     costPriceBrl +
@@ -126,15 +127,18 @@ function calculateFinalUnitCost(costPriceBrl: number, data: any): number {
 }
 
 // ─── Funções de Produtos ──────────────────────────────────────────────────────
+//
+// ALTERAÇÃO: listProducts e getProductById não filtram mais por userId.
+// Qualquer usuário autenticado vê todos os produtos.
 
-export async function listProducts(userId?: number) {
+export async function listProducts(_userId?: number) {
   const db = await getDb();
   if (!db) return [];
   try {
+    // Sem filtro por userId — acesso total para todos os autenticados
     return await db
       .select()
       .from(products)
-      .where(userId ? eq(products.userId, userId) : undefined as any)
       .orderBy(desc(products.createdAt));
   } catch (error) {
     console.error("[DB] Erro ao listar produtos:", error);
@@ -142,14 +146,15 @@ export async function listProducts(userId?: number) {
   }
 }
 
-export async function getProductById(id: number, userId?: number) {
+export async function getProductById(id: number, _userId?: number) {
   const db = await getDb();
   if (!db) return undefined;
   try {
+    // Sem filtro por userId — acesso total para todos os autenticados
     const r = await db
       .select()
       .from(products)
-      .where(and(eq(products.id, id), userId ? eq(products.userId, userId) : undefined as any))
+      .where(eq(products.id, id))
       .limit(1);
     return r[0];
   } catch (error) {
@@ -163,12 +168,10 @@ export async function createProduct(data: any) {
   if (!db) throw new Error("Database not available");
 
   try {
-    // Validar dados obrigatórios
     if (!data.name || !data.category) {
       throw new Error("Nome e categoria são obrigatórios");
     }
 
-    // Validações de moeda e cotação
     const costCurrency = data.costCurrency || "BRL";
     if (!["BRL", "USD"].includes(costCurrency)) {
       throw new Error("Moeda deve ser BRL ou USD");
@@ -181,32 +184,19 @@ export async function createProduct(data: any) {
       }
     }
 
-    // Validações de valores não negativos
     const costPriceUsd = Number(data.costPriceUsd || 0);
     const usdExchangeRate = Number(data.usdExchangeRate || 0);
     const stockQuantity = Number(data.stockQuantity || 0);
     const minimumStock = Number(data.minimumStock || 0);
 
-    if (costPriceUsd < 0) {
-      throw new Error("Preço em dólar não pode ser negativo");
-    }
-    if (usdExchangeRate < 0) {
-      throw new Error("Cotação do dólar não pode ser negativa");
-    }
-    if (stockQuantity < 0) {
-      throw new Error("Estoque não pode ser negativo");
-    }
-    if (minimumStock < 0) {
-      throw new Error("Estoque mínimo não pode ser negativo");
-    }
+    if (costPriceUsd < 0) throw new Error("Preço em dólar não pode ser negativo");
+    if (usdExchangeRate < 0) throw new Error("Cotação do dólar não pode ser negativa");
+    if (stockQuantity < 0) throw new Error("Estoque não pode ser negativo");
+    if (minimumStock < 0) throw new Error("Estoque mínimo não pode ser negativo");
 
-    // Calcular custo em BRL
     const costPriceBrl = calculateCostPriceBrl({ ...data, costCurrency });
-
-    // Calcular custo final unitário
     const finalUnitCostBrl = calculateFinalUnitCost(costPriceBrl, data);
 
-    // Garantir que os números estejam corretos
     const productData = {
       name: String(data.name).trim(),
       category: data.category,
@@ -229,39 +219,32 @@ export async function createProduct(data: any) {
       minimumStock,
       averageCostBrl: costPriceBrl,
       finalUnitCostBrl,
-      // Campos de vitrine
       shortDescription: data.shortDescription ? String(data.shortDescription).trim() : null,
       description: data.description ? String(data.description).trim() : null,
       categoryLabel: data.categoryLabel ? String(data.categoryLabel).trim() : null,
       promoTag: data.promoTag ? String(data.promoTag).trim() : null,
       published: data.published === true,
-      // Preços calculados para vitrine
       suggestedPrice: Math.max(0, Number(data.suggestedPrice) || 0),
       suggestedPricePix: Math.max(0, Number(data.suggestedPricePix) || 0),
       suggestedPriceCard: Math.max(0, Number(data.suggestedPriceCard) || 0),
       suggestedPriceBoleto: Math.max(0, Number(data.suggestedPriceBoleto) || 0),
-      // Links de pagamento
       paymentPlatform: data.paymentPlatform || "MERCADO_PAGO",
       pixKey: data.pixKey ? String(data.pixKey).trim() : null,
       pixLink: data.pixLink ? String(data.pixLink).trim() : null,
       cardPaymentUrl: data.cardPaymentUrl ? String(data.cardPaymentUrl).trim() : null,
       boletoUrl: data.boletoUrl ? String(data.boletoUrl).trim() : null,
-      // Margem
       desiredMarginValue: Math.max(0, Number(data.desiredMarginValue) || 0),
       marginMode: data.marginMode || "PERCENT",
-      // Configuração Fiscal
       taxCash: Math.max(0, Number(data.taxCash) || 6),
       taxBoleto: Math.max(0, Number(data.taxBoleto) || 6),
       taxDebit: Math.max(0, Number(data.taxDebit) || 6),
       taxCreditCash: Math.max(0, Number(data.taxCreditCash) || 6),
       taxCreditInstallment: Math.max(0, Number(data.taxCreditInstallment) || 6),
-      // Configuração de Boleto
       boletoMonths: Math.max(1, Number(data.boletoMonths) || 3),
       boletoMonthlyRate: Math.max(0, Number(data.boletoMonthlyRate) || 1.99),
-      boletoFixedFee: Math.max(0, Number(data.boletoFixedFee) || 3.50),
+      boletoFixedFee: Math.max(0, Number(data.boletoFixedFee) || 3.5),
       boletoDefaultRisk: Math.max(0, Number(data.boletoDefaultRisk) || 2),
       boletoCustomerPaysInterest: data.boletoCustomerPaysInterest === true,
-      // Configuração de Cartão
       cardDebitFee: Math.max(0, Number(data.cardDebitFee) || 1.5),
       cardCreditCashFee: Math.max(0, Number(data.cardCreditCashFee) || 2.5),
       cardCreditInstallmentFee: Math.max(0, Number(data.cardCreditInstallmentFee) || 3.5),
@@ -279,56 +262,40 @@ export async function createProduct(data: any) {
   }
 }
 
-export async function updateProduct(id: number, data: any, userId?: number) {
+export async function updateProduct(id: number, data: any, _userId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   try {
-    const updateData: any = {
-      updatedAt: new Date(),
-    };
+    const updateData: any = { updatedAt: new Date() };
 
-    // Validações de moeda e cotação
     if (data.costCurrency !== undefined) {
       if (!["BRL", "USD"].includes(data.costCurrency)) {
         throw new Error("Moeda deve ser BRL ou USD");
       }
       updateData.costCurrency = data.costCurrency;
     }
-
     if (data.usdExchangeRate !== undefined) {
-      const exchangeRate = Number(data.usdExchangeRate || 0);
-      if (exchangeRate < 0) {
-        throw new Error("Cotação do dólar não pode ser negativa");
-      }
-      updateData.usdExchangeRate = exchangeRate;
+      const v = Number(data.usdExchangeRate || 0);
+      if (v < 0) throw new Error("Cotação do dólar não pode ser negativa");
+      updateData.usdExchangeRate = v;
     }
-
     if (data.costPriceUsd !== undefined) {
-      const costPriceUsd = Number(data.costPriceUsd || 0);
-      if (costPriceUsd < 0) {
-        throw new Error("Preço em dólar não pode ser negativo");
-      }
-      updateData.costPriceUsd = costPriceUsd;
+      const v = Number(data.costPriceUsd || 0);
+      if (v < 0) throw new Error("Preço em dólar não pode ser negativo");
+      updateData.costPriceUsd = v;
     }
-
     if (data.stockQuantity !== undefined) {
-      const stockQuantity = Number(data.stockQuantity || 0);
-      if (stockQuantity < 0) {
-        throw new Error("Estoque não pode ser negativo");
-      }
-      updateData.stockQuantity = stockQuantity;
+      const v = Number(data.stockQuantity || 0);
+      if (v < 0) throw new Error("Estoque não pode ser negativo");
+      updateData.stockQuantity = v;
     }
-
     if (data.minimumStock !== undefined) {
-      const minimumStock = Number(data.minimumStock || 0);
-      if (minimumStock < 0) {
-        throw new Error("Estoque mínimo não pode ser negativo");
-      }
-      updateData.minimumStock = minimumStock;
+      const v = Number(data.minimumStock || 0);
+      if (v < 0) throw new Error("Estoque mínimo não pode ser negativo");
+      updateData.minimumStock = v;
     }
 
-    // Atualizar apenas campos fornecidos
     if (data.name !== undefined) updateData.name = String(data.name).trim();
     if (data.category !== undefined) updateData.category = data.category;
     if (data.ncm !== undefined) updateData.ncm = data.ncm ? String(data.ncm).trim() : null;
@@ -341,39 +308,33 @@ export async function updateProduct(id: number, data: any, userId?: number) {
     if (data.estimatedTaxRate !== undefined) updateData.estimatedTaxRate = Number(data.estimatedTaxRate) || 0;
     if (data.notes !== undefined) updateData.notes = data.notes ? String(data.notes).trim() : null;
     if (data.active !== undefined) updateData.active = data.active;
-    // Campos de vitrine
     if (data.shortDescription !== undefined) updateData.shortDescription = data.shortDescription ? String(data.shortDescription).trim() : null;
     if (data.description !== undefined) updateData.description = data.description ? String(data.description).trim() : null;
     if (data.categoryLabel !== undefined) updateData.categoryLabel = data.categoryLabel ? String(data.categoryLabel).trim() : null;
     if (data.promoTag !== undefined) updateData.promoTag = data.promoTag ? String(data.promoTag).trim() : null;
     if (data.published !== undefined) updateData.published = data.published === true;
-    // Preços calculados para vitrine
+    // Preços calculados — só atualiza se veio no payload (sem sobrescrever com zero)
     if (data.suggestedPrice !== undefined) updateData.suggestedPrice = Math.max(0, Number(data.suggestedPrice) || 0);
     if (data.suggestedPricePix !== undefined) updateData.suggestedPricePix = Math.max(0, Number(data.suggestedPricePix) || 0);
     if (data.suggestedPriceCard !== undefined) updateData.suggestedPriceCard = Math.max(0, Number(data.suggestedPriceCard) || 0);
     if (data.suggestedPriceBoleto !== undefined) updateData.suggestedPriceBoleto = Math.max(0, Number(data.suggestedPriceBoleto) || 0);
-    // Links de pagamento
     if (data.paymentPlatform !== undefined) updateData.paymentPlatform = data.paymentPlatform || "MERCADO_PAGO";
     if (data.pixKey !== undefined) updateData.pixKey = data.pixKey ? String(data.pixKey).trim() : null;
     if (data.pixLink !== undefined) updateData.pixLink = data.pixLink ? String(data.pixLink).trim() : null;
     if (data.cardPaymentUrl !== undefined) updateData.cardPaymentUrl = data.cardPaymentUrl ? String(data.cardPaymentUrl).trim() : null;
     if (data.boletoUrl !== undefined) updateData.boletoUrl = data.boletoUrl ? String(data.boletoUrl).trim() : null;
-    // Margem
     if (data.desiredMarginValue !== undefined) updateData.desiredMarginValue = Math.max(0, Number(data.desiredMarginValue) || 0);
     if (data.marginMode !== undefined) updateData.marginMode = data.marginMode || "PERCENT";
-    // Configuração Fiscal
     if (data.taxCash !== undefined) updateData.taxCash = Math.max(0, Number(data.taxCash) || 6);
     if (data.taxBoleto !== undefined) updateData.taxBoleto = Math.max(0, Number(data.taxBoleto) || 6);
     if (data.taxDebit !== undefined) updateData.taxDebit = Math.max(0, Number(data.taxDebit) || 6);
     if (data.taxCreditCash !== undefined) updateData.taxCreditCash = Math.max(0, Number(data.taxCreditCash) || 6);
     if (data.taxCreditInstallment !== undefined) updateData.taxCreditInstallment = Math.max(0, Number(data.taxCreditInstallment) || 6);
-    // Configuração de Boleto
     if (data.boletoMonths !== undefined) updateData.boletoMonths = Math.max(1, Number(data.boletoMonths) || 3);
     if (data.boletoMonthlyRate !== undefined) updateData.boletoMonthlyRate = Math.max(0, Number(data.boletoMonthlyRate) || 1.99);
-    if (data.boletoFixedFee !== undefined) updateData.boletoFixedFee = Math.max(0, Number(data.boletoFixedFee) || 3.50);
+    if (data.boletoFixedFee !== undefined) updateData.boletoFixedFee = Math.max(0, Number(data.boletoFixedFee) || 3.5);
     if (data.boletoDefaultRisk !== undefined) updateData.boletoDefaultRisk = Math.max(0, Number(data.boletoDefaultRisk) || 2);
     if (data.boletoCustomerPaysInterest !== undefined) updateData.boletoCustomerPaysInterest = data.boletoCustomerPaysInterest === true;
-    // Configuração de Cartão
     if (data.cardDebitFee !== undefined) updateData.cardDebitFee = Math.max(0, Number(data.cardDebitFee) || 1.5);
     if (data.cardCreditCashFee !== undefined) updateData.cardCreditCashFee = Math.max(0, Number(data.cardCreditCashFee) || 2.5);
     if (data.cardCreditInstallmentFee !== undefined) updateData.cardCreditInstallmentFee = Math.max(0, Number(data.cardCreditInstallmentFee) || 3.5);
@@ -382,7 +343,7 @@ export async function updateProduct(id: number, data: any, userId?: number) {
     if (data.cardMonthlyRate !== undefined) updateData.cardMonthlyRate = Math.max(0, Number(data.cardMonthlyRate) || 1.99);
     if (data.cardCustomerPaysInterest !== undefined) updateData.cardCustomerPaysInterest = data.cardCustomerPaysInterest === true;
 
-    // Recalcular custo em BRL e custo final unitário se houver alterações relevantes
+    // Recalcular custo BRL/unitário apenas quando campos de custo mudaram
     if (
       data.costCurrency !== undefined ||
       data.costPrice !== undefined ||
@@ -392,8 +353,7 @@ export async function updateProduct(id: number, data: any, userId?: number) {
       data.inboundShippingCost !== undefined ||
       data.operationalCost !== undefined
     ) {
-      // Buscar produto atual para ter valores completos
-      const current = await getProductById(id, userId);
+      const current = await getProductById(id);
       if (current) {
         const mergedData = { ...current, ...updateData };
         const costPriceBrl = calculateCostPriceBrl(mergedData);
@@ -404,10 +364,11 @@ export async function updateProduct(id: number, data: any, userId?: number) {
       }
     }
 
+    // Sem filtro por userId — acesso total para todos os autenticados
     const [r] = await db
       .update(products)
       .set(updateData)
-      .where(and(eq(products.id, id), userId ? eq(products.userId, userId) : undefined as any))
+      .where(eq(products.id, id))
       .returning();
     return r;
   } catch (error) {
@@ -416,12 +377,12 @@ export async function updateProduct(id: number, data: any, userId?: number) {
   }
 }
 
-export async function deactivateProduct(id: number, userId?: number) {
-  return updateProduct(id, { active: false }, userId);
+export async function deactivateProduct(id: number, _userId?: number) {
+  return updateProduct(id, { active: false });
 }
 
-export async function duplicateProduct(id: number, userId?: number) {
-  const p = await getProductById(id, userId);
+export async function duplicateProduct(id: number, _userId?: number) {
+  const p = await getProductById(id);
   if (!p) throw new Error("Produto não encontrado");
   const { id: _, createdAt, updatedAt, ...rest } = p as any;
   return createProduct({ ...rest, name: `${p.name} (Cópia)` });
@@ -434,10 +395,7 @@ export async function createSimulation(data: any) {
   if (!db) throw new Error("Database not available");
 
   try {
-    // Validar dados obrigatórios
-    if (!data.name) {
-      throw new Error("Nome da simulação é obrigatório");
-    }
+    if (!data.name) throw new Error("Nome da simulação é obrigatório");
 
     const simulationData = {
       name: String(data.name).trim(),
@@ -465,14 +423,14 @@ export async function createSimulation(data: any) {
   }
 }
 
-export async function listSimulations(userId?: number) {
+export async function listSimulations(_userId?: number) {
   const db = await getDb();
   if (!db) return [];
   try {
+    // Sem filtro por userId — acesso total para todos os autenticados
     return await db
       .select()
       .from(pricingSimulations)
-      .where(userId ? eq(pricingSimulations.userId, userId) : undefined as any)
       .orderBy(desc(pricingSimulations.createdAt));
   } catch (error) {
     console.error("[DB] Erro ao listar simulações:", error);
@@ -480,14 +438,14 @@ export async function listSimulations(userId?: number) {
   }
 }
 
-export async function getSimulationById(id: number, userId?: number) {
+export async function getSimulationById(id: number, _userId?: number) {
   const db = await getDb();
   if (!db) return undefined;
   try {
     const r = await db
       .select()
       .from(pricingSimulations)
-      .where(and(eq(pricingSimulations.id, id), userId ? eq(pricingSimulations.userId, userId) : undefined as any))
+      .where(eq(pricingSimulations.id, id))
       .limit(1);
     return r[0];
   } catch (error) {
@@ -496,28 +454,51 @@ export async function getSimulationById(id: number, userId?: number) {
   }
 }
 
-export async function deleteSimulation(id: number, userId?: number) {
+export async function deleteSimulation(id: number, _userId?: number) {
   const db = await getDb();
   if (!db) return;
   try {
-    await db.delete(pricingSimulations).where(and(eq(pricingSimulations.id, id), userId ? eq(pricingSimulations.userId, userId) : undefined as any));
+    await db
+      .delete(pricingSimulations)
+      .where(eq(pricingSimulations.id, id));
   } catch (error) {
     console.error("[DB] Erro ao deletar simulação:", error);
     throw error;
   }
 }
 
-export async function duplicateSimulation(id: number, userId?: number) {
-  const s = await getSimulationById(id, userId);
+export async function duplicateSimulation(id: number, _userId?: number) {
+  const s = await getSimulationById(id);
   if (!s) throw new Error("Simulação não encontrada");
   const { id: _, createdAt, updatedAt, ...rest } = s as any;
   return createSimulation({ ...rest, name: `${s.name} (Cópia)` });
 }
 
-export async function getDashboardData(userId?: number) {
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
+export async function getDashboardData(_userId?: number) {
   try {
-    const prods = await listProducts(userId);
-    const sims = await listSimulations(userId);
+    const [prods, sims] = await Promise.all([
+      listProducts(),
+      listSimulations(),
+    ]);
+
+    // Dados de pedidos (opcional — falha suave se tabela não existir)
+    let orderCounts = {
+      aguardando: 0,
+      pagos: 0,
+      cancelados: 0,
+      expirados: 0,
+      faturamento: 0,
+      ticketMedio: 0,
+    };
+    try {
+      const { getOrderCounts } = await import("./db.orders");
+      orderCounts = await getOrderCounts();
+    } catch {
+      // tabela ainda não existe — ignora
+    }
+
     return {
       totalProducts: prods.length,
       activeProducts: prods.filter((p: any) => p.active).length,
@@ -530,6 +511,12 @@ export async function getDashboardData(userId?: number) {
         ["SAUDAVEL", "EXCELENTE"].includes(s.diagnosis)
       ).length,
       recentSimulations: sims.slice(0, 5),
+      // Dados de pedidos/vendas
+      ordersAguardando: orderCounts.aguardando,
+      ordersPagos: orderCounts.pagos,
+      ordersCancelados: orderCounts.cancelados,
+      faturamentoConfirmado: orderCounts.faturamento,
+      ticketMedio: orderCounts.ticketMedio,
     };
   } catch (err) {
     console.error("[DB] getDashboardData error:", err);
@@ -541,6 +528,11 @@ export async function getDashboardData(userId?: number) {
       attentionCount: 0,
       healthyCount: 0,
       recentSimulations: [],
+      ordersAguardando: 0,
+      ordersPagos: 0,
+      ordersCancelados: 0,
+      faturamentoConfirmado: 0,
+      ticketMedio: 0,
     };
   }
 }
