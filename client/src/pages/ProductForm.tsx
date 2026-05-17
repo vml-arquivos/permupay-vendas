@@ -624,15 +624,15 @@ export default function ProductForm() {
 
   return (
     <DashboardLayout>
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-      {/* Cabeçalho */}
-      <div className="flex items-center justify-between">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      {/* ── Cabeçalho ─────────────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => setLocation("/produtos")}>
+          <Button variant="ghost" size="sm" onClick={() => setLocation("/produtos")} className="shrink-0">
             <ArrowLeft className="w-4 h-4 mr-1" /> Voltar
           </Button>
-          <div>
-            <h1 className="text-lg font-bold text-foreground">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-foreground truncate">
               {isEditing ? "Editar Produto" : "Novo Produto"}
             </h1>
             <p className="text-xs text-muted-foreground">
@@ -640,7 +640,7 @@ export default function ProductForm() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           {isEditing && form.published && productId && (
             <Button
               variant="ghost"
@@ -1057,13 +1057,27 @@ export default function ProductForm() {
         </div>
       </SectionCard>
 
-      {/* Botão salvar final */}
-      <div className="flex justify-end gap-3 pt-2 pb-8">
-        <Button variant="outline" onClick={() => setLocation("/produtos")}>Cancelar</Button>
-        <Button onClick={handleSave} disabled={isSaving} size="lg">
-          <Save className="w-4 h-4 mr-2" />
-          {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
-        </Button>
+      {/* Barra de ações final */}
+      <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur border-t border-border -mx-4 sm:-mx-6 px-4 sm:px-6 py-4 mt-2">
+        <div className="max-w-4xl mx-auto flex justify-between items-center gap-3">
+          <Button variant="ghost" onClick={() => setLocation("/produtos")} className="text-muted-foreground">
+            <ArrowLeft className="w-4 h-4 mr-1.5" /> Cancelar
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCalculate}
+              disabled={!form.name.trim() || costPriceBrl <= 0}
+            >
+              <Calculator className="w-4 h-4 mr-1" /> Calcular Preços
+            </Button>
+            <Button onClick={handleSave} disabled={isSaving} size="default">
+              <Save className="w-4 h-4 mr-2" />
+              {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
     </DashboardLayout>
