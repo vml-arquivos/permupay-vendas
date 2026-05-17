@@ -376,6 +376,9 @@ export default function ProductForm() {
   const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // Imagens pendentes para upload ao criar produto novo
+  const [pendingImages, setPendingImages] = useState<File[]>([]);
+  const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
 
   // Queries
   const productQuery = trpc.products.byId.useQuery(
@@ -383,8 +386,41 @@ export default function ProductForm() {
     { enabled: isEditing }
   );
   const utils = trpc.useUtils();
+  const addImageMutation = trpc.products.addImage.useMutation();
+
   const createProduct = trpc.products.create.useMutation({
-    onSuccess: () => { utils.products.list.invalidate(); setLocation("/produtos"); toast.success("Produto criado!"); },
+    onSuccess: async (newProduct) => {
+      // Após criar, fazer upload das imagens pendentes
+      if (pendingImages.length > 0) {
+        for (const file of pendingImages) {
+          try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("productId", String(newProduct.id));
+            const res = await fetch(`/api/upload/product-image`, {
+              method: "POST",
+              body: formData,
+            });
+            if (res.ok) {
+              const { url, storageKey } = await res.json();
+              await addImageMutation.mutateAsync({
+                productId: newProduct.id,
+                url,
+                storageKey,
+                altText: file.name,
+              });
+            } else {
+              toast.warning(`Imagem "${file.name}" não pôde ser enviada.`);
+            }
+          } catch {
+            toast.warning(`Falha ao enviar "${file.name}". O produto foi criado.`);
+          }
+        }
+      }
+      utils.products.list.invalidate();
+      setLocation("/produtos");
+      toast.success("Produto criado!");
+    },
     onError: (e) => { toast.error(e.message); setIsSaving(false); },
   });
   const updateProduct = trpc.products.update.useMutation({
@@ -392,22 +428,35 @@ export default function ProductForm() {
     onError: (e) => { toast.error(e.message); setIsSaving(false); },
   });
 
+  // Seleção de imagens pendentes (novo produto)
+  const handlePendingImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).slice(0, 10);
+    setPendingImages(files);
+    setPendingPreviews(files.map((f) => URL.createObjectURL(f)));
+    e.target.value = "";
+  }, []);
+
   const set = useCallback((field: keyof FormState) => (value: string | boolean) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   }, []);
 
   const handleTaxRegimeChange = useCallback((regime: TaxRegime) => {
-    const rates = SUGGESTED_TAX_RATES[regime];
+    // Apenas muda o regime — NÃO sobrescreve as taxas configuradas pelo usuário.
+    // Use o botão "Aplicar taxas sugeridas" para aplicar os valores padrão do regime.
+    setForm((prev) => ({ ...prev, taxRegime: regime }));
+  }, []);
+
+  const handleApplySuggestedTaxes = useCallback(() => {
+    const rates = SUGGESTED_TAX_RATES[form.taxRegime];
     setForm((prev) => ({
       ...prev,
-      taxRegime: regime,
       taxCash: String(rates.cash),
       taxBoleto: String(rates.boleto),
       taxDebit: String(rates.debit),
       taxCreditCash: String(rates.creditCash),
       taxCreditInstallment: String(rates.creditInstallment),
     }));
-  }, []);
+  }, [form.taxRegime]);
 
   // Preencher formulário ao editar
   useEffect(() => {
@@ -538,11 +587,39 @@ export default function ProductForm() {
     if (!form.name.trim()) { toast.error("Informe o nome do produto."); return; }
     setIsSaving(true);
 
-    // Preços calculados para vitrine (sem dados internos)
+    // Preços calculados para vitrine
+    // Se pricingResult for null e estiver editando, manter os preços existentes do produto
     const pixResult = pricingResult?.results.find(r => r.method === "PIX");
     const cardResult = pricingResult?.results.find(r => r.method === "CREDITO_A_VISTA");
     const boletoResult = pricingResult?.results.find(r => r.method === "BOLETO");
     const bestResult = pricingResult?.results.find(r => r.method === pricingResult.bestMethod);
+
+    // Em edição sem recálculo: não enviar suggestedPrice* — o backend mantém o valor existente
+    // Em criação sem cálculo: enviar 0 (correto, produto novo sem preço)
+    // Em criação/edição com cálculo: enviar valores calculados
+    const hasPricingResult = pricingResult !== null;
+
+    const pricePayload = hasPricingResult
+      ? {
+          suggestedPrice: bestResult?.suggestedPrice ?? 0,
+          suggestedPricePix: pixResult?.suggestedPrice ?? 0,
+          suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
+          suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
+        }
+      : isEditing
+        ? {
+            // Manter preços existentes: usar dados carregados do produto
+            suggestedPrice: productQuery.data?.suggestedPrice ?? 0,
+            suggestedPricePix: productQuery.data?.suggestedPricePix ?? 0,
+            suggestedPriceCard: productQuery.data?.suggestedPriceCard ?? 0,
+            suggestedPriceBoleto: productQuery.data?.suggestedPriceBoleto ?? 0,
+          }
+        : {
+            suggestedPrice: 0,
+            suggestedPricePix: 0,
+            suggestedPriceCard: 0,
+            suggestedPriceBoleto: 0,
+          };
 
     const payload = {
       name: form.name.trim(),
@@ -568,11 +645,6 @@ export default function ProductForm() {
       desiredMarginValue: n(form.desiredMarginValue),
       taxRegime: form.taxRegime,
       estimatedTaxRate: n(form.taxCash),
-      // Preços calculados (somente estes vão para vitrine)
-      suggestedPrice: bestResult?.suggestedPrice ?? 0,
-      suggestedPricePix: pixResult?.suggestedPrice ?? 0,
-      suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
-      suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
       // Configuração Fiscal
       taxCash: n(form.taxCash),
       taxBoleto: n(form.taxBoleto),
@@ -601,14 +673,16 @@ export default function ProductForm() {
       boletoUrl: form.boletoUrl || undefined,
       // Margem
       marginMode: form.marginMode,
+      // Preços calculados para vitrine (preservados em edição sem recálculo)
+      ...pricePayload,
     };
 
     if (isEditing) {
       updateProduct.mutate({ id: productId!, data: payload });
     } else {
-      createProduct.mutate(payload);
+      createProduct.mutate(payload as any);
     }
-  }, [form, costPriceBrl, effectiveMarginRate, pricingResult, isEditing, productId, createProduct, updateProduct]);
+  }, [form, costPriceBrl, effectiveMarginRate, pricingResult, isEditing, productId, productQuery.data, createProduct, updateProduct]);
 
   if (isEditing && productQuery.isLoading) {
     return (
