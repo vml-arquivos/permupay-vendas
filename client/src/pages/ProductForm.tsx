@@ -69,6 +69,7 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import ImageGallery from "@/components/ImageGallery";
+import DashboardLayout from "@/components/DashboardLayout";
 import { toast } from "sonner";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -622,6 +623,7 @@ export default function ProductForm() {
   }
 
   return (
+    <DashboardLayout>
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       {/* Cabeçalho */}
       <div className="flex items-center justify-between">
@@ -849,12 +851,7 @@ export default function ProductForm() {
       {/* ── Bloco 4: Fiscal ─────────────────────────────────────────────────── */}
       <SectionCard icon={<AlertTriangle className="w-4 h-4" />} title="Configuração Fiscal" subtitle="Regime tributário e alíquotas por forma de pagamento">
         <div className="space-y-4">
-          <div className="flex gap-3 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800/30">
-            <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-yellow-700 dark:text-yellow-300 leading-relaxed">
-              <strong>Aviso fiscal:</strong> Alíquotas sugeridas automaticamente. Confirme NCM, regime tributário e CST/CSOSN com seu contador.
-            </p>
-          </div>
+          {/* Aviso fiscal removido */}
           <FF label="Regime tributário">
             <Select value={form.taxRegime} onValueChange={(v) => handleTaxRegimeChange(v as TaxRegime)}>
               <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
@@ -1069,5 +1066,6 @@ export default function ProductForm() {
         </Button>
       </div>
     </div>
+    </DashboardLayout>
   );
 }
