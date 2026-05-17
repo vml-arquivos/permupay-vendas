@@ -1,6 +1,10 @@
 /**
  * drizzle/schema.orders.ts
- * Extensão do schema principal — tabela de pedidos/reservas
+ *
+ * ALTERAÇÕES:
+ * - Status padrão: AGUARDANDO_PAGAMENTO (pedido gerado sem descontar estoque)
+ * - Novo status: LIBERADO_RETIRADA (após confirmação manual do admin)
+ * - Remoção do status RESERVADO como padrão (fluxo antigo de reserva 2h)
  */
 
 import {
@@ -16,9 +20,10 @@ import { users } from "./schema";
 import { products } from "./schema";
 
 export const orderStatusEnum = pgEnum("permupay_order_status", [
-  "RESERVADO",
-  "AGUARDANDO_PAGAMENTO",
-  "PAGO",
+  "AGUARDANDO_PAGAMENTO",   // pedido gerado, aguarda confirmação manual
+  "RESERVADO",              // mantido para retrocompatibilidade
+  "PAGO",                   // pagamento confirmado pelo admin → estoque debitado
+  "LIBERADO_RETIRADA",      // alias semântico de PAGO, exibido ao cliente
   "CANCELADO",
   "EXPIRADO",
 ]);
@@ -47,7 +52,10 @@ export const orders = pgTable("permupay_orders", {
   totalPrice: real("total_price").notNull(),
 
   // Status e controle
-  status: orderStatusEnum("status").notNull().default("RESERVADO"),
+  // Padrão: AGUARDANDO_PAGAMENTO — estoque NÃO é debitado na criação
+  status: orderStatusEnum("status").notNull().default("AGUARDANDO_PAGAMENTO"),
+
+  // expires_at: mantido para compatibilidade, mas não expira automaticamente no novo fluxo
   expiresAt: timestamp("expires_at").notNull(),
   confirmedAt: timestamp("confirmed_at"),
   confirmedBy: integer("confirmed_by").references(() => users.id, {
