@@ -5,6 +5,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import DashboardLayout from "./components/DashboardLayout";
 
 // Páginas públicas
 import Marketplace from "./pages/Marketplace";
@@ -26,6 +27,27 @@ import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
 import Relatorios from "./pages/Relatorios";
 
+/**
+ * PL = Protected + Layout
+ *
+ * Envolve o conteúdo com ProtectedRoute (autenticação) e DashboardLayout (menu lateral).
+ * Páginas que já importam DashboardLayout internamente (Estoque, Relatorios, etc.)
+ * receberão um DashboardLayout duplo — para evitar isso, essas páginas devem ser
+ * migradas para não usar DashboardLayout internamente. Por ora, usamos apenas PL
+ * para as páginas que NÃO têm DashboardLayout interno.
+ */
+const PL = ({ children }: { children: React.ReactNode }) => (
+  <ProtectedRoute>
+    <DashboardLayout>{children}</DashboardLayout>
+  </ProtectedRoute>
+);
+
+/**
+ * P = Protected only
+ *
+ * Para páginas que JÁ têm DashboardLayout interno (Estoque, Relatorios, Usuarios,
+ * Configuracoes, WishlistAdmin) — evita duplicação do layout.
+ */
 const P = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>{children}</ProtectedRoute>
 );
@@ -33,44 +55,42 @@ const P = ({ children }: { children: React.ReactNode }) => (
 function Router() {
   return (
     <Switch>
-      {/* Públicas */}
+      {/* ── PÚBLICAS ──────────────────────────────────────────────────── */}
       <Route path="/" component={Marketplace} />
       <Route path="/vitrine" component={Marketplace} />
+      <Route path="/vitrine/:id" component={ProductPage} />
       <Route path="/login" component={Login} />
       <Route path="/simulador" component={PricingSimulator} />
       <Route path="/desejos" component={WishlistPublic} />
-      <Route path="/vitrine/:id" component={ProductPage} />
 
-      {/* Dashboard */}
-      <Route path="/dashboard">{() => <P><Dashboard /></P>}</Route>
+      {/* ── DASHBOARD (sem DashboardLayout interno) ───────────────────── */}
+      <Route path="/dashboard">{() => <PL><Dashboard /></PL>}</Route>
 
-      {/* Produtos */}
-      <Route path="/produtos">{() => <P><Products /></P>}</Route>
-      <Route path="/produtos/novo">{() => <P><ProductForm /></P>}</Route>
-      <Route path="/produtos/:id/editar">
-        {() => <P><ProductForm /></P>}
-      </Route>
+      {/* ── PRODUTOS (sem DashboardLayout interno) ────────────────────── */}
+      <Route path="/produtos">{() => <PL><Products /></PL>}</Route>
+      <Route path="/produtos/novo">{() => <PL><ProductForm /></PL>}</Route>
+      <Route path="/produtos/:id/editar">{() => <PL><ProductForm /></PL>}</Route>
 
-      {/* Estoque */}
+      {/* ── ESTOQUE (tem DashboardLayout interno) ─────────────────────── */}
       <Route path="/estoque">{() => <P><Estoque /></P>}</Route>
 
-      {/* Simulações */}
-      <Route path="/simulacoes">{() => <P><SimulationsExport /></P>}</Route>
+      {/* ── SIMULAÇÕES (sem DashboardLayout interno) ──────────────────── */}
+      <Route path="/simulacoes">{() => <PL><SimulationsExport /></PL>}</Route>
       <Route path="/simulacoes/:id">
-        {(params: any) => <P><SimulationDetail id={Number(params.id)} /></P>}
+        {(params: any) => <PL><SimulationDetail id={Number(params.id)} /></PL>}
       </Route>
 
-      {/* Lotes */}
-      <Route path="/lotes">{() => <P><BatchPricing /></P>}</Route>
-      <Route path="/lotes/novo">{() => <P><BatchPricing /></P>}</Route>
+      {/* ── LOTES (sem DashboardLayout interno) ───────────────────────── */}
+      <Route path="/lotes">{() => <PL><BatchPricing /></PL>}</Route>
+      <Route path="/lotes/novo">{() => <PL><BatchPricing /></PL>}</Route>
 
-      {/* Relatórios */}
+      {/* ── RELATÓRIOS (tem DashboardLayout interno) ──────────────────── */}
       <Route path="/relatorios">{() => <P><Relatorios /></P>}</Route>
 
-      {/* Lista de Desejos Admin */}
+      {/* ── LISTA DE DESEJOS ADMIN (tem DashboardLayout interno) ──────── */}
       <Route path="/desejos-admin">{() => <P><WishlistAdmin /></P>}</Route>
 
-      {/* Admin */}
+      {/* ── ADMIN (tem DashboardLayout interno) ───────────────────────── */}
       <Route path="/usuarios">{() => <P><Usuarios /></P>}</Route>
       <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
 
