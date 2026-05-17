@@ -8,6 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./serveStatic";
+import { expireStaleReservations } from "../db.orders";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -31,8 +32,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  // Servir uploads locais ANTES dos parsers
+
   const uploadDir = process.env.UPLOAD_DIR ?? "/var/data/permupay/uploads";
   import("node:fs").then(({ default: fs }) => {
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -42,7 +42,6 @@ async function startServer() {
   });
   app.use("/uploads", express.static(uploadDir));
 
-  // Rota de upload — usa raw parser próprio, ANTES do express.json global
   app.post("/api/upload/image",
     (req, res, next) => {
       const chunks: Buffer[] = [];
@@ -71,7 +70,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
-  // tRPC API
+
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -79,10 +78,8 @@ async function startServer() {
       createContext,
     })
   );
-  // development mode uses Vite, production mode uses static files
+
   if (process.env.NODE_ENV === "development") {
-    // Import dinâmico com caminho variável para impedir que o esbuild inclua
-    // vite.config.ts e plugins de desenvolvimento no bundle de produção.
     const viteDevModulePath = "./viteDev";
     const { setupVite } = await import(viteDevModulePath);
     await setupVite(app, server);
@@ -100,6 +97,16 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // Job: expirar reservas vencidas a cada 10 minutos
+  setInterval(async () => {
+    try {
+      const count = await expireStaleReservations();
+      if (count > 0) console.log(`[job] ${count} reserva(s) expirada(s)`);
+    } catch (err) {
+      console.error("[job] Erro ao expirar reservas:", err);
+    }
+  }, 10 * 60 * 1000);
 }
 
 startServer().catch(console.error);
