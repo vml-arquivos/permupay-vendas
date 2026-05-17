@@ -43,20 +43,19 @@ export async function createBatch(
   return batch!;
 }
 
-export async function listBatches(userId: number): Promise<PricingBatch[]> {
+export async function listBatches(_userId?: number): Promise<PricingBatch[]> {
   const db = await getDb();
   if (!db) return [];
 
   return db
     .select()
     .from(pricingBatches)
-    .where(eq(pricingBatches.userId, userId))
     .orderBy(desc(pricingBatches.createdAt));
 }
 
 export async function getBatchById(
   batchId: number,
-  userId: number
+  _userId?: number
 ): Promise<(PricingBatch & { items: BatchItem[] }) | null> {
   const db = await getDb();
   if (!db) return null;
@@ -64,12 +63,7 @@ export async function getBatchById(
   const [batch] = await db
     .select()
     .from(pricingBatches)
-    .where(
-      and(
-        eq(pricingBatches.id, batchId),
-        eq(pricingBatches.userId, userId)
-      )
-    )
+    .where(eq(pricingBatches.id, batchId))
     .limit(1);
 
   if (!batch) return null;
@@ -100,13 +94,11 @@ export async function processBatch(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Garantir que o lote pertence ao usuário
+  // Acesso total: qualquer usuário autenticado pode processar qualquer lote.
   const [batch] = await db
     .select()
     .from(pricingBatches)
-    .where(
-      and(eq(pricingBatches.id, batchId), eq(pricingBatches.userId, userId))
-    )
+    .where(eq(pricingBatches.id, batchId))
     .limit(1);
 
   if (!batch) throw new Error("Lote não encontrado");
@@ -205,16 +197,14 @@ export async function processBatch(
 
 export async function deleteBatch(
   batchId: number,
-  userId: number
+  _userId?: number
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
   await db
     .delete(pricingBatches)
-    .where(
-      and(eq(pricingBatches.id, batchId), eq(pricingBatches.userId, userId))
-    );
+    .where(eq(pricingBatches.id, batchId));
 }
 
 // ─── Estoque ──────────────────────────────────────────────────────────────────
@@ -367,7 +357,7 @@ export async function getPublishedProductById(id: number) {
 
 export async function togglePublished(
   productId: number,
-  userId: number,
+  _userId: number,
   published: boolean,
   promoTag?: string
 ) {
@@ -381,9 +371,7 @@ export async function togglePublished(
       promoTag: promoTag ?? null,
       updatedAt: new Date(),
     })
-    .where(
-      and(eq(products.id, productId), eq(products.userId, userId))
-    )
+    .where(eq(products.id, productId))
     .returning();
 
   return updated;
@@ -391,7 +379,7 @@ export async function togglePublished(
 
 export async function updateProductImage(
   productId: number,
-  userId: number,
+  _userId: number,
   imageUrl: string
 ) {
   const db = await getDb();
@@ -400,7 +388,7 @@ export async function updateProductImage(
   const [updated] = await db
     .update(products)
     .set({ imageUrl, updatedAt: new Date() })
-    .where(and(eq(products.id, productId), eq(products.userId, userId)))
+    .where(eq(products.id, productId))
     .returning();
 
   return updated;
