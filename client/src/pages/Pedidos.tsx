@@ -1,33 +1,51 @@
 /**
- * Pedidos.tsx — Painel admin de pedidos e reservas
+ * client/src/pages/Pedidos.tsx
+ *
+ * ALTERAÇÕES:
+ * - Status padrão alterado para AGUARDANDO_PAGAMENTO
+ * - Label "Pago" substituído por "Pagamento Confirmado / Liberado para Retirada"
+ * - Removida lógica de expiração de 2h (pedido não expira mais automaticamente)
+ * - Botão "Confirmar Pagamento" debita estoque e ativa lote FIFO
+ * - Cancelamento não devolve estoque (nunca foi debitado)
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   CheckCircle,
   XCircle,
   Clock,
   ShoppingBag,
   RefreshCw,
-  Filter,
 } from "lucide-react";
 import { toast } from "sonner";
 
-type OrderStatus = "RESERVADO" | "AGUARDANDO_PAGAMENTO" | "PAGO" | "CANCELADO" | "EXPIRADO";
+type OrderStatus =
+  | "AGUARDANDO_PAGAMENTO"
+  | "RESERVADO"
+  | "PAGO"
+  | "CANCELADO"
+  | "EXPIRADO";
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  RESERVADO: "Reservado",
   AGUARDANDO_PAGAMENTO: "Aguard. Pagamento",
-  PAGO: "Pago ✓",
+  RESERVADO: "Reservado",
+  PAGO: "Pagamento Confirmado / Liberado para Retirada",
+  CANCELADO: "Cancelado",
+  EXPIRADO: "Expirado",
+};
+
+const STATUS_LABEL_SHORT: Record<OrderStatus, string> = {
+  AGUARDANDO_PAGAMENTO: "Aguard. Pagamento",
+  RESERVADO: "Reservado",
+  PAGO: "Liberado ✓",
   CANCELADO: "Cancelado",
   EXPIRADO: "Expirado",
 };
 
 const STATUS_COLOR: Record<OrderStatus, string> = {
-  RESERVADO: "bg-yellow-100 text-yellow-800 border-yellow-200",
   AGUARDANDO_PAGAMENTO: "bg-blue-100 text-blue-800 border-blue-200",
+  RESERVADO: "bg-yellow-100 text-yellow-800 border-yellow-200",
   PAGO: "bg-green-100 text-green-800 border-green-200",
   CANCELADO: "bg-red-100 text-red-800 border-red-200",
   EXPIRADO: "bg-gray-100 text-gray-500 border-gray-200",
@@ -42,29 +60,28 @@ const PAYMENT_LABEL: Record<string, string> = {
 const fmt = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-function timeLeft(expiresAt: string | Date): string {
-  const diff = new Date(expiresAt).getTime() - Date.now();
-  if (diff <= 0) return "Expirado";
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  return h > 0 ? `${h}h ${m}min` : `${m}min`;
-}
-
 export default function Pedidos() {
   const utils = trpc.useUtils();
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | "TODOS">("TODOS");
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | "TODOS">(
+    "TODOS"
+  );
   const [confirmNotes, setConfirmNotes] = useState<Record<number, string>>({});
-  const [cancelNotes, setCancelNotes] = useState<Record<number, string>>({});
   const [expanded, setExpanded] = useState<number | null>(null);
 
-  const { data: orders = [], isLoading, refetch } = trpc.orders.list.useQuery(
+  const {
+    data: orders = [],
+    isLoading,
+    refetch,
+  } = trpc.orders.list.useQuery(
     statusFilter === "TODOS" ? undefined : { status: statusFilter },
-    { refetchInterval: 30000 } // auto-refresh a cada 30s
+    { refetchInterval: 30_000 }
   );
 
   const confirm = trpc.orders.confirm.useMutation({
     onSuccess: () => {
-      toast.success("Pagamento confirmado! Estoque atualizado.");
+      toast.success(
+        "Pagamento confirmado! Estoque debitado. Pedido liberado para retirada."
+      );
       utils.orders.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -72,21 +89,15 @@ export default function Pedidos() {
 
   const cancel = trpc.orders.cancel.useMutation({
     onSuccess: () => {
-      toast.success("Pedido cancelado. Estoque devolvido.");
+      toast.success("Pedido cancelado.");
       utils.orders.list.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
 
-  const expire = trpc.orders.expireStale.useMutation({
-    onSuccess: (count) => {
-      toast.success(`${count} reserva(s) expirada(s) processada(s)`);
-      utils.orders.list.invalidate();
-    },
-  });
-
   const pendingOrders = orders.filter(
-    (o) => o.status === "RESERVADO" || o.status === "AGUARDANDO_PAGAMENTO"
+    (o) =>
+      o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
   );
 
   return (
@@ -96,47 +107,46 @@ export default function Pedidos() {
           {/* Cabeçalho */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Pedidos & Reservas</h1>
+              <h1 className="text-2xl font-bold text-foreground">
+                Pedidos & Pagamentos
+              </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Confirme pagamentos manualmente. Reservas expiram em 2 horas.
+                Confirme pagamentos manualmente para liberar produtos para retirada.
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => expire.mutate()}
-                disabled={expire.isPending}
-                className="gap-2"
-              >
-                <Clock className="w-4 h-4" />
-                Expirar Vencidas
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetch()}
-                className="gap-2"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Atualizar
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              className="gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Atualizar
+            </Button>
           </div>
 
           {/* Alerta de pendentes */}
           {pendingOrders.length > 0 && (
-            <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 flex items-center gap-3">
-              <Clock className="w-5 h-5 text-yellow-600 shrink-0" />
-              <span className="text-sm text-yellow-800 font-medium">
-                {pendingOrders.length} reserva(s) aguardando confirmação de pagamento
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-3">
+              <Clock className="w-5 h-5 text-blue-600 shrink-0" />
+              <span className="text-sm text-blue-800 font-medium">
+                {pendingOrders.length} pedido(s) aguardando confirmação de
+                pagamento
               </span>
             </div>
           )}
 
           {/* Filtros */}
           <div className="flex gap-2 flex-wrap">
-            {(["TODOS", "RESERVADO", "AGUARDANDO_PAGAMENTO", "PAGO", "CANCELADO", "EXPIRADO"] as const).map((s) => (
+            {(
+              [
+                "TODOS",
+                "AGUARDANDO_PAGAMENTO",
+                "PAGO",
+                "CANCELADO",
+                "EXPIRADO",
+              ] as const
+            ).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
@@ -146,37 +156,46 @@ export default function Pedidos() {
                     : "bg-background text-muted-foreground border-border hover:border-primary/50"
                 }`}
               >
-                {s === "TODOS" ? "Todos" : STATUS_LABEL[s]}
+                {s === "TODOS"
+                  ? "Todos"
+                  : STATUS_LABEL_SHORT[s as OrderStatus]}
               </button>
             ))}
           </div>
 
           {/* Lista */}
           {isLoading ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">Carregando...</div>
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              Carregando...
+            </div>
           ) : orders.length === 0 ? (
             <div className="rounded-xl border border-border bg-card p-12 text-center">
               <ShoppingBag className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">Nenhum pedido encontrado</p>
+              <p className="text-sm text-muted-foreground">
+                Nenhum pedido encontrado
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
               {orders.map((order: any) => {
                 const isOpen = expanded === order.id;
-                const isPending = order.status === "RESERVADO" || order.status === "AGUARDANDO_PAGAMENTO";
-                const isExpired = order.status === "EXPIRADO";
+                const isPending =
+                  order.status === "AGUARDANDO_PAGAMENTO" ||
+                  order.status === "RESERVADO";
 
                 return (
                   <div
                     key={order.id}
                     className={`rounded-lg border bg-card transition-all ${
-                      isPending ? "border-yellow-200" : "border-border"
+                      isPending ? "border-blue-200" : "border-border"
                     }`}
                   >
                     {/* Linha principal */}
                     <div
                       className="p-4 cursor-pointer select-none"
-                      onClick={() => setExpanded(isOpen ? null : order.id)}
+                      onClick={() =>
+                        setExpanded(isOpen ? null : order.id)
+                      }
                     >
                       <div className="flex items-start justify-between gap-3 flex-wrap">
                         <div className="flex-1 min-w-0">
@@ -189,10 +208,11 @@ export default function Pedidos() {
                                 STATUS_COLOR[order.status as OrderStatus]
                               }`}
                             >
-                              {STATUS_LABEL[order.status as OrderStatus]}
+                              {STATUS_LABEL_SHORT[order.status as OrderStatus]}
                             </span>
                             <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                              {PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod}
+                              {PAYMENT_LABEL[order.paymentMethod] ??
+                                order.paymentMethod}
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
@@ -201,15 +221,12 @@ export default function Pedidos() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-foreground">{fmt(order.totalPrice)}</p>
+                          <p className="font-bold text-foreground">
+                            {fmt(order.totalPrice)}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {order.quantity}x {fmt(order.unitPrice)}
                           </p>
-                          {isPending && !isExpired && (
-                            <p className="text-xs text-yellow-600 mt-1">
-                              Expira em: {timeLeft(order.expiresAt)}
-                            </p>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -230,7 +247,10 @@ export default function Pedidos() {
                               rows={2}
                               value={confirmNotes[order.id] ?? ""}
                               onChange={(e) =>
-                                setConfirmNotes((n) => ({ ...n, [order.id]: e.target.value }))
+                                setConfirmNotes((n) => ({
+                                  ...n,
+                                  [order.id]: e.target.value,
+                                }))
                               }
                               className="w-full text-sm border border-border rounded-md px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary bg-background"
                             />
@@ -255,11 +275,10 @@ export default function Pedidos() {
                                 className="gap-2 text-destructive hover:text-destructive"
                                 disabled={cancel.isPending}
                                 onClick={() => {
-                                  if (confirm(window.confirm("Cancelar este pedido e devolver ao estoque?"))) {
-                                    cancel.mutate({
-                                      orderId: order.id,
-                                      adminNotes: cancelNotes[order.id],
-                                    });
+                                  if (
+                                    window.confirm("Cancelar este pedido?")
+                                  ) {
+                                    cancel.mutate({ orderId: order.id });
                                   }
                                 }}
                               >
@@ -271,12 +290,19 @@ export default function Pedidos() {
                         )}
 
                         {order.status === "PAGO" && (
-                          <p className="text-xs text-green-700">
-                            ✓ Confirmado em{" "}
-                            {order.confirmedAt
-                              ? new Date(order.confirmedAt).toLocaleString("pt-BR")
-                              : "—"}
-                          </p>
+                          <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2">
+                            <p className="text-xs text-green-800 font-medium">
+                              ✓ Pagamento Confirmado / Liberado para Retirada
+                            </p>
+                            {order.confirmedAt && (
+                              <p className="text-xs text-green-600 mt-0.5">
+                                Confirmado em{" "}
+                                {new Date(order.confirmedAt).toLocaleString(
+                                  "pt-BR"
+                                )}
+                              </p>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
