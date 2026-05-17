@@ -16,6 +16,9 @@ import {
   Boxes,
   Zap,
   RefreshCcw,
+  Clock,
+  DollarSign,
+  ShoppingCart,
 } from 'lucide-react';
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────
@@ -156,6 +159,13 @@ export default function Dashboard() {
   const wishlistContact = d.wishlistCounts?.contato ?? 0;
   const recentSims      = (d.recentSimulations ?? []) as any[];
   const simTotal        = Math.max(totalSims, 1);
+  // Dados de pedidos/vendas (integrados via getDashboardData)
+  const ordersAguardando   = d.ordersAguardando       ?? 0;
+  const ordersPagos        = d.ordersPagos            ?? 0;
+  const faturamento        = d.faturamentoConfirmado  ?? 0;
+  const ticketMedio        = d.ticketMedio            ?? 0;
+  const fmtBrl = (v: number) =>
+    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
   const diagColors: Record<string, string> = {
     EXCELENTE: 'bg-emerald-100 text-emerald-700',
@@ -205,6 +215,22 @@ export default function Dashboard() {
         <KpiCard title="Lista de Desejos" value={wishlistNew}
           subtitle={wishlistNew === 0 ? 'Nenhum pedido' : `${wishlistContact} em contato`}
           icon={Heart} accent="bg-pink-500" href="/desejos-admin" />
+      </div>
+
+      {/* ── KPIs de Pedidos/Vendas ─────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <KpiCard title="Aguardando Pagamento" value={ordersAguardando}
+          subtitle={ordersAguardando === 0 ? 'Nenhum pendente' : 'Confirmar no painel'}
+          icon={Clock} accent="bg-blue-400" href="/pedidos" />
+        <KpiCard title="Vendas Confirmadas" value={ordersPagos}
+          subtitle={ordersPagos === 0 ? 'Nenhuma venda' : `${ordersPagos} pedido(s) pago(s)`}
+          icon={ShoppingCart} accent="bg-green-500" href="/pedidos" />
+        <KpiCard title="Faturamento Confirmado" value={fmtBrl(faturamento)}
+          subtitle={faturamento === 0 ? 'Sem faturamento' : 'Apenas pedidos PAGO'}
+          icon={DollarSign} accent="bg-emerald-600" href="/pedidos" />
+        <KpiCard title="Ticket Médio" value={ticketMedio > 0 ? fmtBrl(ticketMedio) : '—'}
+          subtitle={ticketMedio === 0 ? 'Nenhuma venda' : 'Valor médio por venda'}
+          icon={TrendingUp} accent="bg-violet-400" href="/pedidos" />
       </div>
 
       {/* ── Linha 2: Saúde + Simulações ───────────────────────────────── */}
