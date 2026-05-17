@@ -75,7 +75,7 @@ function Router() {
       <Route path="/estoque">{() => <P><Estoque /></P>}</Route>
 
       {/* ── SIMULAÇÕES (sem DashboardLayout interno) ──────────────────── */}
-      <Route path="/simulacoes">{() => <PL><SimulationsExport /></PL>}</Route>
+      <Route path="/simulacoes">{() => <P><SimulationsExport /></P>}</Route>
       <Route path="/simulacoes/:id">
         {(params: any) => <PL><SimulationDetail id={Number(params.id)} /></PL>}
       </Route>
