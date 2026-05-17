@@ -8,6 +8,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 
 // Páginas públicas
 import Marketplace from "./pages/Marketplace";
+import ProductPage from "./pages/ProductPage";
 import Login from "./pages/Login";
 import PricingSimulator from "./pages/PricingSimulator";
 import WishlistPublic from "./pages/WishlistPublic";
@@ -38,6 +39,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/simulador" component={PricingSimulator} />
       <Route path="/desejos" component={WishlistPublic} />
+      <Route path="/vitrine/:id" component={ProductPage} />
 
       {/* Dashboard */}
       <Route path="/dashboard">{() => <P><Dashboard /></P>}</Route>

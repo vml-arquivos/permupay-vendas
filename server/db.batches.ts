@@ -328,6 +328,37 @@ export async function getPublishedProductsByCategory(category?: string) {
   return baseQuery;
 }
 
+export async function getPublishedProductById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      category: products.category,
+      categoryLabel: products.categoryLabel,
+      shortDescription: products.shortDescription,
+      description: products.description,
+      imageUrl: products.imageUrl,
+      promoTag: products.promoTag,
+      suggestedPrice: products.suggestedPrice,
+      suggestedPricePix: products.suggestedPricePix,
+      suggestedPriceCard: products.suggestedPriceCard,
+      suggestedPriceBoleto: products.suggestedPriceBoleto,
+      stockQuantity: products.stockQuantity,
+      minimumStock: products.minimumStock,
+      paymentPlatform: products.paymentPlatform,
+      pixKey: products.pixKey,
+      pixLink: products.pixLink,
+      cardPaymentUrl: products.cardPaymentUrl,
+      boletoUrl: products.boletoUrl,
+    })
+    .from(products)
+    .where(and(eq(products.id, id), eq(products.published, true), eq(products.active, true)))
+    .limit(1);
+  return result[0] ?? null;
+}
+
 export async function togglePublished(
   productId: number,
   userId: number,

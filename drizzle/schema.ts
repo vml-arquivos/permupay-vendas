@@ -74,6 +74,27 @@ export const products = pgTable("permupay_products", {
   // Fiscal
   taxRegime: taxRegimeEnum("tax_regime").notNull().default("SIMPLES_NACIONAL"),
   estimatedTaxRate: real("estimated_tax_rate").notNull().default(0),
+  taxCash: real("tax_cash").notNull().default(6),
+  taxBoleto: real("tax_boleto").notNull().default(6),
+  taxDebit: real("tax_debit").notNull().default(6),
+  taxCreditCash: real("tax_credit_cash").notNull().default(6),
+  taxCreditInstallment: real("tax_credit_installment").notNull().default(6),
+
+  // Configuração de Boleto
+  boletoMonths: real("boleto_months").notNull().default(3),
+  boletoMonthlyRate: real("boleto_monthly_rate").notNull().default(1.99),
+  boletoFixedFee: real("boleto_fixed_fee").notNull().default(3.50),
+  boletoDefaultRisk: real("boleto_default_risk").notNull().default(2),
+  boletoCustomerPaysInterest: boolean("boleto_customer_pays_interest").notNull().default(false),
+
+  // Configuração de Cartão
+  cardDebitFee: real("card_debit_fee").notNull().default(1.5),
+  cardCreditCashFee: real("card_credit_cash_fee").notNull().default(2.5),
+  cardCreditInstallmentFee: real("card_credit_installment_fee").notNull().default(3.5),
+  cardInstallments: real("card_installments").notNull().default(6),
+  cardAnticipationRate: real("card_anticipation_rate").notNull().default(1.5),
+  cardMonthlyRate: real("card_monthly_rate").notNull().default(1.99),
+  cardCustomerPaysInterest: boolean("card_customer_pays_interest").notNull().default(false),
 
   // Moeda / câmbio
   costCurrency: text("cost_currency").default("BRL"),

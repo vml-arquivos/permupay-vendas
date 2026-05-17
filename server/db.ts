@@ -249,6 +249,26 @@ export async function createProduct(data: any) {
       // Margem
       desiredMarginValue: Math.max(0, Number(data.desiredMarginValue) || 0),
       marginMode: data.marginMode || "PERCENT",
+      // Configuração Fiscal
+      taxCash: Math.max(0, Number(data.taxCash) || 6),
+      taxBoleto: Math.max(0, Number(data.taxBoleto) || 6),
+      taxDebit: Math.max(0, Number(data.taxDebit) || 6),
+      taxCreditCash: Math.max(0, Number(data.taxCreditCash) || 6),
+      taxCreditInstallment: Math.max(0, Number(data.taxCreditInstallment) || 6),
+      // Configuração de Boleto
+      boletoMonths: Math.max(1, Number(data.boletoMonths) || 3),
+      boletoMonthlyRate: Math.max(0, Number(data.boletoMonthlyRate) || 1.99),
+      boletoFixedFee: Math.max(0, Number(data.boletoFixedFee) || 3.50),
+      boletoDefaultRisk: Math.max(0, Number(data.boletoDefaultRisk) || 2),
+      boletoCustomerPaysInterest: data.boletoCustomerPaysInterest === true,
+      // Configuração de Cartão
+      cardDebitFee: Math.max(0, Number(data.cardDebitFee) || 1.5),
+      cardCreditCashFee: Math.max(0, Number(data.cardCreditCashFee) || 2.5),
+      cardCreditInstallmentFee: Math.max(0, Number(data.cardCreditInstallmentFee) || 3.5),
+      cardInstallments: Math.max(1, Number(data.cardInstallments) || 6),
+      cardAnticipationRate: Math.max(0, Number(data.cardAnticipationRate) || 1.5),
+      cardMonthlyRate: Math.max(0, Number(data.cardMonthlyRate) || 1.99),
+      cardCustomerPaysInterest: data.cardCustomerPaysInterest === true,
     };
 
     const [r] = await db.insert(products).values(productData).returning();
@@ -341,6 +361,26 @@ export async function updateProduct(id: number, data: any, userId?: number) {
     // Margem
     if (data.desiredMarginValue !== undefined) updateData.desiredMarginValue = Math.max(0, Number(data.desiredMarginValue) || 0);
     if (data.marginMode !== undefined) updateData.marginMode = data.marginMode || "PERCENT";
+    // Configuração Fiscal
+    if (data.taxCash !== undefined) updateData.taxCash = Math.max(0, Number(data.taxCash) || 6);
+    if (data.taxBoleto !== undefined) updateData.taxBoleto = Math.max(0, Number(data.taxBoleto) || 6);
+    if (data.taxDebit !== undefined) updateData.taxDebit = Math.max(0, Number(data.taxDebit) || 6);
+    if (data.taxCreditCash !== undefined) updateData.taxCreditCash = Math.max(0, Number(data.taxCreditCash) || 6);
+    if (data.taxCreditInstallment !== undefined) updateData.taxCreditInstallment = Math.max(0, Number(data.taxCreditInstallment) || 6);
+    // Configuração de Boleto
+    if (data.boletoMonths !== undefined) updateData.boletoMonths = Math.max(1, Number(data.boletoMonths) || 3);
+    if (data.boletoMonthlyRate !== undefined) updateData.boletoMonthlyRate = Math.max(0, Number(data.boletoMonthlyRate) || 1.99);
+    if (data.boletoFixedFee !== undefined) updateData.boletoFixedFee = Math.max(0, Number(data.boletoFixedFee) || 3.50);
+    if (data.boletoDefaultRisk !== undefined) updateData.boletoDefaultRisk = Math.max(0, Number(data.boletoDefaultRisk) || 2);
+    if (data.boletoCustomerPaysInterest !== undefined) updateData.boletoCustomerPaysInterest = data.boletoCustomerPaysInterest === true;
+    // Configuração de Cartão
+    if (data.cardDebitFee !== undefined) updateData.cardDebitFee = Math.max(0, Number(data.cardDebitFee) || 1.5);
+    if (data.cardCreditCashFee !== undefined) updateData.cardCreditCashFee = Math.max(0, Number(data.cardCreditCashFee) || 2.5);
+    if (data.cardCreditInstallmentFee !== undefined) updateData.cardCreditInstallmentFee = Math.max(0, Number(data.cardCreditInstallmentFee) || 3.5);
+    if (data.cardInstallments !== undefined) updateData.cardInstallments = Math.max(1, Number(data.cardInstallments) || 6);
+    if (data.cardAnticipationRate !== undefined) updateData.cardAnticipationRate = Math.max(0, Number(data.cardAnticipationRate) || 1.5);
+    if (data.cardMonthlyRate !== undefined) updateData.cardMonthlyRate = Math.max(0, Number(data.cardMonthlyRate) || 1.99);
+    if (data.cardCustomerPaysInterest !== undefined) updateData.cardCustomerPaysInterest = data.cardCustomerPaysInterest === true;
 
     // Recalcular custo em BRL e custo final unitário se houver alterações relevantes
     if (

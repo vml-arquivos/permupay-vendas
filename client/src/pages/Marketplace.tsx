@@ -85,8 +85,9 @@ function ProductCard({ product }: { product: CatalogProduct }) {
 
   return (
     <div className={`group bg-white rounded-2xl overflow-hidden shadow-sm border transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 flex flex-col ${inStock ? "border-stone-200 hover:border-stone-300" : "border-stone-200 opacity-75"}`}>
-      {/* Imagem */}
-      <div className="relative aspect-square overflow-hidden bg-stone-50">
+      {/* Imagem com link para página individual */}
+      <Link href={`/vitrine/${product.id}`}>
+      <div className="relative aspect-square overflow-hidden bg-stone-50 cursor-pointer">
         {product.imageUrl ? (
           <img
             src={product.imageUrl}
@@ -119,15 +120,18 @@ function ProductCard({ product }: { product: CatalogProduct }) {
           </span>
         )}
       </div>
+      </Link>
 
       {/* Conteúdo */}
       <div className="p-4 flex flex-col flex-1">
         <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-widest mb-1">
           {CATEGORY_META[product.category]?.label ?? product.category}
         </span>
-        <h3 className="font-semibold text-stone-900 text-sm leading-snug mb-1.5 line-clamp-2">
-          {product.name}
-        </h3>
+        <Link href={`/vitrine/${product.id}`}>
+          <h3 className="font-semibold text-stone-900 text-sm leading-snug mb-1.5 line-clamp-2 hover:text-stone-600 cursor-pointer transition-colors">
+            {product.name}
+          </h3>
+        </Link>
         {product.shortDescription && (
           <p className="text-xs text-stone-500 line-clamp-2 mb-3 flex-1">
             {product.shortDescription}

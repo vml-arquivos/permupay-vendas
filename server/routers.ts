@@ -58,6 +58,26 @@ const productInput = z.object({
   categoryLabel: z.string().optional(),
   promoTag: z.string().optional(),
   published: z.boolean().optional(),
+  // Configuração Fiscal
+  taxCash: z.number().min(0).optional(),
+  taxBoleto: z.number().min(0).optional(),
+  taxDebit: z.number().min(0).optional(),
+  taxCreditCash: z.number().min(0).optional(),
+  taxCreditInstallment: z.number().min(0).optional(),
+  // Configuração de Boleto
+  boletoMonths: z.number().min(1).optional(),
+  boletoMonthlyRate: z.number().min(0).optional(),
+  boletoFixedFee: z.number().min(0).optional(),
+  boletoDefaultRisk: z.number().min(0).optional(),
+  boletoCustomerPaysInterest: z.boolean().optional(),
+  // Configuração de Cartão
+  cardDebitFee: z.number().min(0).optional(),
+  cardCreditCashFee: z.number().min(0).optional(),
+  cardCreditInstallmentFee: z.number().min(0).optional(),
+  cardInstallments: z.number().min(1).optional(),
+  cardAnticipationRate: z.number().min(0).optional(),
+  cardMonthlyRate: z.number().min(0).optional(),
+  cardCustomerPaysInterest: z.boolean().optional(),
 });
 
 const batchItemSchema = z.object({
@@ -316,6 +336,9 @@ export const appRouter = router({
     productsByCategory: publicProcedure
       .input(z.object({ category: z.string().optional() }))
       .query(({ input }) => dbBatches.getPublishedProductsByCategory(input.category)),
+    productById: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => dbBatches.getPublishedProductById(input.id)),
   }),
 
   // ── Simulações ─────────────────────────────────────────────────────────────

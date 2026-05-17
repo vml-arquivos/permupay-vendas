@@ -438,7 +438,28 @@ export default function ProductForm() {
         desiredMarginRate: p.desiredMarginRate ? String(p.desiredMarginRate) : "30",
         desiredMarginValue: p.desiredMarginValue ? String(p.desiredMarginValue) : "",
         taxRegime: (p.taxRegime as TaxRegime) || "SIMPLES_NACIONAL",
-        paymentPlatform: (p.paymentPlatform as PaymentPlatform) || "MERCADO_PAGO",
+        // Configuração Fiscal
+        taxCash: (p as any).taxCash != null ? String((p as any).taxCash) : "6",
+        taxBoleto: (p as any).taxBoleto != null ? String((p as any).taxBoleto) : "6",
+        taxDebit: (p as any).taxDebit != null ? String((p as any).taxDebit) : "6",
+        taxCreditCash: (p as any).taxCreditCash != null ? String((p as any).taxCreditCash) : "6",
+        taxCreditInstallment: (p as any).taxCreditInstallment != null ? String((p as any).taxCreditInstallment) : "6",
+        // Configuração de Boleto
+        boletoMonths: (p as any).boletoMonths != null ? String((p as any).boletoMonths) : "3",
+        boletoMonthlyRate: (p as any).boletoMonthlyRate != null ? String((p as any).boletoMonthlyRate) : "1.99",
+        boletoFixedFee: (p as any).boletoFixedFee != null ? String((p as any).boletoFixedFee) : "3.50",
+        boletoDefaultRisk: (p as any).boletoDefaultRisk != null ? String((p as any).boletoDefaultRisk) : "2",
+        boletoCustomerPaysInterest: (p as any).boletoCustomerPaysInterest ?? false,
+        // Configuração de Cartão
+        cardDebitFee: (p as any).cardDebitFee != null ? String((p as any).cardDebitFee) : "1.5",
+        cardCreditCashFee: (p as any).cardCreditCashFee != null ? String((p as any).cardCreditCashFee) : "2.5",
+        cardCreditInstallmentFee: (p as any).cardCreditInstallmentFee != null ? String((p as any).cardCreditInstallmentFee) : "3.5",
+        cardInstallments: (p as any).cardInstallments != null ? String((p as any).cardInstallments) : "6",
+        cardAnticipationRate: (p as any).cardAnticipationRate != null ? String((p as any).cardAnticipationRate) : "1.5",
+        cardMonthlyRate: (p as any).cardMonthlyRate != null ? String((p as any).cardMonthlyRate) : "1.99",
+        cardCustomerPaysInterest: (p as any).cardCustomerPaysInterest ?? false,
+        // Links de pagamento
+        paymentPlatform: (p.paymentPlatform as PaymentPlatform) || "OUTRO",
         pixKey: p.pixKey || "",
         pixLink: p.pixLink || "",
         cardPaymentUrl: p.cardPaymentUrl || "",
@@ -552,12 +573,34 @@ export default function ProductForm() {
       suggestedPricePix: pixResult?.suggestedPrice ?? 0,
       suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
       suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
+      // Configuração Fiscal
+      taxCash: n(form.taxCash),
+      taxBoleto: n(form.taxBoleto),
+      taxDebit: n(form.taxDebit),
+      taxCreditCash: n(form.taxCreditCash),
+      taxCreditInstallment: n(form.taxCreditInstallment),
+      // Configuração de Boleto
+      boletoMonths: n(form.boletoMonths),
+      boletoMonthlyRate: n(form.boletoMonthlyRate),
+      boletoFixedFee: n(form.boletoFixedFee),
+      boletoDefaultRisk: n(form.boletoDefaultRisk),
+      boletoCustomerPaysInterest: form.boletoCustomerPaysInterest,
+      // Configuração de Cartão
+      cardDebitFee: n(form.cardDebitFee),
+      cardCreditCashFee: n(form.cardCreditCashFee),
+      cardCreditInstallmentFee: n(form.cardCreditInstallmentFee),
+      cardInstallments: n(form.cardInstallments),
+      cardAnticipationRate: n(form.cardAnticipationRate),
+      cardMonthlyRate: n(form.cardMonthlyRate),
+      cardCustomerPaysInterest: form.cardCustomerPaysInterest,
       // Pagamento externo
       paymentPlatform: form.paymentPlatform,
       pixKey: form.pixKey || undefined,
       pixLink: form.pixLink || undefined,
       cardPaymentUrl: form.cardPaymentUrl || undefined,
       boletoUrl: form.boletoUrl || undefined,
+      // Margem
+      marginMode: form.marginMode,
     };
 
     if (isEditing) {
@@ -596,6 +639,16 @@ export default function ProductForm() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {isEditing && form.published && productId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => window.open(`/vitrine/${productId}`, "_blank")}
+              title="Ver produto na vitrine pública"
+            >
+              <Eye className="w-4 h-4 mr-1" /> Ver na Vitrine
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
