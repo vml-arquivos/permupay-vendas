@@ -5,26 +5,30 @@ import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  adminOnly?: boolean;
 }
 
-export function ProtectedRoute({ children }: ProtectedRouteProps) {
+export function ProtectedRoute({ children, adminOnly = false }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
   const [location, setLocation] = useLocation();
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (loading) return;
+
+    if (!user) {
       const redirect = encodeURIComponent(location);
       setLocation(`/login?redirect=${redirect}`, { replace: true });
+      return;
     }
-  }, [loading, user, location, setLocation]);
 
-  if (loading) {
-    return <DashboardLayoutSkeleton />;
-  }
+    if (adminOnly && user.role !== "admin") {
+      setLocation("/dashboard", { replace: true });
+    }
+  }, [loading, user, location, setLocation, adminOnly]);
 
-  if (!user) {
-    return null;
-  }
+  if (loading) return <DashboardLayoutSkeleton />;
+  if (!user) return null;
+  if (adminOnly && user.role !== "admin") return null;
 
   return <>{children}</>;
 }
