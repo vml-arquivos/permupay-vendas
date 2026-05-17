@@ -69,7 +69,6 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import ImageGallery from "@/components/ImageGallery";
-import DashboardLayout from "@/components/DashboardLayout";
 import { toast } from "sonner";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -623,7 +622,6 @@ export default function ProductForm() {
   }
 
   return (
-    <DashboardLayout>
     <div className="max-w-4xl mx-auto space-y-6">
       {/* ── Cabeçalho ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
@@ -1080,6 +1078,5 @@ export default function ProductForm() {
         </div>
       </div>
     </div>
-    </DashboardLayout>
   );
 }
