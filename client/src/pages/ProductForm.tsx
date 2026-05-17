@@ -1,31 +1,17 @@
 /**
- * ProductForm.tsx — Cadastro e Edição de Produto
- *
- * Formulário unificado: identidade, custos, margem, fiscal, boleto, cartão,
- * cards de resultado e oferta comercial para vitrine.
- *
- * REGRAS:
- * - Não expõe custo, margem, imposto ou lucro na vitrine.
- * - Salva preços calculados (suggestedPrice*) para exibição pública.
- * - Motor de cálculo importado de shared/pricingCalculator.ts (fonte única).
+ * ProductForm.tsx — Cadastro + Simulador Unificado "Silent Wealth"
+ * Layout: formulário à esquerda (abas) + painel escuro sticky à direita (simulador).
+ * REGRA: toda a lógica de cálculo, salvamento e hooks é PRESERVADA do original.
+ * Apenas o layout e estilo foram refatorados.
  */
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
-  calculatePricing,
-  isPricingError,
-  SUGGESTED_TAX_RATES,
-  TAX_REGIME_LABELS,
-  PAYMENT_METHOD_LABELS,
-  formatCurrency,
-  formatPercent,
-  type PricingInput,
-  type PricingResult,
-  type PaymentResult,
-  type ProductCategory,
-  type TaxRegime,
-  type PaymentMethod,
+  calculatePricing, isPricingError, SUGGESTED_TAX_RATES, TAX_REGIME_LABELS,
+  PAYMENT_METHOD_LABELS, formatCurrency, formatPercent,
+  type PricingInput, type PricingResult, type PaymentResult,
+  type ProductCategory, type TaxRegime, type PaymentMethod,
 } from "../../../shared/pricingCalculator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,229 +19,84 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  Info,
-  Calculator,
-  Package,
-  DollarSign,
-  Percent,
-  CreditCard,
-  Banknote,
-  Sparkles,
-  Tag,
-  Eye,
-  EyeOff,
-  Save,
-  ArrowLeft,
-  TrendingUp,
-  TrendingDown,
-  RefreshCcw,
+  AlertCircle, AlertTriangle, CheckCircle2, XCircle, Info, Calculator,
+  Package, DollarSign, Percent, CreditCard, Banknote, Sparkles, Tag,
+  Eye, EyeOff, Save, ArrowLeft, TrendingUp, TrendingDown, RefreshCcw,
+  Globe, ChevronDown, ChevronUp,
 } from "lucide-react";
 import ImageGallery from "@/components/ImageGallery";
+import DashboardLayout from "@/components/DashboardLayout";
 import { toast } from "sonner";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 type MarginMode = "PERCENT" | "VALUE";
 type PaymentPlatform = "MERCADO_PAGO" | "PAGSEGURO" | "OUTRO";
+type Tab = "setup" | "custos" | "taxas" | "links";
 
 interface FormState {
-  // Identidade
-  name: string;
-  shortDescription: string;
-  description: string;
-  category: ProductCategory;
-  categoryLabel: string;
-  ncm: string;
-  promoTag: string;
-  published: boolean;
-  active: boolean;
-  notes: string;
-  // Moeda / custo
-  costCurrency: "BRL" | "USD";
-  costPrice: string;
-  costPriceUsd: string;
-  usdExchangeRate: string;
-  packagingCost: string;
-  inboundShippingCost: string;
-  operationalCost: string;
-  // Estoque
-  stockQuantity: string;
-  minimumStock: string;
-  // Margem
-  marginMode: MarginMode;
-  desiredMarginRate: string;
-  desiredMarginValue: string;
-  // Fiscal
-  taxRegime: TaxRegime;
-  taxCash: string;
-  taxBoleto: string;
-  taxDebit: string;
-  taxCreditCash: string;
-  taxCreditInstallment: string;
-  // Boleto
-  boletoMonths: string;
-  boletoMonthlyRate: string;
-  boletoFixedFee: string;
-  boletoDefaultRisk: string;
-  boletoCustomerPaysInterest: boolean;
-  // Cartão
-  cardDebitFee: string;
-  cardCreditCashFee: string;
-  cardCreditInstallmentFee: string;
-  cardInstallments: string;
-  cardAnticipationRate: string;
-  cardMonthlyRate: string;
+  name: string; shortDescription: string; description: string;
+  category: ProductCategory; categoryLabel: string; ncm: string;
+  promoTag: string; published: boolean; active: boolean; notes: string;
+  costCurrency: "BRL" | "USD"; costPrice: string; costPriceUsd: string;
+  usdExchangeRate: string; packagingCost: string; inboundShippingCost: string;
+  operationalCost: string; stockQuantity: string; minimumStock: string;
+  marginMode: MarginMode; desiredMarginRate: string; desiredMarginValue: string;
+  taxRegime: TaxRegime; taxCash: string; taxBoleto: string; taxDebit: string;
+  taxCreditCash: string; taxCreditInstallment: string;
+  boletoMonths: string; boletoMonthlyRate: string; boletoFixedFee: string;
+  boletoDefaultRisk: string; boletoCustomerPaysInterest: boolean;
+  cardDebitFee: string; cardCreditCashFee: string; cardCreditInstallmentFee: string;
+  cardInstallments: string; cardAnticipationRate: string; cardMonthlyRate: string;
   cardCustomerPaysInterest: boolean;
-  // Pagamento externo
-  paymentPlatform: PaymentPlatform;
-  pixKey: string;
-  pixLink: string;
-  cardPaymentUrl: string;
-  boletoUrl: string;
+  paymentPlatform: PaymentPlatform; pixKey: string; pixLink: string;
+  cardPaymentUrl: string; boletoUrl: string;
 }
 
 const defaultForm: FormState = {
-  name: "",
-  shortDescription: "",
-  description: "",
-  category: "CELULAR",
-  categoryLabel: "",
-  ncm: "",
-  promoTag: "",
-  published: false,
-  active: true,
-  notes: "",
-  costCurrency: "BRL",
-  costPrice: "",
-  costPriceUsd: "",
-  usdExchangeRate: "5.50",
-  packagingCost: "",
-  inboundShippingCost: "",
-  operationalCost: "",
-  stockQuantity: "",
-  minimumStock: "",
-  marginMode: "PERCENT",
-  desiredMarginRate: "30",
-  desiredMarginValue: "",
-  taxRegime: "SIMPLES_NACIONAL",
-  taxCash: "6",
-  taxBoleto: "6",
-  taxDebit: "6",
-  taxCreditCash: "6",
-  taxCreditInstallment: "6",
-  boletoMonths: "3",
-  boletoMonthlyRate: "1.99",
-  boletoFixedFee: "3.50",
-  boletoDefaultRisk: "2",
-  boletoCustomerPaysInterest: false,
-  cardDebitFee: "1.5",
-  cardCreditCashFee: "2.5",
-  cardCreditInstallmentFee: "3.5",
-  cardInstallments: "6",
-  cardAnticipationRate: "1.5",
-  cardMonthlyRate: "1.99",
+  name: "", shortDescription: "", description: "", category: "CELULAR",
+  categoryLabel: "", ncm: "", promoTag: "", published: false, active: true, notes: "",
+  costCurrency: "BRL", costPrice: "", costPriceUsd: "", usdExchangeRate: "5.50",
+  packagingCost: "", inboundShippingCost: "", operationalCost: "",
+  stockQuantity: "", minimumStock: "", marginMode: "PERCENT",
+  desiredMarginRate: "30", desiredMarginValue: "",
+  taxRegime: "SIMPLES_NACIONAL", taxCash: "6", taxBoleto: "6", taxDebit: "6",
+  taxCreditCash: "6", taxCreditInstallment: "6",
+  boletoMonths: "3", boletoMonthlyRate: "1.99", boletoFixedFee: "3.50",
+  boletoDefaultRisk: "2", boletoCustomerPaysInterest: false,
+  cardDebitFee: "1.5", cardCreditCashFee: "2.5", cardCreditInstallmentFee: "3.5",
+  cardInstallments: "6", cardAnticipationRate: "1.5", cardMonthlyRate: "1.99",
   cardCustomerPaysInterest: false,
-  paymentPlatform: "MERCADO_PAGO",
-  pixKey: "",
-  pixLink: "",
-  cardPaymentUrl: "",
-  boletoUrl: "",
+  paymentPlatform: "MERCADO_PAGO", pixKey: "", pixLink: "", cardPaymentUrl: "", boletoUrl: "",
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function n(val: string): number {
   if (!val) return 0;
   const v = parseFloat(val.replace(",", "."));
   return isNaN(v) ? 0 : v;
 }
 
-function diagnosticConfig(status: string) {
-  switch (status) {
-    case "EXCELENTE":
-      return { color: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
-    case "SAUDAVEL":
-      return { color: "bg-green-50 text-green-700 border-green-200", icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
-    case "ATENCAO":
-      return { color: "bg-yellow-50 text-yellow-700 border-yellow-200", icon: <AlertCircle className="w-3.5 h-3.5" /> };
-    case "RISCO":
-      return { color: "bg-orange-50 text-orange-700 border-orange-200", icon: <AlertTriangle className="w-3.5 h-3.5" /> };
-    case "PREJUIZO":
-      return { color: "bg-red-50 text-red-700 border-red-200", icon: <XCircle className="w-3.5 h-3.5" /> };
-    default:
-      return { color: "bg-gray-50 text-gray-700 border-gray-200", icon: null };
-  }
-}
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
-function methodIcon(method: PaymentMethod) {
-  switch (method) {
-    case "PIX": return <Sparkles className="w-4 h-4" />;
-    case "BOLETO": return <Banknote className="w-4 h-4" />;
-    case "DEBITO": return <CreditCard className="w-4 h-4" />;
-    case "CREDITO_A_VISTA": return <CreditCard className="w-4 h-4" />;
-    case "CREDITO_PARCELADO": return <Tag className="w-4 h-4" />;
-  }
-}
-
-// ── Sub-componentes ───────────────────────────────────────────────────────────
-function SectionCard({ icon, title, subtitle, children }: {
-  icon: React.ReactNode;
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
+/** Campo de formulário com label e tooltip opcionais */
+function Field({ label, tooltip, required, children, className = "" }: {
+  label: string; tooltip?: string; required?: boolean;
+  children: React.ReactNode; className?: string;
 }) {
   return (
-    <Card className="shadow-sm">
-      <CardHeader className="pb-4">
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-            {icon}
-          </div>
-          <div>
-            <CardTitle className="text-sm font-semibold">{title}</CardTitle>
-            {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
-
-function FF({ label, tooltip, required, children }: {
-  label: string;
-  tooltip?: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
+    <div className={`space-y-1.5 ${className}`}>
       <div className="flex items-center gap-1.5">
-        <Label className="text-xs font-medium text-foreground/80">
-          {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+        <Label className="text-[11px] font-medium text-neutral-600 tracking-wide">
+          {label}{required && <span className="text-rose-400 ml-0.5">*</span>}
         </Label>
         {tooltip && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+              <Info className="w-3 h-3 text-neutral-400 cursor-help" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-xs">{tooltip}</TooltipContent>
+            <TooltipContent className="max-w-xs text-xs bg-neutral-900 text-white border-0">{tooltip}</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -264,101 +105,88 @@ function FF({ label, tooltip, required, children }: {
   );
 }
 
-function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  prefix?: string;
-  suffix?: string;
-  disabled?: boolean;
+/** Input numérico com prefixo/sufixo */
+function NumInput({ value, onChange, placeholder, prefix, suffix, disabled }: {
+  value: string; onChange: (v: string) => void;
+  placeholder?: string; prefix?: string; suffix?: string; disabled?: boolean;
 }) {
   return (
     <div className="relative flex items-center">
-      {prefix && <span className="absolute left-3 text-xs text-muted-foreground font-medium pointer-events-none">{prefix}</span>}
-      <Input
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder ?? "0"}
-        step="any"
-        min={0}
-        disabled={disabled}
-        className={`h-9 text-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+      {prefix && <span className="absolute left-3 text-[11px] text-neutral-400 pointer-events-none">{prefix}</span>}
+      <Input type="number" value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder ?? "0"} step="any" min={0} disabled={disabled}
+        className={`h-9 text-sm border-neutral-200 bg-white focus:border-neutral-400 focus:ring-0 focus-visible:ring-0 ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
       />
-      {suffix && <span className="absolute right-3 text-xs text-muted-foreground font-medium pointer-events-none">{suffix}</span>}
+      {suffix && <span className="absolute right-3 text-[11px] text-neutral-400 pointer-events-none">{suffix}</span>}
     </div>
   );
 }
 
-function ResultCard({ result, isBest, isWorst }: { result: PaymentResult; isBest: boolean; isWorst: boolean }) {
-  const diag = diagnosticConfig(result.diagnostic);
+/** Tab button */
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <div className={`relative rounded-xl border bg-card p-4 transition-all duration-200 ${
-      isBest ? "border-green-300 shadow-md ring-1 ring-green-200" : isWorst ? "border-red-200 opacity-80" : "border-border"
+    <button onClick={onClick}
+      className={`px-5 py-2.5 text-[11px] font-semibold tracking-[0.1em] uppercase transition-all whitespace-nowrap border-b-2 ${
+        active ? "text-neutral-900 border-neutral-900" : "text-neutral-400 border-transparent hover:text-neutral-700"
+      }`}>
+      {children}
+    </button>
+  );
+}
+
+/** Seção collapsível dentro do formulário */
+function Section({ title, children, defaultOpen = true }: {
+  title: string; children: React.ReactNode; defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-neutral-100 rounded-sm overflow-hidden">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-neutral-50/60 hover:bg-neutral-50 transition-colors text-left">
+        <span className="text-[11px] font-semibold tracking-[0.15em] uppercase text-neutral-600">{title}</span>
+        {open ? <ChevronUp className="h-3.5 w-3.5 text-neutral-400" /> : <ChevronDown className="h-3.5 w-3.5 text-neutral-400" />}
+      </button>
+      {open && <div className="p-4 space-y-4 bg-white">{children}</div>}
+    </div>
+  );
+}
+
+/** Card de resultado de precificação no painel escuro */
+function DarkResultCard({ result, isBest, isWorst }: { result: PaymentResult; isBest: boolean; isWorst: boolean }) {
+  const statusColor = {
+    EXCELENTE: "text-emerald-400", SAUDAVEL: "text-green-400", ATENCAO: "text-amber-400",
+    RISCO: "text-orange-400", PREJUIZO: "text-red-400",
+  }[(result as any).diagnostic] || "text-neutral-400";
+
+  return (
+    <div className={`rounded-sm p-3.5 transition-all ${
+      isBest ? "bg-white/10 ring-1 ring-white/20" : "bg-white/5"
     }`}>
       {isBest && (
-        <span className="absolute -top-2.5 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-500 text-white">
-          <TrendingUp className="w-3 h-3" /> Melhor opção
+        <span className="inline-flex items-center gap-1 text-[8px] font-bold tracking-[0.2em] uppercase text-emerald-400 mb-2">
+          <TrendingUp className="w-2.5 h-2.5" /> Melhor opção
         </span>
       )}
-      {isWorst && (
-        <span className="absolute -top-2.5 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-400 text-white">
-          <TrendingDown className="w-3 h-3" /> Menor margem
-        </span>
-      )}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-primary">{methodIcon(result.method)}</span>
-          <div>
-            <p className="text-xs font-semibold text-foreground">{result.methodLabel}</p>
-            {result.installments > 1 && (
-              <p className="text-[10px] text-muted-foreground">
-                {result.installments}x de {formatCurrency(result.installmentValue)}
-              </p>
-            )}
-          </div>
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <p className="text-[10px] font-semibold text-white/70 tracking-wide">{result.methodLabel}</p>
+          {result.installments > 1 && (
+            <p className="text-[9px] text-white/40">{result.installments}× {formatCurrency(result.installmentValue)}</p>
+          )}
         </div>
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${diag.color}`}>
-          {diag.icon}{result.diagnostic}
-        </span>
+        <span className={`text-[9px] font-bold ${statusColor}`}>{(result as any).diagnostic}</span>
       </div>
-      <div className="text-2xl font-bold text-foreground tracking-tight mb-3">
-        {formatCurrency(result.suggestedPrice)}
-      </div>
-      <div className="space-y-1 text-xs border-t pt-3">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Custo base:</span>
-          <span>{formatCurrency(result.baseCost)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Margem desejada:</span>
-          <span className="text-green-600 font-medium">+{formatCurrency(result.marginValue)}</span>
-        </div>
-        <div className="flex justify-between border-t border-dashed pt-1">
-          <span className="font-semibold">Subtotal:</span>
-          <span className="font-semibold">{formatCurrency(result.subtotalWithMargin)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Impostos:</span>
-          <span>{formatCurrency(result.totalTax)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Taxas/Juros:</span>
-          <span>{formatCurrency(result.totalFees + result.totalInterest)}</span>
-        </div>
-        <div className="flex justify-between border-t pt-1">
-          <span className="text-muted-foreground">Lucro líquido:</span>
-          <span className={`font-semibold ${result.netProfit >= 0 ? "text-green-600" : "text-red-500"}`}>
+      <p className="text-xl font-semibold text-white tracking-tight">{formatCurrency(result.suggestedPrice)}</p>
+      <div className="mt-2.5 pt-2.5 border-t border-white/10 space-y-1">
+        <div className="flex justify-between text-[10px]">
+          <span className="text-white/50">Lucro líquido</span>
+          <span className={`font-semibold ${result.netProfit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
             {formatCurrency(result.netProfit)} ({formatPercent(result.realMarginRate)})
           </span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Preço psicológico:</span>
-          <span className="font-medium">{formatCurrency(result.psychologicalPrice)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Mín. sem prejuízo:</span>
-          <span>{formatCurrency(result.minPriceNoLoss)}</span>
+        <div className="flex justify-between text-[10px]">
+          <span className="text-white/40">Preço psicológico</span>
+          <span className="text-white/60">{formatCurrency(result.psychologicalPrice)}</span>
         </div>
       </div>
     </div>
@@ -376,12 +204,10 @@ export default function ProductForm() {
   const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("setup");
 
-  // Queries
-  const productQuery = trpc.products.byId.useQuery(
-    { id: productId! },
-    { enabled: isEditing }
-  );
+  // ── Queries & Mutations ────────────────────────────────────────────────────
+  const productQuery = trpc.products.byId.useQuery({ id: productId! }, { enabled: isEditing });
   const utils = trpc.useUtils();
   const createProduct = trpc.products.create.useMutation({
     onSuccess: () => { utils.products.list.invalidate(); setLocation("/produtos"); toast.success("Produto criado!"); },
@@ -399,32 +225,23 @@ export default function ProductForm() {
   const handleTaxRegimeChange = useCallback((regime: TaxRegime) => {
     const rates = SUGGESTED_TAX_RATES[regime];
     setForm((prev) => ({
-      ...prev,
-      taxRegime: regime,
-      taxCash: String(rates.cash),
-      taxBoleto: String(rates.boleto),
-      taxDebit: String(rates.debit),
-      taxCreditCash: String(rates.creditCash),
+      ...prev, taxRegime: regime,
+      taxCash: String(rates.cash), taxBoleto: String(rates.boleto),
+      taxDebit: String(rates.debit), taxCreditCash: String(rates.creditCash),
       taxCreditInstallment: String(rates.creditInstallment),
     }));
   }, []);
 
-  // Preencher formulário ao editar
+  // Popular form ao editar
   useEffect(() => {
     if (productQuery.data) {
       const p = productQuery.data;
       setForm((prev) => ({
         ...prev,
-        name: p.name || "",
-        shortDescription: p.shortDescription || "",
-        description: p.description || "",
-        category: (p.category as ProductCategory) || "CELULAR",
-        categoryLabel: p.categoryLabel || "",
-        ncm: p.ncm || "",
-        promoTag: p.promoTag || "",
-        published: p.published ?? false,
-        active: p.active ?? true,
-        notes: p.notes || "",
+        name: p.name || "", shortDescription: p.shortDescription || "",
+        description: p.description || "", category: (p.category as ProductCategory) || "CELULAR",
+        categoryLabel: p.categoryLabel || "", ncm: p.ncm || "", promoTag: p.promoTag || "",
+        published: p.published ?? false, active: p.active ?? true, notes: p.notes || "",
         costCurrency: (p.costCurrency as "BRL" | "USD") || "BRL",
         costPrice: p.costPrice ? String(p.costPrice) : "",
         costPriceUsd: p.costPriceUsd ? String(p.costPriceUsd) : "",
@@ -438,19 +255,16 @@ export default function ProductForm() {
         desiredMarginRate: p.desiredMarginRate ? String(p.desiredMarginRate) : "30",
         desiredMarginValue: p.desiredMarginValue ? String(p.desiredMarginValue) : "",
         taxRegime: (p.taxRegime as TaxRegime) || "SIMPLES_NACIONAL",
-        // Configuração Fiscal
         taxCash: (p as any).taxCash != null ? String((p as any).taxCash) : "6",
         taxBoleto: (p as any).taxBoleto != null ? String((p as any).taxBoleto) : "6",
         taxDebit: (p as any).taxDebit != null ? String((p as any).taxDebit) : "6",
         taxCreditCash: (p as any).taxCreditCash != null ? String((p as any).taxCreditCash) : "6",
         taxCreditInstallment: (p as any).taxCreditInstallment != null ? String((p as any).taxCreditInstallment) : "6",
-        // Configuração de Boleto
         boletoMonths: (p as any).boletoMonths != null ? String((p as any).boletoMonths) : "3",
         boletoMonthlyRate: (p as any).boletoMonthlyRate != null ? String((p as any).boletoMonthlyRate) : "1.99",
         boletoFixedFee: (p as any).boletoFixedFee != null ? String((p as any).boletoFixedFee) : "3.50",
         boletoDefaultRisk: (p as any).boletoDefaultRisk != null ? String((p as any).boletoDefaultRisk) : "2",
         boletoCustomerPaysInterest: (p as any).boletoCustomerPaysInterest ?? false,
-        // Configuração de Cartão
         cardDebitFee: (p as any).cardDebitFee != null ? String((p as any).cardDebitFee) : "1.5",
         cardCreditCashFee: (p as any).cardCreditCashFee != null ? String((p as any).cardCreditCashFee) : "2.5",
         cardCreditInstallmentFee: (p as any).cardCreditInstallmentFee != null ? String((p as any).cardCreditInstallmentFee) : "3.5",
@@ -458,28 +272,23 @@ export default function ProductForm() {
         cardAnticipationRate: (p as any).cardAnticipationRate != null ? String((p as any).cardAnticipationRate) : "1.5",
         cardMonthlyRate: (p as any).cardMonthlyRate != null ? String((p as any).cardMonthlyRate) : "1.99",
         cardCustomerPaysInterest: (p as any).cardCustomerPaysInterest ?? false,
-        // Links de pagamento
         paymentPlatform: (p.paymentPlatform as PaymentPlatform) || "OUTRO",
-        pixKey: p.pixKey || "",
-        pixLink: p.pixLink || "",
-        cardPaymentUrl: p.cardPaymentUrl || "",
-        boletoUrl: p.boletoUrl || "",
+        pixKey: p.pixKey || "", pixLink: p.pixLink || "",
+        cardPaymentUrl: p.cardPaymentUrl || "", boletoUrl: p.boletoUrl || "",
       }));
     }
   }, [productQuery.data]);
 
-  // Custo em BRL derivado
+  // ── Derivados ─────────────────────────────────────────────────────────────
   const costPriceBrl = useMemo(() => {
     if (form.costCurrency === "USD") return n(form.costPriceUsd) * n(form.usdExchangeRate);
     return n(form.costPrice);
   }, [form.costCurrency, form.costPrice, form.costPriceUsd, form.usdExchangeRate]);
 
-  // Custo final unitário
-  const finalUnitCost = useMemo(() => {
-    return costPriceBrl + n(form.packagingCost) + n(form.inboundShippingCost) + n(form.operationalCost);
-  }, [costPriceBrl, form.packagingCost, form.inboundShippingCost, form.operationalCost]);
+  const finalUnitCost = useMemo(() =>
+    costPriceBrl + n(form.packagingCost) + n(form.inboundShippingCost) + n(form.operationalCost),
+    [costPriceBrl, form.packagingCost, form.inboundShippingCost, form.operationalCost]);
 
-  // Margem efetiva para o cálculo
   const effectiveMarginRate = useMemo(() => {
     if (form.marginMode === "VALUE") {
       if (finalUnitCost <= 0) return 0;
@@ -488,595 +297,559 @@ export default function ProductForm() {
     return n(form.desiredMarginRate);
   }, [form.marginMode, form.desiredMarginRate, form.desiredMarginValue, finalUnitCost]);
 
-  // Calcular precificação automaticamente
+  // ── Calcular ──────────────────────────────────────────────────────────────
   const handleCalculate = useCallback(() => {
     setCalcError(null);
     if (!form.name.trim()) { setCalcError("Informe o nome do produto."); return; }
     if (costPriceBrl <= 0) { setCalcError("Informe o preço de custo."); return; }
     const input: PricingInput = {
-      productName: form.name.trim(),
-      category: form.category,
-      ncm: form.ncm || undefined,
-      costPrice: costPriceBrl,
-      packagingCost: n(form.packagingCost),
-      inboundShippingCost: n(form.inboundShippingCost),
-      operationalCost: n(form.operationalCost),
-      desiredMarginRate: effectiveMarginRate,
-      taxRegime: form.taxRegime,
-      taxRates: {
-        cash: n(form.taxCash),
-        boleto: n(form.taxBoleto),
-        debit: n(form.taxDebit),
-        creditCash: n(form.taxCreditCash),
-        creditInstallment: n(form.taxCreditInstallment),
-      },
-      boleto: {
-        months: Math.max(1, Math.round(n(form.boletoMonths))),
-        monthlyInterestRate: n(form.boletoMonthlyRate),
-        fixedFee: n(form.boletoFixedFee),
-        defaultRiskRate: n(form.boletoDefaultRisk),
-        customerPaysInterest: form.boletoCustomerPaysInterest,
-      },
-      card: {
-        debitFeeRate: n(form.cardDebitFee),
-        creditCashFeeRate: n(form.cardCreditCashFee),
-        creditInstallmentFeeRate: n(form.cardCreditInstallmentFee),
-        installments: Math.max(1, Math.round(n(form.cardInstallments))),
-        anticipationRate: n(form.cardAnticipationRate),
-        monthlyInterestRate: n(form.cardMonthlyRate),
-        customerPaysInterest: form.cardCustomerPaysInterest,
-      },
+      productName: form.name.trim(), category: form.category, ncm: form.ncm || undefined,
+      costPrice: costPriceBrl, packagingCost: n(form.packagingCost),
+      inboundShippingCost: n(form.inboundShippingCost), operationalCost: n(form.operationalCost),
+      desiredMarginRate: effectiveMarginRate, taxRegime: form.taxRegime,
+      taxRates: { cash: n(form.taxCash), boleto: n(form.taxBoleto), debit: n(form.taxDebit), creditCash: n(form.taxCreditCash), creditInstallment: n(form.taxCreditInstallment) },
+      boleto: { months: Math.max(1, Math.round(n(form.boletoMonths))), monthlyInterestRate: n(form.boletoMonthlyRate), fixedFee: n(form.boletoFixedFee), defaultRiskRate: n(form.boletoDefaultRisk), customerPaysInterest: form.boletoCustomerPaysInterest },
+      card: { debitFeeRate: n(form.cardDebitFee), creditCashFeeRate: n(form.cardCreditCashFee), creditInstallmentFeeRate: n(form.cardCreditInstallmentFee), installments: Math.max(1, Math.round(n(form.cardInstallments))), anticipationRate: n(form.cardAnticipationRate), monthlyInterestRate: n(form.cardMonthlyRate), customerPaysInterest: form.cardCustomerPaysInterest },
     };
     const calc = calculatePricing(input);
     if (isPricingError(calc)) { setCalcError(calc.message); return; }
     setPricingResult(calc);
-    setTimeout(() => document.getElementById("pricing-results")?.scrollIntoView({ behavior: "smooth" }), 100);
   }, [form, costPriceBrl, effectiveMarginRate]);
 
-  // Salvar produto
+  // ── Salvar ────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!form.name.trim()) { toast.error("Informe o nome do produto."); return; }
     setIsSaving(true);
-
-    // Preços calculados para vitrine (sem dados internos)
-    const pixResult = pricingResult?.results.find(r => r.method === "PIX");
-    const cardResult = pricingResult?.results.find(r => r.method === "CREDITO_A_VISTA");
+    const pixResult    = pricingResult?.results.find(r => r.method === "PIX");
+    const cardResult   = pricingResult?.results.find(r => r.method === "CREDITO_A_VISTA");
     const boletoResult = pricingResult?.results.find(r => r.method === "BOLETO");
-    const bestResult = pricingResult?.results.find(r => r.method === pricingResult.bestMethod);
-
+    const bestResult   = pricingResult?.results.find(r => r.method === pricingResult.bestMethod);
     const payload = {
-      name: form.name.trim(),
-      shortDescription: form.shortDescription,
-      description: form.description,
-      category: form.category,
-      categoryLabel: form.categoryLabel,
-      ncm: form.ncm || undefined,
-      promoTag: form.promoTag || undefined,
-      published: form.published,
-      active: form.active,
-      notes: form.notes || undefined,
-      costCurrency: form.costCurrency,
-      costPrice: costPriceBrl,
-      costPriceUsd: n(form.costPriceUsd),
-      usdExchangeRate: n(form.usdExchangeRate),
-      packagingCost: n(form.packagingCost),
-      inboundShippingCost: n(form.inboundShippingCost),
-      operationalCost: n(form.operationalCost),
-      stockQuantity: n(form.stockQuantity),
-      minimumStock: n(form.minimumStock),
-      desiredMarginRate: effectiveMarginRate,
-      desiredMarginValue: n(form.desiredMarginValue),
-      taxRegime: form.taxRegime,
+      name: form.name.trim(), shortDescription: form.shortDescription,
+      description: form.description, category: form.category, categoryLabel: form.categoryLabel,
+      ncm: form.ncm || undefined, promoTag: form.promoTag || undefined,
+      published: form.published, active: form.active, notes: form.notes || undefined,
+      costCurrency: form.costCurrency, costPrice: costPriceBrl,
+      costPriceUsd: n(form.costPriceUsd), usdExchangeRate: n(form.usdExchangeRate),
+      packagingCost: n(form.packagingCost), inboundShippingCost: n(form.inboundShippingCost),
+      operationalCost: n(form.operationalCost), stockQuantity: n(form.stockQuantity),
+      minimumStock: n(form.minimumStock), desiredMarginRate: effectiveMarginRate,
+      desiredMarginValue: n(form.desiredMarginValue), taxRegime: form.taxRegime,
       estimatedTaxRate: n(form.taxCash),
-      // Preços calculados (somente estes vão para vitrine)
       suggestedPrice: bestResult?.suggestedPrice ?? 0,
       suggestedPricePix: pixResult?.suggestedPrice ?? 0,
       suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
       suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
-      // Configuração Fiscal
-      taxCash: n(form.taxCash),
-      taxBoleto: n(form.taxBoleto),
-      taxDebit: n(form.taxDebit),
-      taxCreditCash: n(form.taxCreditCash),
-      taxCreditInstallment: n(form.taxCreditInstallment),
-      // Configuração de Boleto
-      boletoMonths: n(form.boletoMonths),
-      boletoMonthlyRate: n(form.boletoMonthlyRate),
-      boletoFixedFee: n(form.boletoFixedFee),
-      boletoDefaultRisk: n(form.boletoDefaultRisk),
+      taxCash: n(form.taxCash), taxBoleto: n(form.taxBoleto), taxDebit: n(form.taxDebit),
+      taxCreditCash: n(form.taxCreditCash), taxCreditInstallment: n(form.taxCreditInstallment),
+      boletoMonths: n(form.boletoMonths), boletoMonthlyRate: n(form.boletoMonthlyRate),
+      boletoFixedFee: n(form.boletoFixedFee), boletoDefaultRisk: n(form.boletoDefaultRisk),
       boletoCustomerPaysInterest: form.boletoCustomerPaysInterest,
-      // Configuração de Cartão
-      cardDebitFee: n(form.cardDebitFee),
-      cardCreditCashFee: n(form.cardCreditCashFee),
-      cardCreditInstallmentFee: n(form.cardCreditInstallmentFee),
-      cardInstallments: n(form.cardInstallments),
-      cardAnticipationRate: n(form.cardAnticipationRate),
-      cardMonthlyRate: n(form.cardMonthlyRate),
+      cardDebitFee: n(form.cardDebitFee), cardCreditCashFee: n(form.cardCreditCashFee),
+      cardCreditInstallmentFee: n(form.cardCreditInstallmentFee), cardInstallments: n(form.cardInstallments),
+      cardAnticipationRate: n(form.cardAnticipationRate), cardMonthlyRate: n(form.cardMonthlyRate),
       cardCustomerPaysInterest: form.cardCustomerPaysInterest,
-      // Pagamento externo
       paymentPlatform: form.paymentPlatform,
-      pixKey: form.pixKey || undefined,
-      pixLink: form.pixLink || undefined,
-      cardPaymentUrl: form.cardPaymentUrl || undefined,
-      boletoUrl: form.boletoUrl || undefined,
-      // Margem
+      pixKey: form.pixKey || undefined, pixLink: form.pixLink || undefined,
+      cardPaymentUrl: form.cardPaymentUrl || undefined, boletoUrl: form.boletoUrl || undefined,
       marginMode: form.marginMode,
     };
-
-    if (isEditing) {
-      updateProduct.mutate({ id: productId!, data: payload });
-    } else {
-      createProduct.mutate(payload);
-    }
+    if (isEditing) { updateProduct.mutate({ id: productId!, data: payload }); }
+    else { createProduct.mutate(payload); }
   }, [form, costPriceBrl, effectiveMarginRate, pricingResult, isEditing, productId, createProduct, updateProduct]);
 
   if (isEditing && productQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center space-y-2">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-muted-foreground">Carregando produto...</p>
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center space-y-3">
+            <div className="w-6 h-6 border-2 border-neutral-300 border-t-neutral-800 rounded-full animate-spin mx-auto" />
+            <p className="text-sm text-neutral-400">Carregando produto...</p>
+          </div>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* ── Cabeçalho ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => setLocation("/produtos")} className="shrink-0">
-            <ArrowLeft className="w-4 h-4 mr-1" /> Voltar
-          </Button>
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold text-foreground truncate">
-              {isEditing ? "Editar Produto" : "Novo Produto"}
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              Cadastre, precifique e publique na vitrine
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          {isEditing && form.published && productId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => window.open(`/vitrine/${productId}`, "_blank")}
-              title="Ver produto na vitrine pública"
-            >
-              <Eye className="w-4 h-4 mr-1" /> Ver na Vitrine
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCalculate}
-            disabled={!form.name.trim() || costPriceBrl <= 0}
-          >
-            <Calculator className="w-4 h-4 mr-1" /> Calcular Preços
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={isSaving}>
-            <Save className="w-4 h-4 mr-1" />
-            {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
-          </Button>
-        </div>
-      </div>
+    <DashboardLayout>
+      <div className="max-w-[1200px] mx-auto space-y-0">
 
-      {/* ── Bloco 1: Identidade ─────────────────────────────────────────────── */}
-      <SectionCard icon={<Package className="w-4 h-4" />} title="Identidade do Produto" subtitle="Nome, descrição, categoria e publicação">
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FF label="Nome do produto" required>
-              <Input
-                value={form.name}
-                onChange={(e) => set("name")(e.target.value)}
-                placeholder="Ex: Perfume Sauvage 100ml"
-                className="h-9 text-sm"
-              />
-            </FF>
-            <FF label="Categoria" required>
-              <Select value={form.category} onValueChange={(v) => set("category")(v)}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CELULAR">Celular</SelectItem>
-                  <SelectItem value="ELETRONICO">Eletrônico</SelectItem>
-                  <SelectItem value="PERFUME">Perfume</SelectItem>
-                  <SelectItem value="OUTRO">Outro</SelectItem>
-                </SelectContent>
-              </Select>
-            </FF>
-            <FF label="Label de categoria" tooltip="Texto exibido como filtro na vitrine">
-              <Input value={form.categoryLabel} onChange={(e) => set("categoryLabel")(e.target.value)} placeholder="Ex: Fragrâncias" className="h-9 text-sm" />
-            </FF>
-            <FF label="NCM" tooltip="Nomenclatura Comum do Mercosul — código fiscal do produto">
-              <Input value={form.ncm} onChange={(e) => set("ncm")(e.target.value)} placeholder="0000.00.00" className="h-9 text-sm" />
-            </FF>
-            <FF label="Tag de promoção" tooltip="Ex: NOVO, OFERTA, -20%">
-              <Input value={form.promoTag} onChange={(e) => set("promoTag")(e.target.value)} placeholder="Ex: OFERTA" className="h-9 text-sm" />
-            </FF>
-          </div>
-          <FF label="Descrição curta" tooltip="Exibida nos cards da vitrine">
-            <Input value={form.shortDescription} onChange={(e) => set("shortDescription")(e.target.value)} placeholder="Resumo em até 120 caracteres" className="h-9 text-sm" />
-          </FF>
-          <FF label="Descrição completa">
-            <Textarea value={form.description} onChange={(e) => set("description")(e.target.value)} placeholder="Descrição detalhada do produto..." rows={3} className="text-sm resize-none" />
-          </FF>
-          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-2">
-              {form.published ? <Eye className="w-4 h-4 text-green-600" /> : <EyeOff className="w-4 h-4 text-muted-foreground" />}
-              <div>
-                <p className="text-sm font-medium">{form.published ? "Publicado na vitrine" : "Não publicado"}</p>
-                <p className="text-xs text-muted-foreground">Controla a visibilidade pública do produto</p>
-              </div>
-            </div>
-            <Switch checked={form.published} onCheckedChange={(v) => set("published")(v)} />
-          </div>
-          {/* Galeria de imagens */}
-          <div>
-            <p className="text-xs font-medium text-foreground/80 mb-2">Galeria de imagens</p>
-            {isEditing && productId ? (
-              <ImageGallery productId={productId} />
-            ) : (
-              <div className="rounded-lg border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-                Salve o produto primeiro para adicionar imagens
-              </div>
-            )}
-          </div>
-          <FF label="Observações internas">
-            <Textarea value={form.notes} onChange={(e) => set("notes")(e.target.value)} placeholder="Notas internas (não aparecem na vitrine)" rows={2} className="text-sm resize-none" />
-          </FF>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 2: Custos e Estoque ───────────────────────────────────────── */}
-      <SectionCard icon={<DollarSign className="w-4 h-4" />} title="Custos e Estoque" subtitle="Custo do produto, embalagem, frete e controle de estoque">
-        <div className="space-y-5">
-          {/* Moeda */}
-          <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
-            <span className="text-xs font-medium text-muted-foreground">Moeda do custo:</span>
-            <div className="flex gap-2">
-              {(["BRL", "USD"] as const).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => set("costCurrency")(c)}
-                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
-                    form.costCurrency === c ? "bg-primary text-primary-foreground" : "bg-background border border-border text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {form.costCurrency === "BRL" ? (
-              <FF label="Preço de custo (BRL)" required>
-                <NI value={form.costPrice} onChange={set("costPrice")} prefix="R$" placeholder="0,00" />
-              </FF>
-            ) : (
-              <>
-                <FF label="Preço de custo (USD)" required>
-                  <NI value={form.costPriceUsd} onChange={set("costPriceUsd")} prefix="$" placeholder="0,00" />
-                </FF>
-                <FF label="Cotação do dólar" required>
-                  <NI value={form.usdExchangeRate} onChange={set("usdExchangeRate")} prefix="R$" placeholder="5,50" />
-                </FF>
-              </>
-            )}
-            <FF label="Custo de embalagem">
-              <NI value={form.packagingCost} onChange={set("packagingCost")} prefix="R$" placeholder="0,00" />
-            </FF>
-            <FF label="Frete de entrada">
-              <NI value={form.inboundShippingCost} onChange={set("inboundShippingCost")} prefix="R$" placeholder="0,00" />
-            </FF>
-            <FF label="Custo operacional">
-              <NI value={form.operationalCost} onChange={set("operationalCost")} prefix="R$" placeholder="0,00" />
-            </FF>
-            <FF label="Estoque atual">
-              <NI value={form.stockQuantity} onChange={set("stockQuantity")} placeholder="0" />
-            </FF>
-            <FF label="Estoque mínimo">
-              <NI value={form.minimumStock} onChange={set("minimumStock")} placeholder="0" />
-            </FF>
-          </div>
-          {/* Resumo de custo */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800/30">
-              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Custo em BRL</p>
-              <p className="text-lg font-bold text-blue-900 dark:text-blue-100 tabular-nums">{formatCurrency(costPriceBrl)}</p>
-            </div>
-            <div className="bg-green-50 dark:bg-green-950/20 p-3 rounded-lg border border-green-200 dark:border-green-800/30">
-              <p className="text-[10px] font-bold text-green-600 uppercase tracking-wider">Custo Final Unitário</p>
-              <p className="text-lg font-bold text-green-900 dark:text-green-100 tabular-nums">{formatCurrency(finalUnitCost)}</p>
-            </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 3: Margem ─────────────────────────────────────────────────── */}
-      <SectionCard icon={<Percent className="w-4 h-4" />} title="Margem de Lucro" subtitle="Define o lucro desejado antes de impostos e taxas">
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
-            <span className="text-xs font-medium text-muted-foreground">Modo de margem:</span>
-            <div className="flex gap-2">
-              {([["PERCENT", "Porcentagem (%)"], ["VALUE", "Valor fixo (R$)"]] as const).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => set("marginMode")(mode)}
-                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
-                    form.marginMode === mode ? "bg-primary text-primary-foreground" : "bg-background border border-border text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FF label="Margem desejada (%)" tooltip="Percentual de lucro sobre o custo base. Ex: 50% = lucro de 50% sobre o custo.">
-              <NI
-                value={form.desiredMarginRate}
-                onChange={set("desiredMarginRate")}
-                suffix="%"
-                placeholder="30"
-                disabled={form.marginMode === "VALUE"}
-              />
-            </FF>
-            <FF label="Margem em valor (R$)" tooltip="Valor fixo de lucro desejado. Usado apenas no modo Valor fixo.">
-              <NI
-                value={form.desiredMarginValue}
-                onChange={set("desiredMarginValue")}
-                prefix="R$"
-                placeholder="0,00"
-                disabled={form.marginMode === "PERCENT"}
-              />
-            </FF>
-          </div>
-          {form.marginMode === "VALUE" && finalUnitCost > 0 && n(form.desiredMarginValue) > 0 && (
-            <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/30">
-              <p className="text-xs text-purple-700 dark:text-purple-300">
-                Equivalente a <strong>{formatPercent(effectiveMarginRate)}</strong> de margem sobre o custo base de {formatCurrency(finalUnitCost)}
-              </p>
-            </div>
-          )}
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 4: Fiscal ─────────────────────────────────────────────────── */}
-      <SectionCard icon={<AlertTriangle className="w-4 h-4" />} title="Configuração Fiscal" subtitle="Regime tributário e alíquotas por forma de pagamento">
-        <div className="space-y-4">
-          {/* Aviso fiscal removido */}
-          <FF label="Regime tributário">
-            <Select value={form.taxRegime} onValueChange={(v) => handleTaxRegimeChange(v as TaxRegime)}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(Object.keys(TAX_REGIME_LABELS) as TaxRegime[]).map((key) => (
-                  <SelectItem key={key} value={key}>{TAX_REGIME_LABELS[key]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FF>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[
-              { label: "Pix / À Vista", field: "taxCash" as const },
-              { label: "Boleto", field: "taxBoleto" as const },
-              { label: "Débito", field: "taxDebit" as const },
-              { label: "Crédito à Vista", field: "taxCreditCash" as const },
-              { label: "Crédito Parcelado", field: "taxCreditInstallment" as const },
-            ].map(({ label, field }) => (
-              <FF key={field} label={label}>
-                <NI value={form[field]} onChange={set(field)} suffix="%" placeholder="6" />
-              </FF>
-            ))}
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 5: Boleto ─────────────────────────────────────────────────── */}
-      <SectionCard icon={<Banknote className="w-4 h-4" />} title="Configuração de Boleto" subtitle="Parcelamento, juros e inadimplência">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <FF label="Parcelas" tooltip="Número de parcelas do boleto parcelado">
-              <NI value={form.boletoMonths} onChange={set("boletoMonths")} placeholder="3" />
-            </FF>
-            <FF label="Juros mensal" tooltip="Taxa de juros ao mês aplicada ao boleto parcelado">
-              <NI value={form.boletoMonthlyRate} onChange={set("boletoMonthlyRate")} suffix="%" placeholder="1,99" />
-            </FF>
-            <FF label="Taxa fixa de emissão" tooltip="Custo fixo por boleto emitido (padrão R$ 3,50)">
-              <NI value={form.boletoFixedFee} onChange={set("boletoFixedFee")} prefix="R$" placeholder="3,50" />
-            </FF>
-            <FF label="Risco de inadimplência" tooltip="Percentual de perda estimado por inadimplência">
-              <NI value={form.boletoDefaultRisk} onChange={set("boletoDefaultRisk")} suffix="%" placeholder="2" />
-            </FF>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
+        {/* ── Topbar da página ─────────────────────────────────────────── */}
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setLocation("/produtos")}
+              className="flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 hover:text-neutral-700 transition-colors tracking-wide">
+              <ArrowLeft className="w-3.5 h-3.5" /> Voltar
+            </button>
             <div>
-              <p className="text-sm font-medium">Juros repassado ao cliente</p>
-              <p className="text-xs text-muted-foreground">Se desligado, a empresa absorve os juros no preço</p>
+              <h1 className="text-lg font-semibold text-neutral-900">
+                {isEditing ? "Editar Produto" : "Novo Produto"}
+              </h1>
+              <p className="text-[11px] text-neutral-400 mt-0.5">Cadastro, precificação e publicação na vitrine</p>
             </div>
-            <Switch checked={form.boletoCustomerPaysInterest} onCheckedChange={(v) => set("boletoCustomerPaysInterest")(v)} />
           </div>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 6: Cartão ─────────────────────────────────────────────────── */}
-      <SectionCard icon={<CreditCard className="w-4 h-4" />} title="Configuração de Cartão" subtitle="Taxas de débito, crédito e antecipação">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <FF label="Taxa débito">
-              <NI value={form.cardDebitFee} onChange={set("cardDebitFee")} suffix="%" placeholder="1,5" />
-            </FF>
-            <FF label="Taxa crédito à vista">
-              <NI value={form.cardCreditCashFee} onChange={set("cardCreditCashFee")} suffix="%" placeholder="2,5" />
-            </FF>
-            <FF label="Taxa crédito parcelado">
-              <NI value={form.cardCreditInstallmentFee} onChange={set("cardCreditInstallmentFee")} suffix="%" placeholder="3,5" />
-            </FF>
-            <FF label="Parcelas">
-              <NI value={form.cardInstallments} onChange={set("cardInstallments")} placeholder="6" />
-            </FF>
-            <FF label="Taxa de antecipação">
-              <NI value={form.cardAnticipationRate} onChange={set("cardAnticipationRate")} suffix="%" placeholder="1,5" />
-            </FF>
-            <FF label="Juros mensal">
-              <NI value={form.cardMonthlyRate} onChange={set("cardMonthlyRate")} suffix="%" placeholder="1,99" />
-            </FF>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
-            <div>
-              <p className="text-sm font-medium">Juros repassado ao cliente</p>
-              <p className="text-xs text-muted-foreground">Se desligado, a empresa absorve os juros no preço</p>
-            </div>
-            <Switch checked={form.cardCustomerPaysInterest} onCheckedChange={(v) => set("cardCustomerPaysInterest")(v)} />
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 7: Calcular e Cards de Resultado ──────────────────────────── */}
-      <div id="pricing-results">
-        {calcError && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            {calcError}
-          </div>
-        )}
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">Resultado da Precificação</h2>
-            <p className="text-xs text-muted-foreground">Clique em "Calcular Preços" para ver os valores por forma de pagamento</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleCalculate} disabled={!form.name.trim() || costPriceBrl <= 0}>
-            <RefreshCcw className="w-4 h-4 mr-1" /> Recalcular
-          </Button>
-        </div>
-
-        {pricingResult ? (
-          <div className="space-y-4">
-            {pricingResult.hasUnhealthyProduct && pricingResult.unhealthyAlert && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                {pricingResult.unhealthyAlert}
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {pricingResult.results.map((r) => (
-                <ResultCard
-                  key={r.method}
-                  result={r}
-                  isBest={r.method === pricingResult.bestMethod}
-                  isWorst={r.method === pricingResult.worstMethod}
-                />
-              ))}
-            </div>
-
-            {/* Oferta comercial para vitrine */}
-            <Card className="border-primary/20 bg-primary/5">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-primary" />
-                  Oferta Comercial — O que aparece na vitrine
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  {[
-                    { label: "PIX / À Vista", value: pricingResult.results.find(r => r.method === "PIX")?.suggestedPrice },
-                    { label: "Débito", value: pricingResult.results.find(r => r.method === "DEBITO")?.suggestedPrice },
-                    { label: "Crédito à Vista", value: pricingResult.results.find(r => r.method === "CREDITO_A_VISTA")?.suggestedPrice },
-                    { label: "Crédito Parcelado", value: pricingResult.results.find(r => r.method === "CREDITO_PARCELADO") },
-                  ].map((item, i) => (
-                    <div key={i} className="p-2 rounded-lg bg-background border">
-                      <p className="text-muted-foreground mb-1">{item.label}</p>
-                      {typeof item.value === "number" ? (
-                        <p className="font-bold text-foreground">{formatCurrency(item.value)}</p>
-                      ) : item.value && typeof item.value === "object" ? (
-                        <div>
-                          <p className="font-bold text-foreground">{formatCurrency((item.value as PaymentResult).suggestedPrice)}</p>
-                          <p className="text-muted-foreground">{(item.value as PaymentResult).installments}x de {formatCurrency((item.value as PaymentResult).installmentValue)}</p>
-                        </div>
-                      ) : <p className="text-muted-foreground">—</p>}
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-3 p-2 rounded-lg bg-background border">
-                  <p className="text-xs text-muted-foreground mb-1">Boleto parcelado</p>
-                  {(() => {
-                    const b = pricingResult.results.find(r => r.method === "BOLETO");
-                    if (!b) return <p className="text-xs text-muted-foreground">—</p>;
-                    return (
-                      <p className="text-xs font-medium">
-                        Entrada de {formatCurrency(b.suggestedPrice / (b.installments + 1))} + {b.installments}x de {formatCurrency(b.installmentValue)}
-                      </p>
-                    );
-                  })()}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-border p-10 text-center">
-            <Calculator className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">Preencha os custos e clique em <strong>Calcular Preços</strong></p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Bloco 8: Links de Pagamento ─────────────────────────────────────── */}
-      <SectionCard icon={<Sparkles className="w-4 h-4" />} title="Links de Pagamento" subtitle="URLs externas para PIX, cartão e boleto na vitrine">
-        <div className="space-y-4">
-          <FF label="Plataforma de pagamento">
-            <Select value={form.paymentPlatform} onValueChange={(v) => set("paymentPlatform")(v)}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="MERCADO_PAGO">Mercado Pago</SelectItem>
-                <SelectItem value="PAGSEGURO">PagSeguro</SelectItem>
-                <SelectItem value="OUTRO">Outro</SelectItem>
-              </SelectContent>
-            </Select>
-          </FF>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FF label="Chave PIX">
-              <Input value={form.pixKey} onChange={(e) => set("pixKey")(e.target.value)} placeholder="CPF, CNPJ, e-mail ou chave aleatória" className="h-9 text-sm" />
-            </FF>
-            <FF label="Link de pagamento PIX">
-              <Input value={form.pixLink} onChange={(e) => set("pixLink")(e.target.value)} placeholder="https://..." className="h-9 text-sm" />
-            </FF>
-            <FF label="Link de pagamento Cartão">
-              <Input value={form.cardPaymentUrl} onChange={(e) => set("cardPaymentUrl")(e.target.value)} placeholder="https://..." className="h-9 text-sm" />
-            </FF>
-            <FF label="Link de pagamento Boleto">
-              <Input value={form.boletoUrl} onChange={(e) => set("boletoUrl")(e.target.value)} placeholder="https://..." className="h-9 text-sm" />
-            </FF>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* Barra de ações final */}
-      <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur border-t border-border -mx-4 sm:-mx-6 px-4 sm:px-6 py-4 mt-2">
-        <div className="max-w-4xl mx-auto flex justify-between items-center gap-3">
-          <Button variant="ghost" onClick={() => setLocation("/produtos")} className="text-muted-foreground">
-            <ArrowLeft className="w-4 h-4 mr-1.5" /> Cancelar
-          </Button>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCalculate}
+            {isEditing && (
+              <a href={`/vitrine/${productId}`} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-[10px] font-medium tracking-[0.12em] uppercase px-3 py-2 border border-neutral-200 text-neutral-500 hover:border-neutral-400 hover:text-neutral-800 transition-colors">
+                <Eye className="w-3 h-3" /> Ver na Vitrine
+              </a>
+            )}
+            <button onClick={handleCalculate}
               disabled={!form.name.trim() || costPriceBrl <= 0}
-            >
-              <Calculator className="w-4 h-4 mr-1" /> Calcular Preços
-            </Button>
-            <Button onClick={handleSave} disabled={isSaving} size="default">
-              <Save className="w-4 h-4 mr-2" />
+              className="flex items-center gap-1.5 text-[10px] font-medium tracking-[0.12em] uppercase px-3 py-2 border border-neutral-300 text-neutral-600 hover:border-neutral-600 hover:text-neutral-900 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+              <Calculator className="w-3 h-3" /> Calcular Preços
+            </button>
+            <button onClick={handleSave} disabled={isSaving}
+              className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] uppercase px-4 py-2 bg-neutral-900 text-white hover:bg-neutral-700 transition-colors disabled:opacity-50">
+              <Save className="w-3 h-3" />
               {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
-            </Button>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Grid principal: formulário + painel dark ─────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0 items-start">
+
+          {/* ── LADO ESQUERDO: formulário em abas ────────────────────── */}
+          <div className="border border-neutral-100 bg-white">
+
+            {/* Tabs */}
+            <div className="border-b border-neutral-100 flex overflow-x-auto no-scrollbar px-2">
+              <TabBtn active={activeTab === "setup"}  onClick={() => setActiveTab("setup")}>Identidade</TabBtn>
+              <TabBtn active={activeTab === "custos"} onClick={() => setActiveTab("custos")}>Custos & Estoque</TabBtn>
+              <TabBtn active={activeTab === "taxas"}  onClick={() => setActiveTab("taxas")}>Taxas & Gateway</TabBtn>
+              <TabBtn active={activeTab === "links"}  onClick={() => setActiveTab("links")}>Links de Pagamento</TabBtn>
+            </div>
+
+            {/* ── ABA 1: IDENTIDADE ──────────────────────────────────── */}
+            {activeTab === "setup" && (
+              <div className="p-6 space-y-5">
+                <Section title="Informações Básicas">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Nome do produto" required className="sm:col-span-2">
+                      <Input value={form.name} onChange={(e) => set("name")(e.target.value)}
+                        placeholder="Ex: Sauvage Eau de Parfum 100ml"
+                        className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
+                    </Field>
+                    <Field label="Categoria" required>
+                      <Select value={form.category} onValueChange={(v) => set("category")(v)}>
+                        <SelectTrigger className="h-9 text-sm border-neutral-200 focus:ring-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"] as ProductCategory[]).map((c) => (
+                            <SelectItem key={c} value={c} className="text-sm">{c}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Label de categoria" tooltip="Exibida na vitrine (ex: Perfumes Importados)">
+                      <Input value={form.categoryLabel} onChange={(e) => set("categoryLabel")(e.target.value)}
+                        placeholder="Ex: Perfumes Importados"
+                        className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
+                    </Field>
+                    <Field label="NCM">
+                      <Input value={form.ncm} onChange={(e) => set("ncm")(e.target.value)}
+                        placeholder="Ex: 3303.00.10"
+                        className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
+                    </Field>
+                    <Field label="Tag de promoção" tooltip='Ex: "OFERTA", "LANÇAMENTO"'>
+                      <Input value={form.promoTag} onChange={(e) => set("promoTag")(e.target.value)}
+                        placeholder="Ex: OFERTA"
+                        className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
+                    </Field>
+                  </div>
+                </Section>
+
+                <Section title="Descrição">
+                  <Field label="Descrição curta" tooltip="Aparece nos cards da vitrine (máx. 120 caracteres)">
+                    <Input value={form.shortDescription} onChange={(e) => set("shortDescription")(e.target.value)}
+                      placeholder="Breve descrição atrativa"
+                      className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" maxLength={120} />
+                  </Field>
+                  <Field label="Descrição completa">
+                    <Textarea value={form.description} onChange={(e) => set("description")(e.target.value)}
+                      placeholder="Descrição detalhada do produto..."
+                      rows={5} className="text-sm border-neutral-200 resize-none focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
+                  </Field>
+                </Section>
+
+                <Section title="Publicação">
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-sm">
+                    <div>
+                      <p className="text-[12px] font-medium text-neutral-800">Publicado na vitrine</p>
+                      <p className="text-[10px] text-neutral-400 mt-0.5">Produto visível ao público</p>
+                    </div>
+                    <Switch checked={form.published} onCheckedChange={(v) => set("published")(v)} />
+                  </div>
+                </Section>
+
+                {isEditing && productId ? (
+                  <Section title="Galeria de Imagens">
+                    <ImageGallery productId={productId} />
+                  </Section>
+                ) : (
+                  <div className="border border-dashed border-neutral-200 rounded-sm p-6 text-center">
+                    <p className="text-[11px] text-neutral-400">Salve o produto primeiro para adicionar imagens</p>
+                  </div>
+                )}
+
+                <Section title="Observações internas" defaultOpen={false}>
+                  <Field label="Notas (não aparecem na vitrine)">
+                    <Textarea value={form.notes} onChange={(e) => set("notes")(e.target.value)}
+                      placeholder="Notas internas..."
+                      rows={3} className="text-sm border-neutral-200 resize-none focus:ring-0 focus-visible:ring-0" />
+                  </Field>
+                </Section>
+              </div>
+            )}
+
+            {/* ── ABA 2: CUSTOS & ESTOQUE ────────────────────────────── */}
+            {activeTab === "custos" && (
+              <div className="p-6 space-y-5">
+                <Section title="Custo do Produto">
+                  {/* Seletor de moeda */}
+                  <div className="flex items-center gap-3 p-3 bg-neutral-50 rounded-sm">
+                    <span className="text-[11px] font-medium text-neutral-500">Moeda:</span>
+                    <div className="flex gap-1.5">
+                      {(["BRL", "USD"] as const).map((c) => (
+                        <button key={c} onClick={() => set("costCurrency")(c)}
+                          className={`px-3 py-1 text-[10px] font-bold tracking-wide transition-colors ${
+                            form.costCurrency === c
+                              ? "bg-neutral-900 text-white"
+                              : "bg-white border border-neutral-200 text-neutral-500 hover:border-neutral-400"
+                          }`}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {form.costCurrency === "BRL" ? (
+                      <Field label="Preço de custo (R$)" required>
+                        <NumInput value={form.costPrice} onChange={set("costPrice")} prefix="R$" placeholder="0,00" />
+                      </Field>
+                    ) : (
+                      <>
+                        <Field label="Preço em dólar (US$)" required>
+                          <NumInput value={form.costPriceUsd} onChange={set("costPriceUsd")} prefix="US$" placeholder="0,00" />
+                        </Field>
+                        <Field label="Cotação do dólar" tooltip="Dólar comercial do dia">
+                          <NumInput value={form.usdExchangeRate} onChange={set("usdExchangeRate")} prefix="R$" placeholder="5.50" />
+                        </Field>
+                        <Field label="Custo em R$ (calculado)" disabled>
+                          <NumInput value={costPriceBrl > 0 ? costPriceBrl.toFixed(2) : ""} onChange={() => {}} prefix="R$" disabled />
+                        </Field>
+                      </>
+                    )}
+                    <Field label="Custo de embalagem">
+                      <NumInput value={form.packagingCost} onChange={set("packagingCost")} prefix="R$" placeholder="0,00" />
+                    </Field>
+                    <Field label="Frete de entrada">
+                      <NumInput value={form.inboundShippingCost} onChange={set("inboundShippingCost")} prefix="R$" placeholder="0,00" />
+                    </Field>
+                    <Field label="Custo operacional">
+                      <NumInput value={form.operationalCost} onChange={set("operationalCost")} prefix="R$" placeholder="0,00" />
+                    </Field>
+                  </div>
+
+                  {/* Resumo de custo */}
+                  {finalUnitCost > 0 && (
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <div className="p-3 bg-neutral-50 rounded-sm">
+                        <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-neutral-400 mb-1">Custo em BRL</p>
+                        <p className="text-base font-semibold text-neutral-900">{formatCurrency(costPriceBrl)}</p>
+                      </div>
+                      <div className="p-3 bg-emerald-50 rounded-sm">
+                        <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-emerald-600 mb-1">Custo Final Unitário</p>
+                        <p className="text-base font-semibold text-emerald-800">{formatCurrency(finalUnitCost)}</p>
+                      </div>
+                    </div>
+                  )}
+                </Section>
+
+                <Section title="Estoque">
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Estoque atual">
+                      <NumInput value={form.stockQuantity} onChange={set("stockQuantity")} placeholder="0" />
+                    </Field>
+                    <Field label="Estoque mínimo" tooltip="Alerta de reposição">
+                      <NumInput value={form.minimumStock} onChange={set("minimumStock")} placeholder="0" />
+                    </Field>
+                  </div>
+                </Section>
+
+                <Section title="Margem de Lucro Desejada">
+                  <div className="flex gap-1.5 mb-4">
+                    {(["PERCENT", "VALUE"] as const).map((m) => (
+                      <button key={m} onClick={() => set("marginMode")(m)}
+                        className={`px-4 py-1.5 text-[10px] font-bold tracking-wide transition-colors ${
+                          form.marginMode === m ? "bg-neutral-900 text-white" : "bg-white border border-neutral-200 text-neutral-500"
+                        }`}>
+                        {m === "PERCENT" ? "Porcentagem (%)" : "Valor (R$)"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {form.marginMode === "PERCENT" ? (
+                      <Field label="Margem desejada (%)" required>
+                        <NumInput value={form.desiredMarginRate} onChange={set("desiredMarginRate")} suffix="%" placeholder="30" />
+                      </Field>
+                    ) : (
+                      <Field label="Margem em valor (R$)" required>
+                        <NumInput value={form.desiredMarginValue} onChange={set("desiredMarginValue")} prefix="R$" placeholder="0,00" />
+                      </Field>
+                    )}
+                    <Field label="Margem efetiva" disabled>
+                      <NumInput value={effectiveMarginRate.toFixed(2)} onChange={() => {}} suffix="%" disabled />
+                    </Field>
+                  </div>
+                  {effectiveMarginRate > 0 && finalUnitCost > 0 && (
+                    <p className="text-[10px] text-neutral-500 mt-2">
+                      Equivale a {formatPercent(effectiveMarginRate)} sobre custo de {formatCurrency(finalUnitCost)}
+                    </p>
+                  )}
+                </Section>
+              </div>
+            )}
+
+            {/* ── ABA 3: TAXAS & GATEWAY ─────────────────────────────── */}
+            {activeTab === "taxas" && (
+              <div className="p-6 space-y-5">
+                <Section title="Regime Tributário & Alíquotas">
+                  <Field label="Regime tributário">
+                    <Select value={form.taxRegime} onValueChange={(v) => handleTaxRegimeChange(v as TaxRegime)}>
+                      <SelectTrigger className="h-9 text-sm border-neutral-200 focus:ring-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(TAX_REGIME_LABELS).map(([v, l]) => (
+                          <SelectItem key={v} value={v} className="text-sm">{l}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <Field label="PIX / À Vista" tooltip="Alíquota para pagamento à vista">
+                      <NumInput value={form.taxCash} onChange={set("taxCash")} suffix="%" />
+                    </Field>
+                    <Field label="Boleto"><NumInput value={form.taxBoleto} onChange={set("taxBoleto")} suffix="%" /></Field>
+                    <Field label="Débito"><NumInput value={form.taxDebit} onChange={set("taxDebit")} suffix="%" /></Field>
+                    <Field label="Crédito à vista"><NumInput value={form.taxCreditCash} onChange={set("taxCreditCash")} suffix="%" /></Field>
+                    <Field label="Crédito parcelado"><NumInput value={form.taxCreditInstallment} onChange={set("taxCreditInstallment")} suffix="%" /></Field>
+                  </div>
+                </Section>
+
+                <Section title="Configuração de Boleto">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <Field label="Parcelas" tooltip="Número de parcelas do boleto"><NumInput value={form.boletoMonths} onChange={set("boletoMonths")} placeholder="3" /></Field>
+                    <Field label="Juros mensal (%)"><NumInput value={form.boletoMonthlyRate} onChange={set("boletoMonthlyRate")} suffix="%" /></Field>
+                    <Field label="Taxa fixa emissão (R$)"><NumInput value={form.boletoFixedFee} onChange={set("boletoFixedFee")} prefix="R$" /></Field>
+                    <Field label="Risco inadimplência (%)"><NumInput value={form.boletoDefaultRisk} onChange={set("boletoDefaultRisk")} suffix="%" /></Field>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-sm mt-2">
+                    <div>
+                      <p className="text-[12px] font-medium text-neutral-800">Juros repassado ao cliente</p>
+                      <p className="text-[10px] text-neutral-400">Cliente absorve os juros do boleto</p>
+                    </div>
+                    <Switch checked={form.boletoCustomerPaysInterest} onCheckedChange={(v) => set("boletoCustomerPaysInterest")(v)} />
+                  </div>
+                </Section>
+
+                <Section title="Configuração de Cartão">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <Field label="Taxa débito (%)"><NumInput value={form.cardDebitFee} onChange={set("cardDebitFee")} suffix="%" /></Field>
+                    <Field label="Taxa crédito à vista (%)"><NumInput value={form.cardCreditCashFee} onChange={set("cardCreditCashFee")} suffix="%" /></Field>
+                    <Field label="Taxa crédito parcelado (%)"><NumInput value={form.cardCreditInstallmentFee} onChange={set("cardCreditInstallmentFee")} suffix="%" /></Field>
+                    <Field label="Parcelas"><NumInput value={form.cardInstallments} onChange={set("cardInstallments")} placeholder="6" /></Field>
+                    <Field label="Taxa antecipação (%)"><NumInput value={form.cardAnticipationRate} onChange={set("cardAnticipationRate")} suffix="%" /></Field>
+                    <Field label="Juros mensal (%)"><NumInput value={form.cardMonthlyRate} onChange={set("cardMonthlyRate")} suffix="%" /></Field>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-sm mt-2">
+                    <div>
+                      <p className="text-[12px] font-medium text-neutral-800">Juros repassado ao cliente</p>
+                      <p className="text-[10px] text-neutral-400">Cliente absorve os juros do cartão</p>
+                    </div>
+                    <Switch checked={form.cardCustomerPaysInterest} onCheckedChange={(v) => set("cardCustomerPaysInterest")(v)} />
+                  </div>
+                </Section>
+              </div>
+            )}
+
+            {/* ── ABA 4: LINKS DE PAGAMENTO ──────────────────────────── */}
+            {activeTab === "links" && (
+              <div className="p-6 space-y-5">
+                <Section title="Plataforma de Pagamento">
+                  <Field label="Gateway / Plataforma">
+                    <Select value={form.paymentPlatform} onValueChange={(v) => set("paymentPlatform")(v)}>
+                      <SelectTrigger className="h-9 text-sm border-neutral-200 focus:ring-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MERCADO_PAGO">Mercado Pago</SelectItem>
+                        <SelectItem value="PAGSEGURO">PagSeguro</SelectItem>
+                        <SelectItem value="OUTRO">Outro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </Section>
+
+                <Section title="Links Externos de Checkout">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Chave PIX" tooltip="CPF, CNPJ, email ou chave aleatória">
+                      <Input value={form.pixKey} onChange={(e) => set("pixKey")(e.target.value)}
+                        placeholder="Ex: 61999999999"
+                        className="h-9 text-sm border-neutral-200 focus:ring-0 focus-visible:ring-0" />
+                    </Field>
+                    <Field label="Link PIX (URL)" tooltip="URL de cobrança PIX gerada pela plataforma">
+                      <Input value={form.pixLink} onChange={(e) => set("pixLink")(e.target.value)}
+                        placeholder="https://..."
+                        className="h-9 text-sm border-neutral-200 focus:ring-0 focus-visible:ring-0" />
+                    </Field>
+                    <Field label="Link Cartão (URL)" tooltip="URL de checkout com cartão">
+                      <Input value={form.cardPaymentUrl} onChange={(e) => set("cardPaymentUrl")(e.target.value)}
+                        placeholder="https://..."
+                        className="h-9 text-sm border-neutral-200 focus:ring-0 focus-visible:ring-0" />
+                    </Field>
+                    <Field label="Link Boleto (URL)" tooltip="URL para geração de boleto">
+                      <Input value={form.boletoUrl} onChange={(e) => set("boletoUrl")(e.target.value)}
+                        placeholder="https://..."
+                        className="h-9 text-sm border-neutral-200 focus:ring-0 focus-visible:ring-0" />
+                    </Field>
+                  </div>
+                  <p className="text-[10px] text-neutral-400 bg-neutral-50 p-3 rounded-sm">
+                    💡 Gere os links na sua plataforma de pagamento (Mercado Pago, PagSeguro etc.) e cole aqui.
+                    Eles serão exibidos na página do produto na vitrine.
+                  </p>
+                </Section>
+              </div>
+            )}
+          </div>
+
+          {/* ── LADO DIREITO: Painel Escuro do Simulador ──────────────── */}
+          <div className="lg:sticky lg:top-14 bg-neutral-950 text-white flex flex-col min-h-[500px]">
+
+            {/* Header do painel */}
+            <div className="px-5 py-4 border-b border-white/10">
+              <p className="text-[9px] font-semibold tracking-[0.3em] uppercase text-white/40 mb-1">Simulador de Lucro</p>
+              <h2 className="text-sm font-semibold text-white">Painel de Precificação</h2>
+            </div>
+
+            <div className="flex-1 px-5 py-4 space-y-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
+
+              {/* Resumo de custo */}
+              {finalUnitCost > 0 ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-white/5 rounded-sm p-3">
+                      <p className="text-[9px] text-white/40 tracking-wide uppercase mb-1">Custo BRL</p>
+                      <p className="text-sm font-semibold text-white">{formatCurrency(costPriceBrl)}</p>
+                    </div>
+                    <div className="bg-white/5 rounded-sm p-3">
+                      <p className="text-[9px] text-white/40 tracking-wide uppercase mb-1">Custo Final</p>
+                      <p className="text-sm font-semibold text-white">{formatCurrency(finalUnitCost)}</p>
+                    </div>
+                  </div>
+
+                  {/* Margem desejada */}
+                  <div className="bg-white/5 rounded-sm p-3 space-y-3">
+                    <p className="text-[9px] text-white/40 tracking-wide uppercase">Margem Desejada</p>
+                    <div className="flex gap-1.5">
+                      {(["PERCENT", "VALUE"] as const).map((m) => (
+                        <button key={m} onClick={() => set("marginMode")(m)}
+                          className={`flex-1 py-1.5 text-[9px] font-bold tracking-wide transition-colors ${
+                            form.marginMode === m ? "bg-white text-neutral-900" : "bg-white/10 text-white/60 hover:bg-white/20"
+                          }`}>
+                          {m === "PERCENT" ? "%" : "R$"}
+                        </button>
+                      ))}
+                    </div>
+                    {form.marginMode === "PERCENT" ? (
+                      <NumInput value={form.desiredMarginRate} onChange={set("desiredMarginRate")} suffix="%" placeholder="30" />
+                    ) : (
+                      <NumInput value={form.desiredMarginValue} onChange={set("desiredMarginValue")} prefix="R$" placeholder="0,00" />
+                    )}
+                    {effectiveMarginRate > 0 && (
+                      <p className="text-[10px] text-white/40">
+                        Margem efetiva: <span className="text-emerald-400 font-semibold">{effectiveMarginRate.toFixed(1)}%</span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-6 space-y-2">
+                  <Calculator className="w-8 h-8 text-white/20 mx-auto" />
+                  <p className="text-[11px] text-white/30">Informe o custo do produto para ativar o simulador</p>
+                </div>
+              )}
+
+              {/* Erro de cálculo */}
+              {calcError && (
+                <div className="flex items-start gap-2 p-3 bg-rose-950/50 rounded-sm border border-rose-900/30">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400 mt-0.5 shrink-0" />
+                  <p className="text-[11px] text-rose-300">{calcError}</p>
+                </div>
+              )}
+
+              {/* Botão calcular */}
+              {finalUnitCost > 0 && (
+                <button onClick={handleCalculate}
+                  className="w-full py-2.5 bg-white text-neutral-900 text-[10px] font-bold tracking-[0.15em] uppercase hover:bg-neutral-100 transition-colors flex items-center justify-center gap-2">
+                  <RefreshCcw className="w-3 h-3" /> Calcular Preços
+                </button>
+              )}
+
+              {/* Resultados */}
+              {pricingResult && (
+                <div className="space-y-2.5">
+                  <div className="border-t border-white/10 pt-3">
+                    <p className="text-[9px] font-semibold tracking-[0.25em] uppercase text-white/40 mb-3">
+                      Preços Sugeridos
+                    </p>
+                  </div>
+                  {pricingResult.results.map((r) => (
+                    <DarkResultCard
+                      key={r.method}
+                      result={r}
+                      isBest={r.method === pricingResult.bestMethod}
+                      isWorst={r.method === pricingResult.worstMethod}
+                    />
+                  ))}
+                  <div className="pt-2 border-t border-white/10">
+                    <p className="text-[10px] text-white/30">
+                      Margem real (PIX):{" "}
+                      <span className="text-emerald-400 font-semibold">
+                        {formatPercent(pricingResult.results.find(r => r.method === "PIX")?.realMarginRate ?? 0)}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer: publicar */}
+            <div className="px-5 py-4 border-t border-white/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-medium text-white">Publicar na Vitrine</p>
+                  <p className="text-[9px] text-white/40 mt-0.5">Visível ao público</p>
+                </div>
+                <Switch checked={form.published} onCheckedChange={(v) => set("published")(v)}
+                  className="data-[state=checked]:bg-emerald-500" />
+              </div>
+              <button onClick={handleSave} disabled={isSaving}
+                className="w-full py-3 bg-white text-neutral-900 text-[10px] font-bold tracking-[0.18em] uppercase hover:bg-neutral-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <Save className="w-3.5 h-3.5" />
+                {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar & Publicar"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }
