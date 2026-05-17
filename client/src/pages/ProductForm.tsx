@@ -1,7 +1,8 @@
 /**
- * ProductForm.tsx — Cadastro + Simulador Unificado "Silent Wealth" · Shoop Permupay
- * Refatorado: formulário grafite premium, painel simulador charcoal profundo.
- * TODA A LÓGICA DE CÁLCULO, SALVAMENTO E HOOKS É PRESERVADA DO ORIGINAL.
+ * ProductForm.tsx — Cadastro + Simulador Unificado "Silent Wealth"
+ * Layout: formulário à esquerda (abas) + painel escuro sticky à direita (simulador).
+ * REGRA: toda a lógica de cálculo, salvamento e hooks é PRESERVADA do original.
+ * Apenas o layout e estilo foram refatorados.
  */
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocation, useParams } from "wouter";
@@ -87,17 +88,15 @@ function Field({ label, tooltip, required, children, className = "" }: {
   return (
     <div className={`space-y-1.5 ${className}`}>
       <div className="flex items-center gap-1.5">
-        <Label className="text-[10px] font-semibold text-[#5A5A52] tracking-[0.15em] uppercase">
-          {label}{required && <span className="text-rose-600/70 ml-0.5">*</span>}
+        <Label className="text-[11px] font-medium text-neutral-600 tracking-wide">
+          {label}{required && <span className="text-rose-400 ml-0.5">*</span>}
         </Label>
         {tooltip && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Info className="w-3 h-3 text-[#3A3A34] cursor-help" />
+              <Info className="w-3 h-3 text-neutral-400 cursor-help" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-[11px] border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#0F0F0E", color: "#C8B99A" }}>
-              {tooltip}
-            </TooltipContent>
+            <TooltipContent className="max-w-xs text-xs bg-neutral-900 text-white border-0">{tooltip}</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -113,18 +112,12 @@ function NumInput({ value, onChange, placeholder, prefix, suffix, disabled }: {
 }) {
   return (
     <div className="relative flex items-center">
-      {prefix && <span className="absolute left-3 text-[10px] text-[#4A4A44] pointer-events-none font-mono">{prefix}</span>}
-      <Input
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder ?? "0"}
-        step="any"
-        min={0}
-        disabled={disabled}
-        className={`h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-30 cursor-not-allowed" : ""}`}
+      {prefix && <span className="absolute left-3 text-[11px] text-neutral-400 pointer-events-none">{prefix}</span>}
+      <Input type="number" value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder ?? "0"} step="any" min={0} disabled={disabled}
+        className={`h-9 text-sm border-neutral-200 bg-white focus:border-neutral-400 focus:ring-0 focus-visible:ring-0 ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
       />
-      {suffix && <span className="absolute right-3 text-[10px] text-[#4A4A44] pointer-events-none font-mono">{suffix}</span>}
+      {suffix && <span className="absolute right-3 text-[11px] text-neutral-400 pointer-events-none">{suffix}</span>}
     </div>
   );
 }
@@ -132,42 +125,28 @@ function NumInput({ value, onChange, placeholder, prefix, suffix, disabled }: {
 /** Tab button */
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      onClick={onClick}
-      className={`px-5 py-3 text-[9px] font-bold tracking-[0.18em] uppercase transition-all whitespace-nowrap border-b-2 ${
-        active
-          ? "text-[#C8B99A] border-[#C8B99A]"
-          : "text-[#3A3A34] border-transparent hover:text-[#5A5A52]"
-      }`}
-    >
+    <button onClick={onClick}
+      className={`px-5 py-2.5 text-[11px] font-semibold tracking-[0.1em] uppercase transition-all whitespace-nowrap border-b-2 ${
+        active ? "text-neutral-900 border-neutral-900" : "text-neutral-400 border-transparent hover:text-neutral-700"
+      }`}>
       {children}
     </button>
   );
 }
 
-/** Seção collapsível */
+/** Seção collapsível dentro do formulário */
 function Section({ title, children, defaultOpen = true }: {
   title: string; children: React.ReactNode; defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border border-[#1E1E1B] overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#1A1A17] transition-colors text-left"
-        style={{ backgroundColor: "#161614" }}
-      >
-        <span className="text-[9px] font-bold tracking-[0.22em] uppercase text-[#5A5A52]">{title}</span>
-        {open
-          ? <ChevronUp className="h-3.5 w-3.5 text-[#3A3A34]" />
-          : <ChevronDown className="h-3.5 w-3.5 text-[#3A3A34]" />
-        }
+    <div className="border border-neutral-100 rounded-sm overflow-hidden">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-neutral-50/60 hover:bg-neutral-50 transition-colors text-left">
+        <span className="text-[11px] font-semibold tracking-[0.15em] uppercase text-neutral-600">{title}</span>
+        {open ? <ChevronUp className="h-3.5 w-3.5 text-neutral-400" /> : <ChevronDown className="h-3.5 w-3.5 text-neutral-400" />}
       </button>
-      {open && (
-        <div className="p-4 space-y-4" style={{ backgroundColor: "#141411" }}>
-          {children}
-        </div>
-      )}
+      {open && <div className="p-4 space-y-4 bg-white">{children}</div>}
     </div>
   );
 }
@@ -177,44 +156,37 @@ function DarkResultCard({ result, isBest, isWorst }: { result: PaymentResult; is
   const statusColor = {
     EXCELENTE: "text-emerald-400", SAUDAVEL: "text-green-400", ATENCAO: "text-amber-400",
     RISCO: "text-orange-400", PREJUIZO: "text-red-400",
-  }[(result as any).diagnostic] || "text-[#5A5A52]";
+  }[(result as any).diagnostic] || "text-neutral-400";
 
   return (
-    <div
-      className={`p-3.5 transition-all border ${
-        isBest ? "border-[#C8B99A]/20 bg-[#C8B99A]/5" : "border-[#1E1E1B] bg-[#111110]"
-      }`}
-    >
+    <div className={`rounded-sm p-3.5 transition-all ${
+      isBest ? "bg-white/10 ring-1 ring-white/20" : "bg-white/5"
+    }`}>
       {isBest && (
-        <span className="inline-flex items-center gap-1 text-[7px] font-bold tracking-[0.25em] uppercase text-[#C8B99A] mb-2">
+        <span className="inline-flex items-center gap-1 text-[8px] font-bold tracking-[0.2em] uppercase text-emerald-400 mb-2">
           <TrendingUp className="w-2.5 h-2.5" /> Melhor opção
         </span>
       )}
       <div className="flex items-start justify-between mb-2">
         <div>
-          <p className="text-[10px] font-semibold text-[#7A7268] tracking-wider uppercase">{result.methodLabel}</p>
+          <p className="text-[10px] font-semibold text-white/70 tracking-wide">{result.methodLabel}</p>
           {result.installments > 1 && (
-            <p className="text-[9px] text-[#3A3A34] font-light">{result.installments}× {formatCurrency(result.installmentValue)}</p>
+            <p className="text-[9px] text-white/40">{result.installments}× {formatCurrency(result.installmentValue)}</p>
           )}
         </div>
-        <span className={`text-[8px] font-bold tracking-wide ${statusColor}`}>{(result as any).diagnostic}</span>
+        <span className={`text-[9px] font-bold ${statusColor}`}>{(result as any).diagnostic}</span>
       </div>
-      <p
-        className="text-xl font-semibold text-[#E8E3D8] tracking-tight"
-        style={{ fontFamily: "var(--font-serif, 'Cormorant Garamond', Georgia, serif)" }}
-      >
-        {formatCurrency(result.suggestedPrice)}
-      </p>
-      <div className="mt-2.5 pt-2.5 border-t border-[#1E1E1B] space-y-1">
-        <div className="flex justify-between text-[9px]">
-          <span className="text-[#3A3A34] font-light">Lucro líquido</span>
-          <span className={`font-semibold ${result.netProfit >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+      <p className="text-xl font-semibold text-white tracking-tight">{formatCurrency(result.suggestedPrice)}</p>
+      <div className="mt-2.5 pt-2.5 border-t border-white/10 space-y-1">
+        <div className="flex justify-between text-[10px]">
+          <span className="text-white/50">Lucro líquido</span>
+          <span className={`font-semibold ${result.netProfit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
             {formatCurrency(result.netProfit)} ({formatPercent(result.realMarginRate)})
           </span>
         </div>
-        <div className="flex justify-between text-[9px]">
-          <span className="text-[#2E2E2A] font-light">Preço psicológico</span>
-          <span className="text-[#3A3A34]">{formatCurrency(result.psychologicalPrice)}</span>
+        <div className="flex justify-between text-[10px]">
+          <span className="text-white/40">Preço psicológico</span>
+          <span className="text-white/60">{formatCurrency(result.psychologicalPrice)}</span>
         </div>
       </div>
     </div>
@@ -386,17 +358,13 @@ export default function ProductForm() {
     else { createProduct.mutate(payload); }
   }, [form, costPriceBrl, effectiveMarginRate, pricingResult, isEditing, productId, createProduct, updateProduct]);
 
-  // ── Classes de input base ─────────────────────────────────────────────────
-  const inputCls = "h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm";
-  const selectTriggerCls = "h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] focus:ring-0 rounded-sm";
-
   if (isEditing && productQuery.isLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <div className="text-center space-y-4">
-            <div className="w-5 h-5 border-2 border-[#2E2E2A] border-t-[#C8B99A] rounded-full animate-spin mx-auto" />
-            <p className="text-xs text-[#4A4A44] tracking-widest uppercase font-light">Carregando produto...</p>
+          <div className="text-center space-y-3">
+            <div className="w-6 h-6 border-2 border-neutral-300 border-t-neutral-800 rounded-full animate-spin mx-auto" />
+            <p className="text-sm text-neutral-400">Carregando produto...</p>
           </div>
         </div>
       </DashboardLayout>
@@ -411,42 +379,31 @@ export default function ProductForm() {
         {/* ── Topbar da página ─────────────────────────────────────────── */}
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => setLocation("/produtos")}
-              className="flex items-center gap-1.5 text-[9px] font-semibold text-[#3A3A34] hover:text-[#7A7268] transition-colors tracking-[0.18em] uppercase"
-            >
+            <button onClick={() => setLocation("/produtos")}
+              className="flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 hover:text-neutral-700 transition-colors tracking-wide">
               <ArrowLeft className="w-3.5 h-3.5" /> Voltar
             </button>
-            <div className="pl-4 border-l border-[#1E1E1B]">
-              <h1 className="text-base font-light text-[#E8E3D8] tracking-wide">
+            <div>
+              <h1 className="text-lg font-semibold text-neutral-900">
                 {isEditing ? "Editar Produto" : "Novo Produto"}
               </h1>
-              <p className="text-[9px] text-[#3A3A34] mt-0.5 tracking-wider font-light">Cadastro, precificação e publicação na vitrine</p>
+              <p className="text-[11px] text-neutral-400 mt-0.5">Cadastro, precificação e publicação na vitrine</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {isEditing && (
-              <a
-                href={`/vitrine/${productId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-[8px] font-bold tracking-[0.18em] uppercase px-3 py-2 border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A] transition-all"
-              >
+              <a href={`/vitrine/${productId}`} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-[10px] font-medium tracking-[0.12em] uppercase px-3 py-2 border border-neutral-200 text-neutral-500 hover:border-neutral-400 hover:text-neutral-800 transition-colors">
                 <Eye className="w-3 h-3" /> Ver na Vitrine
               </a>
             )}
-            <button
-              onClick={handleCalculate}
+            <button onClick={handleCalculate}
               disabled={!form.name.trim() || costPriceBrl <= 0}
-              className="flex items-center gap-1.5 text-[8px] font-bold tracking-[0.18em] uppercase px-3 py-2 border border-[#2A2A26] text-[#5A5A52] hover:border-[#C8B99A]/30 hover:text-[#C8B99A] transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-            >
+              className="flex items-center gap-1.5 text-[10px] font-medium tracking-[0.12em] uppercase px-3 py-2 border border-neutral-300 text-neutral-600 hover:border-neutral-600 hover:text-neutral-900 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
               <Calculator className="w-3 h-3" /> Calcular Preços
             </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 text-[8px] font-bold tracking-[0.18em] uppercase px-4 py-2 bg-[#C8B99A] text-[#0F0F0E] hover:bg-[#E8E3D8] transition-colors disabled:opacity-40"
-            >
+            <button onClick={handleSave} disabled={isSaving}
+              className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.12em] uppercase px-4 py-2 bg-neutral-900 text-white hover:bg-neutral-700 transition-colors disabled:opacity-50">
               <Save className="w-3 h-3" />
               {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
             </button>
@@ -457,10 +414,10 @@ export default function ProductForm() {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0 items-start">
 
           {/* ── LADO ESQUERDO: formulário em abas ────────────────────── */}
-          <div className="border border-[#1E1E1B]" style={{ backgroundColor: "#111110" }}>
+          <div className="border border-neutral-100 bg-white">
 
             {/* Tabs */}
-            <div className="border-b border-[#1E1E1B] flex overflow-x-auto no-scrollbar px-2" style={{ backgroundColor: "#0F0F0E" }}>
+            <div className="border-b border-neutral-100 flex overflow-x-auto no-scrollbar px-2">
               <TabBtn active={activeTab === "setup"}  onClick={() => setActiveTab("setup")}>Identidade</TabBtn>
               <TabBtn active={activeTab === "custos"} onClick={() => setActiveTab("custos")}>Custos & Estoque</TabBtn>
               <TabBtn active={activeTab === "taxas"}  onClick={() => setActiveTab("taxas")}>Taxas & Gateway</TabBtn>
@@ -473,84 +430,60 @@ export default function ProductForm() {
                 <Section title="Informações Básicas">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Field label="Nome do produto" required className="sm:col-span-2">
-                      <Input
-                        value={form.name}
-                        onChange={(e) => set("name")(e.target.value)}
+                      <Input value={form.name} onChange={(e) => set("name")(e.target.value)}
                         placeholder="Ex: Sauvage Eau de Parfum 100ml"
-                        className={inputCls}
-                      />
+                        className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
                     </Field>
                     <Field label="Categoria" required>
                       <Select value={form.category} onValueChange={(v) => set("category")(v)}>
-                        <SelectTrigger className={selectTriggerCls}>
+                        <SelectTrigger className="h-9 text-sm border-neutral-200 focus:ring-0">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#111110", color: "#E8E3D8" }}>
+                        <SelectContent>
                           {(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"] as ProductCategory[]).map((c) => (
-                            <SelectItem key={c} value={c} className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">{c}</SelectItem>
+                            <SelectItem key={c} value={c} className="text-sm">{c}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </Field>
                     <Field label="Label de categoria" tooltip="Exibida na vitrine (ex: Perfumes Importados)">
-                      <Input
-                        value={form.categoryLabel}
-                        onChange={(e) => set("categoryLabel")(e.target.value)}
+                      <Input value={form.categoryLabel} onChange={(e) => set("categoryLabel")(e.target.value)}
                         placeholder="Ex: Perfumes Importados"
-                        className={inputCls}
-                      />
+                        className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
                     </Field>
                     <Field label="NCM">
-                      <Input
-                        value={form.ncm}
-                        onChange={(e) => set("ncm")(e.target.value)}
+                      <Input value={form.ncm} onChange={(e) => set("ncm")(e.target.value)}
                         placeholder="Ex: 3303.00.10"
-                        className={inputCls}
-                      />
+                        className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
                     </Field>
                     <Field label="Tag de promoção" tooltip='Ex: "OFERTA", "LANÇAMENTO"'>
-                      <Input
-                        value={form.promoTag}
-                        onChange={(e) => set("promoTag")(e.target.value)}
+                      <Input value={form.promoTag} onChange={(e) => set("promoTag")(e.target.value)}
                         placeholder="Ex: OFERTA"
-                        className={inputCls}
-                      />
+                        className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
                     </Field>
                   </div>
                 </Section>
 
                 <Section title="Descrição">
                   <Field label="Descrição curta" tooltip="Aparece nos cards da vitrine (máx. 120 caracteres)">
-                    <Input
-                      value={form.shortDescription}
-                      onChange={(e) => set("shortDescription")(e.target.value)}
+                    <Input value={form.shortDescription} onChange={(e) => set("shortDescription")(e.target.value)}
                       placeholder="Breve descrição atrativa"
-                      className={inputCls}
-                      maxLength={120}
-                    />
+                      className="h-9 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" maxLength={120} />
                   </Field>
                   <Field label="Descrição completa">
-                    <Textarea
-                      value={form.description}
-                      onChange={(e) => set("description")(e.target.value)}
+                    <Textarea value={form.description} onChange={(e) => set("description")(e.target.value)}
                       placeholder="Descrição detalhada do produto..."
-                      rows={5}
-                      className="text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] resize-none focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
-                    />
+                      rows={5} className="text-sm border-neutral-200 resize-none focus:border-neutral-400 focus:ring-0 focus-visible:ring-0" />
                   </Field>
                 </Section>
 
                 <Section title="Publicação">
-                  <div className="flex items-center justify-between p-3 border border-[#1E1E1B] rounded-sm" style={{ backgroundColor: "#161614" }}>
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-sm">
                     <div>
-                      <p className="text-[11px] font-medium text-[#E8E3D8] tracking-wide">Publicado na vitrine</p>
-                      <p className="text-[9px] text-[#3A3A34] mt-0.5 font-light">Produto visível ao público</p>
+                      <p className="text-[12px] font-medium text-neutral-800">Publicado na vitrine</p>
+                      <p className="text-[10px] text-neutral-400 mt-0.5">Produto visível ao público</p>
                     </div>
-                    <Switch
-                      checked={form.published}
-                      onCheckedChange={(v) => set("published")(v)}
-                      className="data-[state=checked]:bg-[#C8B99A]"
-                    />
+                    <Switch checked={form.published} onCheckedChange={(v) => set("published")(v)} />
                   </div>
                 </Section>
 
@@ -559,20 +492,16 @@ export default function ProductForm() {
                     <ImageGallery productId={productId} />
                   </Section>
                 ) : (
-                  <div className="border border-dashed border-[#1E1E1B] p-6 text-center">
-                    <p className="text-[10px] text-[#3A3A34] tracking-wide font-light">Salve o produto primeiro para adicionar imagens</p>
+                  <div className="border border-dashed border-neutral-200 rounded-sm p-6 text-center">
+                    <p className="text-[11px] text-neutral-400">Salve o produto primeiro para adicionar imagens</p>
                   </div>
                 )}
 
                 <Section title="Observações internas" defaultOpen={false}>
                   <Field label="Notas (não aparecem na vitrine)">
-                    <Textarea
-                      value={form.notes}
-                      onChange={(e) => set("notes")(e.target.value)}
+                    <Textarea value={form.notes} onChange={(e) => set("notes")(e.target.value)}
                       placeholder="Notas internas..."
-                      rows={3}
-                      className="text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] resize-none focus:ring-0 focus-visible:ring-0 rounded-sm"
-                    />
+                      rows={3} className="text-sm border-neutral-200 resize-none focus:ring-0 focus-visible:ring-0" />
                   </Field>
                 </Section>
               </div>
@@ -583,19 +512,16 @@ export default function ProductForm() {
               <div className="p-6 space-y-5">
                 <Section title="Custo do Produto">
                   {/* Seletor de moeda */}
-                  <div className="flex items-center gap-3 p-3 border border-[#1E1E1B] rounded-sm" style={{ backgroundColor: "#161614" }}>
-                    <span className="text-[9px] font-semibold text-[#4A4A44] tracking-[0.2em] uppercase">Moeda:</span>
+                  <div className="flex items-center gap-3 p-3 bg-neutral-50 rounded-sm">
+                    <span className="text-[11px] font-medium text-neutral-500">Moeda:</span>
                     <div className="flex gap-1.5">
                       {(["BRL", "USD"] as const).map((c) => (
-                        <button
-                          key={c}
-                          onClick={() => set("costCurrency")(c)}
-                          className={`px-3 py-1 text-[9px] font-bold tracking-wider uppercase transition-colors ${
+                        <button key={c} onClick={() => set("costCurrency")(c)}
+                          className={`px-3 py-1 text-[10px] font-bold tracking-wide transition-colors ${
                             form.costCurrency === c
-                              ? "bg-[#C8B99A] text-[#0F0F0E]"
-                              : "border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A]"
-                          }`}
-                        >
+                              ? "bg-neutral-900 text-white"
+                              : "bg-white border border-neutral-200 text-neutral-500 hover:border-neutral-400"
+                          }`}>
                           {c}
                         </button>
                       ))}
@@ -634,23 +560,13 @@ export default function ProductForm() {
                   {/* Resumo de custo */}
                   {finalUnitCost > 0 && (
                     <div className="grid grid-cols-2 gap-3 mt-2">
-                      <div className="p-3 border border-[#1E1E1B]" style={{ backgroundColor: "#161614" }}>
-                        <p className="text-[8px] font-bold tracking-[0.25em] uppercase text-[#4A4A44] mb-1">Custo em BRL</p>
-                        <p
-                          className="text-base font-semibold text-[#E8E3D8]"
-                          style={{ fontFamily: "var(--font-serif, 'Cormorant Garamond', Georgia, serif)" }}
-                        >
-                          {formatCurrency(costPriceBrl)}
-                        </p>
+                      <div className="p-3 bg-neutral-50 rounded-sm">
+                        <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-neutral-400 mb-1">Custo em BRL</p>
+                        <p className="text-base font-semibold text-neutral-900">{formatCurrency(costPriceBrl)}</p>
                       </div>
-                      <div className="p-3 border border-[#C8B99A]/15" style={{ backgroundColor: "#1A160E" }}>
-                        <p className="text-[8px] font-bold tracking-[0.25em] uppercase text-[#C8B99A]/60 mb-1">Custo Final Unitário</p>
-                        <p
-                          className="text-base font-semibold text-[#C8B99A]"
-                          style={{ fontFamily: "var(--font-serif, 'Cormorant Garamond', Georgia, serif)" }}
-                        >
-                          {formatCurrency(finalUnitCost)}
-                        </p>
+                      <div className="p-3 bg-emerald-50 rounded-sm">
+                        <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-emerald-600 mb-1">Custo Final Unitário</p>
+                        <p className="text-base font-semibold text-emerald-800">{formatCurrency(finalUnitCost)}</p>
                       </div>
                     </div>
                   )}
@@ -670,15 +586,10 @@ export default function ProductForm() {
                 <Section title="Margem de Lucro Desejada">
                   <div className="flex gap-1.5 mb-4">
                     {(["PERCENT", "VALUE"] as const).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => set("marginMode")(m)}
-                        className={`px-4 py-1.5 text-[9px] font-bold tracking-wider uppercase transition-colors ${
-                          form.marginMode === m
-                            ? "bg-[#C8B99A] text-[#0F0F0E]"
-                            : "border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A]"
-                        }`}
-                      >
+                      <button key={m} onClick={() => set("marginMode")(m)}
+                        className={`px-4 py-1.5 text-[10px] font-bold tracking-wide transition-colors ${
+                          form.marginMode === m ? "bg-neutral-900 text-white" : "bg-white border border-neutral-200 text-neutral-500"
+                        }`}>
                         {m === "PERCENT" ? "Porcentagem (%)" : "Valor (R$)"}
                       </button>
                     ))}
@@ -698,7 +609,7 @@ export default function ProductForm() {
                     </Field>
                   </div>
                   {effectiveMarginRate > 0 && finalUnitCost > 0 && (
-                    <p className="text-[9px] text-[#4A4A44] mt-2 font-light">
+                    <p className="text-[10px] text-neutral-500 mt-2">
                       Equivale a {formatPercent(effectiveMarginRate)} sobre custo de {formatCurrency(finalUnitCost)}
                     </p>
                   )}
@@ -712,12 +623,12 @@ export default function ProductForm() {
                 <Section title="Regime Tributário & Alíquotas">
                   <Field label="Regime tributário">
                     <Select value={form.taxRegime} onValueChange={(v) => handleTaxRegimeChange(v as TaxRegime)}>
-                      <SelectTrigger className={selectTriggerCls}>
+                      <SelectTrigger className="h-9 text-sm border-neutral-200 focus:ring-0">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#111110", color: "#E8E3D8" }}>
+                      <SelectContent>
                         {Object.entries(TAX_REGIME_LABELS).map(([v, l]) => (
-                          <SelectItem key={v} value={v} className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">{l}</SelectItem>
+                          <SelectItem key={v} value={v} className="text-sm">{l}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -740,16 +651,12 @@ export default function ProductForm() {
                     <Field label="Taxa fixa emissão (R$)"><NumInput value={form.boletoFixedFee} onChange={set("boletoFixedFee")} prefix="R$" /></Field>
                     <Field label="Risco inadimplência (%)"><NumInput value={form.boletoDefaultRisk} onChange={set("boletoDefaultRisk")} suffix="%" /></Field>
                   </div>
-                  <div className="flex items-center justify-between p-3 border border-[#1E1E1B] mt-2" style={{ backgroundColor: "#161614" }}>
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-sm mt-2">
                     <div>
-                      <p className="text-[11px] font-medium text-[#E8E3D8] tracking-wide">Juros repassado ao cliente</p>
-                      <p className="text-[9px] text-[#3A3A34] font-light mt-0.5">Cliente absorve os juros do boleto</p>
+                      <p className="text-[12px] font-medium text-neutral-800">Juros repassado ao cliente</p>
+                      <p className="text-[10px] text-neutral-400">Cliente absorve os juros do boleto</p>
                     </div>
-                    <Switch
-                      checked={form.boletoCustomerPaysInterest}
-                      onCheckedChange={(v) => set("boletoCustomerPaysInterest")(v)}
-                      className="data-[state=checked]:bg-[#C8B99A]"
-                    />
+                    <Switch checked={form.boletoCustomerPaysInterest} onCheckedChange={(v) => set("boletoCustomerPaysInterest")(v)} />
                   </div>
                 </Section>
 
@@ -762,16 +669,12 @@ export default function ProductForm() {
                     <Field label="Taxa antecipação (%)"><NumInput value={form.cardAnticipationRate} onChange={set("cardAnticipationRate")} suffix="%" /></Field>
                     <Field label="Juros mensal (%)"><NumInput value={form.cardMonthlyRate} onChange={set("cardMonthlyRate")} suffix="%" /></Field>
                   </div>
-                  <div className="flex items-center justify-between p-3 border border-[#1E1E1B] mt-2" style={{ backgroundColor: "#161614" }}>
+                  <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-sm mt-2">
                     <div>
-                      <p className="text-[11px] font-medium text-[#E8E3D8] tracking-wide">Juros repassado ao cliente</p>
-                      <p className="text-[9px] text-[#3A3A34] font-light mt-0.5">Cliente absorve os juros do cartão</p>
+                      <p className="text-[12px] font-medium text-neutral-800">Juros repassado ao cliente</p>
+                      <p className="text-[10px] text-neutral-400">Cliente absorve os juros do cartão</p>
                     </div>
-                    <Switch
-                      checked={form.cardCustomerPaysInterest}
-                      onCheckedChange={(v) => set("cardCustomerPaysInterest")(v)}
-                      className="data-[state=checked]:bg-[#C8B99A]"
-                    />
+                    <Switch checked={form.cardCustomerPaysInterest} onCheckedChange={(v) => set("cardCustomerPaysInterest")(v)} />
                   </div>
                 </Section>
               </div>
@@ -783,13 +686,13 @@ export default function ProductForm() {
                 <Section title="Plataforma de Pagamento">
                   <Field label="Gateway / Plataforma">
                     <Select value={form.paymentPlatform} onValueChange={(v) => set("paymentPlatform")(v)}>
-                      <SelectTrigger className={selectTriggerCls}>
+                      <SelectTrigger className="h-9 text-sm border-neutral-200 focus:ring-0">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#111110", color: "#E8E3D8" }}>
-                        <SelectItem value="MERCADO_PAGO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">Mercado Pago</SelectItem>
-                        <SelectItem value="PAGSEGURO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">PagSeguro</SelectItem>
-                        <SelectItem value="OUTRO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">Outro</SelectItem>
+                      <SelectContent>
+                        <SelectItem value="MERCADO_PAGO">Mercado Pago</SelectItem>
+                        <SelectItem value="PAGSEGURO">PagSeguro</SelectItem>
+                        <SelectItem value="OUTRO">Outro</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
@@ -798,39 +701,27 @@ export default function ProductForm() {
                 <Section title="Links Externos de Checkout">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Field label="Chave PIX" tooltip="CPF, CNPJ, email ou chave aleatória">
-                      <Input
-                        value={form.pixKey}
-                        onChange={(e) => set("pixKey")(e.target.value)}
+                      <Input value={form.pixKey} onChange={(e) => set("pixKey")(e.target.value)}
                         placeholder="Ex: 61999999999"
-                        className={inputCls}
-                      />
+                        className="h-9 text-sm border-neutral-200 focus:ring-0 focus-visible:ring-0" />
                     </Field>
                     <Field label="Link PIX (URL)" tooltip="URL de cobrança PIX gerada pela plataforma">
-                      <Input
-                        value={form.pixLink}
-                        onChange={(e) => set("pixLink")(e.target.value)}
+                      <Input value={form.pixLink} onChange={(e) => set("pixLink")(e.target.value)}
                         placeholder="https://..."
-                        className={inputCls}
-                      />
+                        className="h-9 text-sm border-neutral-200 focus:ring-0 focus-visible:ring-0" />
                     </Field>
                     <Field label="Link Cartão (URL)" tooltip="URL de checkout com cartão">
-                      <Input
-                        value={form.cardPaymentUrl}
-                        onChange={(e) => set("cardPaymentUrl")(e.target.value)}
+                      <Input value={form.cardPaymentUrl} onChange={(e) => set("cardPaymentUrl")(e.target.value)}
                         placeholder="https://..."
-                        className={inputCls}
-                      />
+                        className="h-9 text-sm border-neutral-200 focus:ring-0 focus-visible:ring-0" />
                     </Field>
                     <Field label="Link Boleto (URL)" tooltip="URL para geração de boleto">
-                      <Input
-                        value={form.boletoUrl}
-                        onChange={(e) => set("boletoUrl")(e.target.value)}
+                      <Input value={form.boletoUrl} onChange={(e) => set("boletoUrl")(e.target.value)}
                         placeholder="https://..."
-                        className={inputCls}
-                      />
+                        className="h-9 text-sm border-neutral-200 focus:ring-0 focus-visible:ring-0" />
                     </Field>
                   </div>
-                  <p className="text-[9px] text-[#3A3A34] border border-[#1E1E1B] p-3 font-light tracking-wide leading-relaxed" style={{ backgroundColor: "#161614" }}>
+                  <p className="text-[10px] text-neutral-400 bg-neutral-50 p-3 rounded-sm">
                     💡 Gere os links na sua plataforma de pagamento (Mercado Pago, PagSeguro etc.) e cole aqui.
                     Eles serão exibidos na página do produto na vitrine.
                   </p>
@@ -840,12 +731,12 @@ export default function ProductForm() {
           </div>
 
           {/* ── LADO DIREITO: Painel Escuro do Simulador ──────────────── */}
-          <div className="lg:sticky lg:top-14 flex flex-col min-h-[500px] border-t lg:border-t-0 border-[#1E1E1B]" style={{ backgroundColor: "#0A0A09" }}>
+          <div className="lg:sticky lg:top-14 bg-neutral-950 text-white flex flex-col min-h-[500px]">
 
             {/* Header do painel */}
-            <div className="px-5 py-4 border-b border-[#1A1A17]">
-              <p className="text-[7px] font-bold tracking-[0.35em] uppercase text-[#3A3A34] mb-1">Simulador de Lucro</p>
-              <h2 className="text-sm font-light text-[#E8E3D8] tracking-wide">Painel de Precificação</h2>
+            <div className="px-5 py-4 border-b border-white/10">
+              <p className="text-[9px] font-semibold tracking-[0.3em] uppercase text-white/40 mb-1">Simulador de Lucro</p>
+              <h2 className="text-sm font-semibold text-white">Painel de Precificação</h2>
             </div>
 
             <div className="flex-1 px-5 py-4 space-y-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
@@ -854,30 +745,25 @@ export default function ProductForm() {
               {finalUnitCost > 0 ? (
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="p-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
-                      <p className="text-[8px] text-[#3A3A34] tracking-wider uppercase mb-1 font-semibold">Custo BRL</p>
-                      <p className="text-sm font-semibold text-[#E8E3D8]">{formatCurrency(costPriceBrl)}</p>
+                    <div className="bg-white/5 rounded-sm p-3">
+                      <p className="text-[9px] text-white/40 tracking-wide uppercase mb-1">Custo BRL</p>
+                      <p className="text-sm font-semibold text-white">{formatCurrency(costPriceBrl)}</p>
                     </div>
-                    <div className="p-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
-                      <p className="text-[8px] text-[#3A3A34] tracking-wider uppercase mb-1 font-semibold">Custo Final</p>
-                      <p className="text-sm font-semibold text-[#C8B99A]">{formatCurrency(finalUnitCost)}</p>
+                    <div className="bg-white/5 rounded-sm p-3">
+                      <p className="text-[9px] text-white/40 tracking-wide uppercase mb-1">Custo Final</p>
+                      <p className="text-sm font-semibold text-white">{formatCurrency(finalUnitCost)}</p>
                     </div>
                   </div>
 
                   {/* Margem desejada */}
-                  <div className="p-3 space-y-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
-                    <p className="text-[8px] text-[#3A3A34] tracking-[0.25em] uppercase font-semibold">Margem Desejada</p>
+                  <div className="bg-white/5 rounded-sm p-3 space-y-3">
+                    <p className="text-[9px] text-white/40 tracking-wide uppercase">Margem Desejada</p>
                     <div className="flex gap-1.5">
                       {(["PERCENT", "VALUE"] as const).map((m) => (
-                        <button
-                          key={m}
-                          onClick={() => set("marginMode")(m)}
+                        <button key={m} onClick={() => set("marginMode")(m)}
                           className={`flex-1 py-1.5 text-[9px] font-bold tracking-wide transition-colors ${
-                            form.marginMode === m
-                              ? "bg-[#C8B99A] text-[#0F0F0E]"
-                              : "bg-[#1A1A17] text-[#4A4A44] hover:text-[#C8B99A]"
-                          }`}
-                        >
+                            form.marginMode === m ? "bg-white text-neutral-900" : "bg-white/10 text-white/60 hover:bg-white/20"
+                          }`}>
                           {m === "PERCENT" ? "%" : "R$"}
                         </button>
                       ))}
@@ -888,33 +774,31 @@ export default function ProductForm() {
                       <NumInput value={form.desiredMarginValue} onChange={set("desiredMarginValue")} prefix="R$" placeholder="0,00" />
                     )}
                     {effectiveMarginRate > 0 && (
-                      <p className="text-[9px] text-[#3A3A34] font-light">
-                        Margem efetiva: <span className="text-emerald-500 font-semibold">{effectiveMarginRate.toFixed(1)}%</span>
+                      <p className="text-[10px] text-white/40">
+                        Margem efetiva: <span className="text-emerald-400 font-semibold">{effectiveMarginRate.toFixed(1)}%</span>
                       </p>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-8 space-y-3">
-                  <Calculator className="w-7 h-7 text-[#1E1E1B] mx-auto" />
-                  <p className="text-[10px] text-[#2A2A26] font-light tracking-wide">Informe o custo do produto para ativar o simulador</p>
+                <div className="text-center py-6 space-y-2">
+                  <Calculator className="w-8 h-8 text-white/20 mx-auto" />
+                  <p className="text-[11px] text-white/30">Informe o custo do produto para ativar o simulador</p>
                 </div>
               )}
 
               {/* Erro de cálculo */}
               {calcError && (
-                <div className="flex items-start gap-2 p-3 border border-rose-900/30" style={{ backgroundColor: "#1A0808" }}>
-                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 mt-0.5 shrink-0" />
-                  <p className="text-[10px] text-rose-500 font-light">{calcError}</p>
+                <div className="flex items-start gap-2 p-3 bg-rose-950/50 rounded-sm border border-rose-900/30">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400 mt-0.5 shrink-0" />
+                  <p className="text-[11px] text-rose-300">{calcError}</p>
                 </div>
               )}
 
               {/* Botão calcular */}
               {finalUnitCost > 0 && (
-                <button
-                  onClick={handleCalculate}
-                  className="w-full py-2.5 bg-[#C8B99A] text-[#0F0F0E] text-[9px] font-bold tracking-[0.2em] uppercase hover:bg-[#E8E3D8] transition-colors flex items-center justify-center gap-2"
-                >
+                <button onClick={handleCalculate}
+                  className="w-full py-2.5 bg-white text-neutral-900 text-[10px] font-bold tracking-[0.15em] uppercase hover:bg-neutral-100 transition-colors flex items-center justify-center gap-2">
                   <RefreshCcw className="w-3 h-3" /> Calcular Preços
                 </button>
               )}
@@ -922,8 +806,8 @@ export default function ProductForm() {
               {/* Resultados */}
               {pricingResult && (
                 <div className="space-y-2.5">
-                  <div className="border-t border-[#1A1A17] pt-3">
-                    <p className="text-[8px] font-bold tracking-[0.3em] uppercase text-[#3A3A34] mb-3">
+                  <div className="border-t border-white/10 pt-3">
+                    <p className="text-[9px] font-semibold tracking-[0.25em] uppercase text-white/40 mb-3">
                       Preços Sugeridos
                     </p>
                   </div>
@@ -935,10 +819,10 @@ export default function ProductForm() {
                       isWorst={r.method === pricingResult.worstMethod}
                     />
                   ))}
-                  <div className="pt-2 border-t border-[#1A1A17]">
-                    <p className="text-[9px] text-[#2E2E2A] font-light">
+                  <div className="pt-2 border-t border-white/10">
+                    <p className="text-[10px] text-white/30">
                       Margem real (PIX):{" "}
-                      <span className="text-emerald-500 font-semibold">
+                      <span className="text-emerald-400 font-semibold">
                         {formatPercent(pricingResult.results.find(r => r.method === "PIX")?.realMarginRate ?? 0)}
                       </span>
                     </p>
@@ -948,23 +832,17 @@ export default function ProductForm() {
             </div>
 
             {/* Footer: publicar */}
-            <div className="px-5 py-4 border-t border-[#1A1A17] space-y-3">
+            <div className="px-5 py-4 border-t border-white/10 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[11px] font-medium text-[#E8E3D8] tracking-wide">Publicar na Vitrine</p>
-                  <p className="text-[8px] text-[#3A3A34] mt-0.5 font-light">Visível ao público</p>
+                  <p className="text-[11px] font-medium text-white">Publicar na Vitrine</p>
+                  <p className="text-[9px] text-white/40 mt-0.5">Visível ao público</p>
                 </div>
-                <Switch
-                  checked={form.published}
-                  onCheckedChange={(v) => set("published")(v)}
-                  className="data-[state=checked]:bg-[#C8B99A]"
-                />
+                <Switch checked={form.published} onCheckedChange={(v) => set("published")(v)}
+                  className="data-[state=checked]:bg-emerald-500" />
               </div>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="w-full py-3 bg-[#C8B99A] text-[#0F0F0E] text-[9px] font-bold tracking-[0.22em] uppercase hover:bg-[#E8E3D8] transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
+              <button onClick={handleSave} disabled={isSaving}
+                className="w-full py-3 bg-white text-neutral-900 text-[10px] font-bold tracking-[0.18em] uppercase hover:bg-neutral-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                 <Save className="w-3.5 h-3.5" />
                 {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar & Publicar"}
               </button>
