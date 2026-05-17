@@ -154,6 +154,13 @@ export default function ProductPage() {
             <Share2 className="w-4 h-4" />
             <span className="hidden sm:inline text-sm">Compartilhar</span>
           </button>
+          <a
+            href="/dashboard"
+            className="hidden sm:inline-flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg border transition-opacity hover:opacity-70"
+            style={{ borderColor: "#c8b89a", color: "#5a4a3a" }}
+          >
+            Dashboard
+          </a>
         </div>
 
         {/* Nav escura */}
