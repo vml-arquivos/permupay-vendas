@@ -1,15 +1,6 @@
 /**
  * ProductPage.tsx — Página individual de produto na vitrine pública
  * Rota: /vitrine/:id
- *
- * REGRAS NÃO NEGOCIÁVEIS:
- * - Foto NÃO cortada: object-contain dentro de área quadrada com fundo neutro
- * - Layout premium delicado (duas colunas: foto | detalhes)
- * - Preço PIX em destaque máximo (text-4xl font-black)
- * - Cartão: "3x de" pequeno + valor da parcela grande
- * - Boleto: "Xx de" pequeno + valor da parcela grande
- * - Ao clicar em "Pagar com PIX": abre modal com QR Code + copia-e-cola
- * - Nunca expõe custo, margem ou dados internos
  */
 import { useState } from "react";
 import { useParams, Link } from "wouter";
@@ -26,10 +17,11 @@ import {
   Share2,
   X,
   QrCode,
+  ShoppingBag,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BuyModal } from "@/components/BuyModal";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(v: number | null | undefined): string {
   if (v == null || v === 0) return "";
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -42,22 +34,13 @@ const CATEGORY_META: Record<string, string> = {
   OUTRO:      "Outros",
 };
 
-// ── Modal PIX ─────────────────────────────────────────────────────────────────
 function PixModal({
-  pixKey,
-  pixLink,
-  price,
-  productName,
-  onClose,
+  pixKey, pixLink, price, productName, onClose,
 }: {
-  pixKey: string | null;
-  pixLink: string | null;
-  price: number | null;
-  productName: string;
-  onClose: () => void;
+  pixKey: string | null; pixLink: string | null;
+  price: number | null; productName: string; onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-
   const handleCopy = () => {
     const text = pixKey ?? pixLink ?? "";
     navigator.clipboard.writeText(text).then(() => {
@@ -66,8 +49,6 @@ function PixModal({
       setTimeout(() => setCopied(false), 3000);
     });
   };
-
-  // QR Code via API pública — sem dependência extra
   const qrData = pixKey ?? pixLink ?? "";
   const qrUrl  = qrData
     ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData)}&bgcolor=ffffff&color=1c1917&margin=10`
@@ -75,77 +56,41 @@ function PixModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Overlay */}
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Modal */}
       <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 text-center">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-stone-400 hover:text-stone-700 transition-colors"
-        >
+        <button onClick={onClose} className="absolute top-4 right-4 text-stone-400 hover:text-stone-700 transition-colors">
           <X className="w-5 h-5" />
         </button>
-
         <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-5">
           <Zap className="w-7 h-7 text-emerald-500" />
         </div>
-
         <h3 className="text-lg font-bold text-stone-900 mb-1">Pagar com PIX</h3>
         <p className="text-sm text-stone-400 mb-1 line-clamp-1">{productName}</p>
-        {price && (
-          <p className="text-2xl font-black text-stone-900 mb-6">{fmt(price)}</p>
-        )}
-
-        {/* QR Code */}
+        {price && <p className="text-2xl font-black text-stone-900 mb-6">{fmt(price)}</p>}
         {qrUrl && (
           <div className="flex justify-center mb-5">
             <div className="p-3 border border-stone-100 rounded-2xl bg-stone-50 inline-block">
-              <img
-                src={qrUrl}
-                alt="QR Code PIX"
-                width={180}
-                height={180}
-                className="rounded-xl"
-              />
+              <img src={qrUrl} alt="QR Code PIX" width={180} height={180} className="rounded-xl" />
             </div>
           </div>
         )}
-
-        {/* Chave copia-e-cola */}
         {pixKey && (
           <div className="mb-5">
             <p className="text-xs text-stone-400 mb-2">Ou copie a chave PIX:</p>
             <div className="flex items-center gap-2 bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5">
-              <code className="text-xs text-stone-700 flex-1 truncate font-mono text-left">
-                {pixKey}
-              </code>
-              <button
-                onClick={handleCopy}
-                className="flex-shrink-0 text-stone-400 hover:text-stone-900 transition-colors"
-              >
-                {copied ? (
-                  <CheckCheck className="w-4 h-4 text-emerald-500" />
-                ) : (
-                  <Copy className="w-4 h-4" />
-                )}
+              <code className="text-xs text-stone-700 flex-1 truncate font-mono text-left">{pixKey}</code>
+              <button onClick={handleCopy} className="flex-shrink-0 text-stone-400 hover:text-stone-900 transition-colors">
+                {copied ? <CheckCheck className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
               </button>
             </div>
           </div>
         )}
-
-        {/* Link direto */}
         {pixLink && (
-          <a
-            href={pixLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block w-full py-3 rounded-xl bg-stone-900 hover:bg-stone-700 text-white text-sm font-semibold transition-colors mb-3"
-          >
+          <a href={pixLink} target="_blank" rel="noopener noreferrer"
+            className="block w-full py-3 rounded-xl bg-stone-900 hover:bg-stone-700 text-white text-sm font-semibold transition-colors mb-3">
             Abrir link de pagamento
           </a>
         )}
-
         <p className="text-xs text-stone-400 leading-relaxed">
           Abra o app do seu banco, escaneie o QR Code ou cole a chave PIX para finalizar.
         </p>
@@ -154,7 +99,6 @@ function PixModal({
   );
 }
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
 function Skeleton() {
   return (
     <div className="min-h-screen bg-white">
@@ -174,11 +118,11 @@ function Skeleton() {
   );
 }
 
-// ── Componente Principal ──────────────────────────────────────────────────────
 export default function ProductPage() {
   const params    = useParams<{ id?: string }>();
   const productId = params.id ? Number(params.id) : undefined;
   const [showPixModal, setShowPixModal] = useState(false);
+  const [showBuyModal, setShowBuyModal] = useState(false);
 
   const productQuery = trpc.marketplace.productById.useQuery(
     { id: productId! },
@@ -233,7 +177,6 @@ export default function ProductPage() {
   const inStock  = (p.stockQuantity ?? 0) > 0;
   const isLowStock = inStock && (p.stockQuantity ?? 0) <= (p.minimumStock ?? 2);
 
-  // Preços
   const pixPrice    = (p.suggestedPricePix    ?? 0) > 0 ? (p.suggestedPricePix    as number) : null;
   const cardPrice   = (p.suggestedPriceCard   ?? 0) > 0 ? (p.suggestedPriceCard   as number) : null;
   const boletoPrice = (p.suggestedPriceBoleto ?? 0) > 0 ? (p.suggestedPriceBoleto as number) : null;
@@ -241,13 +184,16 @@ export default function ProductPage() {
   const cardInstallments = Math.max(1, Math.round((p as any).cardInstallments ?? 3));
   const boletoMonths     = Math.max(1, Math.round((p as any).boletoMonths     ?? 3));
 
-  const hasPaymentLink = !!(p.pixLink || p.pixKey || p.cardPaymentUrl || p.boletoUrl);
   const hasPixPayment  = !!(p.pixLink || p.pixKey);
+  const hasExternalLinks = !!(p.cardPaymentUrl || p.boletoUrl);
+
+  // Produto tem links externos de pagamento configurados?
+  const useExternalPayment = hasPixPayment || hasExternalLinks;
 
   return (
     <div className="min-h-screen bg-white font-sans">
 
-      {/* ── HEADER ──────────────────────────────────────────────────────── */}
+      {/* HEADER */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-stone-100">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <Link href="/vitrine">
@@ -256,8 +202,6 @@ export default function ProductPage() {
               <span className="hidden sm:inline">Catálogo</span>
             </button>
           </Link>
-
-          {/* Logo Shop Permapay */}
           <Link href="/vitrine">
             <div className="flex items-center gap-2 cursor-pointer select-none group">
               <svg width="26" height="26" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -268,41 +212,28 @@ export default function ProductPage() {
               <span className="font-black text-stone-900 tracking-widest text-sm group-hover:text-stone-700 transition-colors">PERMAPAY</span>
             </div>
           </Link>
-
-          <button
-            onClick={handleShare}
-            className="flex items-center gap-1.5 text-stone-400 hover:text-stone-800 text-sm transition-colors"
-          >
+          <button onClick={handleShare} className="flex items-center gap-1.5 text-stone-400 hover:text-stone-800 text-sm transition-colors">
             <Share2 className="w-4 h-4" />
             <span className="hidden sm:inline text-sm">Compartilhar</span>
           </button>
         </div>
       </header>
 
-      {/* ── CONTEÚDO PRINCIPAL ──────────────────────────────────────────── */}
+      {/* CONTEÚDO */}
       <main className="max-w-5xl mx-auto px-4 py-10 sm:py-16">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16 items-start">
 
-          {/* ── IMAGEM — NÃO CORTADA ──────────────────────────────────── */}
+          {/* IMAGEM */}
           <div className="relative">
-            <div
-              className="rounded-3xl overflow-hidden bg-stone-50"
-              style={{ aspectRatio: "1 / 1" }}
-            >
+            <div className="rounded-3xl overflow-hidden bg-stone-50" style={{ aspectRatio: "1 / 1" }}>
               {p.imageUrl ? (
-                <img
-                  src={p.imageUrl}
-                  alt={p.name}
-                  className="w-full h-full object-contain p-6"
-                />
+                <img src={p.imageUrl} alt={p.name} className="w-full h-full object-contain p-6" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
                   <span className="text-9xl opacity-10 select-none">✨</span>
                 </div>
               )}
             </div>
-
-            {/* Badges */}
             {p.promoTag && inStock && (
               <span className="absolute top-4 left-4 bg-stone-900 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
                 {p.promoTag}
@@ -322,50 +253,30 @@ export default function ProductPage() {
             )}
           </div>
 
-          {/* ── DETALHES ──────────────────────────────────────────────── */}
+          {/* DETALHES */}
           <div className="space-y-6">
-            {/* Categoria */}
-            <p className="text-xs font-semibold text-stone-400 uppercase tracking-widest">
-              {catLabel}
-            </p>
-
-            {/* Nome */}
-            <h1 className="text-3xl font-bold text-stone-900 leading-tight -mt-3">
-              {p.name}
-            </h1>
-
-            {/* Descrição curta */}
+            <p className="text-xs font-semibold text-stone-400 uppercase tracking-widest">{catLabel}</p>
+            <h1 className="text-3xl font-bold text-stone-900 leading-tight -mt-3">{p.name}</h1>
             {p.shortDescription && (
-              <p className="text-stone-500 text-sm leading-relaxed -mt-2">
-                {p.shortDescription}
-              </p>
+              <p className="text-stone-500 text-sm leading-relaxed -mt-2">{p.shortDescription}</p>
             )}
 
-            {/* ── BLOCO DE PREÇOS ─────────────────────────────────── */}
+            {/* PREÇOS */}
             {inStock && (pixPrice || cardPrice || boletoPrice) ? (
               <div className="space-y-3 py-1">
-                {/* PIX — destaque máximo */}
                 {pixPrice && (
                   <div className="flex items-baseline gap-2.5">
-                    <span className="text-4xl font-black text-stone-900 tracking-tight">
-                      {fmt(pixPrice)}
-                    </span>
-                    <span className="text-sm font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      no PIX
-                    </span>
+                    <span className="text-4xl font-black text-stone-900 tracking-tight">{fmt(pixPrice)}</span>
+                    <span className="text-sm font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">no PIX</span>
                   </div>
                 )}
-
-                {/* Cartão: "3x de" pequeno + parcela grande */}
                 {cardPrice && (
                   <div className="flex items-baseline gap-1.5">
                     {pixPrice && <span className="text-xs text-stone-400">ou</span>}
                     {cardInstallments > 1 ? (
                       <>
                         <span className="text-sm text-stone-400">{cardInstallments}x de</span>
-                        <span className="text-xl font-bold text-stone-800">
-                          {fmt(cardPrice / cardInstallments)}
-                        </span>
+                        <span className="text-xl font-bold text-stone-800">{fmt(cardPrice / cardInstallments)}</span>
                         <span className="text-sm text-stone-400">no cartão</span>
                       </>
                     ) : (
@@ -376,17 +287,13 @@ export default function ProductPage() {
                     )}
                   </div>
                 )}
-
-                {/* Boleto: "Xx de" pequeno + parcela grande */}
                 {boletoPrice && (
                   <div className="flex items-baseline gap-1.5">
                     {(pixPrice || cardPrice) && <span className="text-xs text-stone-400">ou</span>}
                     {boletoMonths > 1 ? (
                       <>
                         <span className="text-sm text-stone-400">{boletoMonths}x de</span>
-                        <span className="text-lg font-semibold text-stone-700">
-                          {fmt(boletoPrice / boletoMonths)}
-                        </span>
+                        <span className="text-lg font-semibold text-stone-700">{fmt(boletoPrice / boletoMonths)}</span>
                         <span className="text-sm text-stone-400">no boleto</span>
                       </>
                     ) : (
@@ -402,13 +309,13 @@ export default function ProductPage() {
               <p className="text-stone-400 italic text-sm">Consulte o preço</p>
             ) : null}
 
-            {/* Separador */}
             <div className="border-t border-stone-100" />
 
-            {/* ── BOTÕES DE PAGAMENTO ─────────────────────────────── */}
+            {/* BOTÕES */}
             {inStock ? (
               <div className="space-y-2.5">
-                {/* PIX — botão compacto e elegante */}
+
+                {/* Se tem links externos de pagamento (PIX chave/link) */}
                 {hasPixPayment && (
                   <button
                     onClick={() => setShowPixModal(true)}
@@ -420,20 +327,13 @@ export default function ProductPage() {
                       </div>
                       <span>Pagar com PIX</span>
                     </span>
-                    {pixPrice && (
-                      <span className="text-stone-300 text-sm font-bold shrink-0">{fmt(pixPrice)}</span>
-                    )}
+                    {pixPrice && <span className="text-stone-300 text-sm font-bold shrink-0">{fmt(pixPrice)}</span>}
                   </button>
                 )}
 
-                {/* Cartão */}
                 {p.cardPaymentUrl && (
-                  <a
-                    href={p.cardPaymentUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-between gap-2 py-3.5 px-5 rounded-2xl border border-stone-200 hover:border-stone-400 hover:bg-stone-50 text-stone-800 font-semibold text-sm transition-colors"
-                  >
+                  <a href={p.cardPaymentUrl} target="_blank" rel="noopener noreferrer"
+                    className="w-full flex items-center justify-between gap-2 py-3.5 px-5 rounded-2xl border border-stone-200 hover:border-stone-400 hover:bg-stone-50 text-stone-800 font-semibold text-sm transition-colors">
                     <span className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center">
                         <CreditCard className="w-4 h-4 text-stone-600" />
@@ -441,23 +341,16 @@ export default function ProductPage() {
                       Pagar com Cartão
                     </span>
                     {cardPrice && cardInstallments > 1 ? (
-                      <span className="text-stone-400 text-xs">
-                        {cardInstallments}x de {fmt(cardPrice / cardInstallments)}
-                      </span>
+                      <span className="text-stone-400 text-xs">{cardInstallments}x de {fmt(cardPrice / cardInstallments)}</span>
                     ) : cardPrice ? (
                       <span className="text-stone-400 text-xs">{fmt(cardPrice)}</span>
                     ) : null}
                   </a>
                 )}
 
-                {/* Boleto */}
                 {p.boletoUrl && (
-                  <a
-                    href={p.boletoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-between gap-2 py-3.5 px-5 rounded-2xl border border-stone-100 hover:border-stone-300 text-stone-500 font-medium text-sm transition-colors"
-                  >
+                  <a href={p.boletoUrl} target="_blank" rel="noopener noreferrer"
+                    className="w-full flex items-center justify-between gap-2 py-3.5 px-5 rounded-2xl border border-stone-100 hover:border-stone-300 text-stone-500 font-medium text-sm transition-colors">
                     <span className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-lg bg-stone-50 flex items-center justify-center">
                         <FileText className="w-4 h-4 text-stone-400" />
@@ -465,23 +358,28 @@ export default function ProductPage() {
                       Gerar Boleto
                     </span>
                     {boletoPrice && boletoMonths > 1 ? (
-                      <span className="text-stone-400 text-xs">
-                        {boletoMonths}x de {fmt(boletoPrice / boletoMonths)}
-                      </span>
+                      <span className="text-stone-400 text-xs">{boletoMonths}x de {fmt(boletoPrice / boletoMonths)}</span>
                     ) : boletoPrice ? (
                       <span className="text-stone-400 text-xs">{fmt(boletoPrice)}</span>
                     ) : null}
                   </a>
                 )}
 
-                {/* Sem link de pagamento */}
-                {!hasPaymentLink && (
-                  <a
-                    href="https://wa.me/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-center gap-2.5 py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors"
+                {/* Botão principal de reserva — sempre visível quando há preço */}
+                {(pixPrice || cardPrice || boletoPrice) && (
+                  <button
+                    onClick={() => setShowBuyModal(true)}
+                    className="w-full flex items-center justify-center gap-2.5 py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors shadow-sm"
                   >
+                    <ShoppingBag className="w-4 h-4" />
+                    Reservar & Confirmar Pagamento
+                  </button>
+                )}
+
+                {/* Sem preço e sem link */}
+                {!useExternalPayment && !pixPrice && !cardPrice && !boletoPrice && (
+                  <a href="https://wa.me/" target="_blank" rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2.5 py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors">
                     <MessageCircle className="w-4 h-4" />
                     Consultar via WhatsApp
                   </a>
@@ -489,9 +387,7 @@ export default function ProductPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                <p className="text-stone-400 text-sm">
-                  Este produto está temporariamente indisponível.
-                </p>
+                <p className="text-stone-400 text-sm">Este produto está temporariamente indisponível.</p>
                 <Link href="/desejos">
                   <button className="w-full flex items-center justify-center gap-2 py-3.5 px-5 rounded-2xl border-2 border-dashed border-stone-200 hover:border-stone-400 hover:text-stone-700 text-stone-400 font-medium text-sm transition-colors">
                     <Heart className="w-4 h-4" />
@@ -503,17 +399,14 @@ export default function ProductPage() {
           </div>
         </div>
 
-        {/* ── DESCRIÇÃO COMPLETA ──────────────────────────────────────── */}
+        {/* DESCRIÇÃO */}
         {p.description && (
           <div className="mt-16 max-w-2xl border-t border-stone-100 pt-12">
             <h2 className="text-base font-semibold text-stone-800 mb-4">Sobre o produto</h2>
-            <div className="text-stone-500 text-sm leading-relaxed whitespace-pre-wrap">
-              {p.description}
-            </div>
+            <div className="text-stone-500 text-sm leading-relaxed whitespace-pre-wrap">{p.description}</div>
           </div>
         )}
 
-        {/* ── VOLTAR ──────────────────────────────────────────────────── */}
         <div className="mt-14 pt-8 border-t border-stone-100">
           <Link href="/vitrine">
             <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:border-stone-400 hover:text-stone-900 hover:bg-stone-50 text-sm font-medium transition-all group">
@@ -524,24 +417,16 @@ export default function ProductPage() {
         </div>
       </main>
 
-      {/* ── FOOTER ──────────────────────────────────────────────────────── */}
       <footer className="mt-8 border-t border-stone-100">
         <div className="max-w-5xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-stone-400">
           <div className="flex items-center gap-4">
-            <Link href="/vitrine">
-              <span className="hover:text-stone-700 transition-colors cursor-pointer">Catálogo</span>
-            </Link>
-            <Link href="/desejos">
-              <span className="hover:text-stone-700 transition-colors cursor-pointer">
-                Lista de Desejos
-              </span>
-            </Link>
+            <Link href="/vitrine"><span className="hover:text-stone-700 transition-colors cursor-pointer">Catálogo</span></Link>
+            <Link href="/desejos"><span className="hover:text-stone-700 transition-colors cursor-pointer">Lista de Desejos</span></Link>
           </div>
           <span>© {new Date().getFullYear()} Permupay Vendas. Todos os direitos reservados.</span>
         </div>
       </footer>
 
-      {/* ── MODAL PIX ───────────────────────────────────────────────────── */}
       {showPixModal && (
         <PixModal
           pixKey={p.pixKey ?? null}
@@ -549,6 +434,22 @@ export default function ProductPage() {
           price={pixPrice}
           productName={p.name}
           onClose={() => setShowPixModal(false)}
+        />
+      )}
+
+      {showBuyModal && (
+        <BuyModal
+          product={{
+            id: p.id,
+            name: p.name,
+            suggestedPricePix: p.suggestedPricePix ?? 0,
+            suggestedPriceCard: p.suggestedPriceCard ?? 0,
+            suggestedPriceBoleto: p.suggestedPriceBoleto ?? 0,
+            suggestedPrice: p.suggestedPrice ?? 0,
+            cardInstallments: (p as any).cardInstallments,
+            boletoMonths: (p as any).boletoMonths,
+          }}
+          onClose={() => setShowBuyModal(false)}
         />
       )}
     </div>
