@@ -238,9 +238,7 @@ export default function Products() {
 
   return (
     <DashboardLayout>
-    <div className="min-h-screen bg-background">
-      <main className="container py-8">
-        <div className="space-y-6">
+      <div className="space-y-6">
           {/* Cabeçalho */}
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -618,9 +616,7 @@ export default function Products() {
               })}
             </div>
           )}
-        </div>
-      </main>
-    </div>
+      </div>
     </DashboardLayout>
   );
 }
