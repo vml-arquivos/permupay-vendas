@@ -1,8 +1,12 @@
 /**
- * routers.ts — Router tRPC completo
+ * server/routers.ts
  *
- * Substitui server/routers.ts existente.
- * Adiciona: batches, marketplace, image upload (presigned URL)
+ * ALTERAÇÕES NESTA VERSÃO:
+ * 1. Bloco admin.* — removidas verificações if (ctx.user?.role !== "admin")
+ *    Qualquer usuário autenticado pode gerenciar usuários, produtos, vendas.
+ * 2. orders.create — status inicial agora é AGUARDANDO_PAGAMENTO (sem débito de estoque)
+ * 3. orders.confirm — débito de estoque ocorre SOMENTE aqui
+ * 4. orders.list aceita novo status AGUARDANDO_PAGAMENTO como filtro padrão
  */
 
 import { z } from "zod";
@@ -16,7 +20,6 @@ import * as dbBatches from "./db.batches";
 import * as dbWishlist from "./db.wishlist";
 import * as dbImages from "./db.images";
 import * as dbOrders from "./db.orders";
-// Upload de imagens agora é feito via POST /api/upload/product-image (server/index.ts)
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
 
@@ -59,19 +62,16 @@ const productInput = z.object({
   categoryLabel: z.string().optional(),
   promoTag: z.string().optional(),
   published: z.boolean().optional(),
-  // Configuração Fiscal
   taxCash: z.number().min(0).optional(),
   taxBoleto: z.number().min(0).optional(),
   taxDebit: z.number().min(0).optional(),
   taxCreditCash: z.number().min(0).optional(),
   taxCreditInstallment: z.number().min(0).optional(),
-  // Configuração de Boleto
   boletoMonths: z.number().min(1).optional(),
   boletoMonthlyRate: z.number().min(0).optional(),
   boletoFixedFee: z.number().min(0).optional(),
   boletoDefaultRisk: z.number().min(0).optional(),
   boletoCustomerPaysInterest: z.boolean().optional(),
-  // Configuração de Cartão
   cardDebitFee: z.number().min(0).optional(),
   cardCreditCashFee: z.number().min(0).optional(),
   cardCreditInstallmentFee: z.number().min(0).optional(),
@@ -103,9 +103,7 @@ export const appRouter = router({
         db.createProduct({ ...input, userId: ctx.user.id })
       ),
 
-    list: protectedProcedure.query(({ ctx }) =>
-      db.listProducts(ctx.user.id)
-    ),
+    list: protectedProcedure.query(({ ctx }) => db.listProducts(ctx.user.id)),
 
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -129,15 +127,10 @@ export const appRouter = router({
         db.duplicateProduct(input.id, ctx.user.id)
       ),
 
-    // ── Galeria de imagens ────────────────────────────────────────────────────
-    // Upload: POST /api/upload/product-image (ver server/_core/index.ts)
-
-    // Listar imagens da galeria de um produto
     getImages: protectedProcedure
       .input(z.object({ productId: z.number() }))
       .query(({ input }) => dbImages.getProductImages(input.productId)),
 
-    // Registrar imagem após upload direto no S3 (presigned URL)
     addImage: protectedProcedure
       .input(
         z.object({
@@ -155,19 +148,12 @@ export const appRouter = router({
         })
       ),
 
-    // Definir thumbnail da galeria
     setThumbnail: protectedProcedure
-      .input(
-        z.object({
-          imageId: z.number(),
-          productId: z.number(),
-        })
-      )
+      .input(z.object({ imageId: z.number(), productId: z.number() }))
       .mutation(({ input, ctx }) =>
         dbImages.setThumbnail(input.imageId, input.productId, ctx.user.id)
       ),
 
-    // Reordenar imagens da galeria
     reorderImages: protectedProcedure
       .input(
         z.object({
@@ -183,14 +169,8 @@ export const appRouter = router({
         )
       ),
 
-    // Deletar imagem da galeria (banco + S3)
     deleteImage: protectedProcedure
-      .input(
-        z.object({
-          imageId: z.number(),
-          productId: z.number(),
-        })
-      )
+      .input(z.object({ imageId: z.number(), productId: z.number() }))
       .mutation(({ input, ctx }) =>
         dbImages.deleteProductImageRecord(
           input.imageId,
@@ -199,7 +179,6 @@ export const appRouter = router({
         )
       ),
 
-    // Atualizar texto alternativo de uma imagem
     updateImageAlt: protectedProcedure
       .input(
         z.object({
@@ -217,13 +196,9 @@ export const appRouter = router({
         )
       ),
 
-    // Após o browser fazer o upload, salvar a URL pública no produto (legado)
     setImageUrl: protectedProcedure
       .input(
-        z.object({
-          productId: z.number(),
-          imageUrl: z.string().url(),
-        })
+        z.object({ productId: z.number(), imageUrl: z.string().url() })
       )
       .mutation(({ input, ctx }) =>
         dbBatches.updateProductImage(
@@ -233,7 +208,6 @@ export const appRouter = router({
         )
       ),
 
-    // Publicar/despublicar na vitrine
     togglePublished: protectedProcedure
       .input(
         z.object({
@@ -251,7 +225,6 @@ export const appRouter = router({
         )
       ),
 
-    // Ajuste manual de estoque
     adjustStock: protectedProcedure
       .input(
         z.object({
@@ -306,10 +279,6 @@ export const appRouter = router({
         dbBatches.deleteBatch(input.id, ctx.user.id)
       ),
 
-    /**
-     * Processa o rateio dos itens do lote.
-     * Se commitToStock=true, dá entrada no estoque e fecha o lote.
-     */
     process: protectedProcedure
       .input(
         z.object({
@@ -332,11 +301,12 @@ export const appRouter = router({
 
   // ── Marketplace / Vitrine pública ──────────────────────────────────────────
   marketplace: router({
-    /** Rota pública — não requer autenticação */
     products: publicProcedure.query(() => dbBatches.getPublishedProducts()),
     productsByCategory: publicProcedure
       .input(z.object({ category: z.string().optional() }))
-      .query(({ input }) => dbBatches.getPublishedProductsByCategory(input.category)),
+      .query(({ input }) =>
+        dbBatches.getPublishedProductsByCategory(input.category)
+      ),
     productById: publicProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => dbBatches.getPublishedProductById(input.id)),
@@ -373,20 +343,20 @@ export const appRouter = router({
       ),
   }),
 
-  // ── Dashboard ───────────────────────────────────────────────────────────────
-  // ── Lista de Desejos ──────────────────────────────────────────────────────────
+  // ── Lista de Desejos ──────────────────────────────────────────────────────
   wishlist: router({
-    // Público: criar um desejo
     create: publicProcedure
       .input(
         z.object({
-          visitorName: z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
-          contact: z.string().min(8, "Informe WhatsApp ou email"),
+          visitorName: z.string().min(2),
+          contact: z.string().min(8),
           contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
-          category: z.enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"]).optional(),
+          category: z
+            .enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"])
+            .optional(),
           brand: z.string().optional(),
           model: z.string().optional(),
-          description: z.string().min(10, "Descreva melhor o que procura (mín. 10 caracteres)"),
+          description: z.string().min(10),
           budgetMin: z.number().min(0).default(0),
           budgetMax: z.number().min(0).default(0),
           isAnonymous: z.boolean().default(false),
@@ -403,18 +373,22 @@ export const appRouter = router({
         return dbWishlist.createWishlistRequest({ ...input, ipHash });
       }),
 
-    // Público: listar os próprios desejos pelo contato
     myRequests: publicProcedure
       .input(z.object({ contact: z.string().min(1) }))
       .query(({ input }) => dbWishlist.getWishlistByContact(input.contact)),
 
-    // Admin: listar todos com filtros
     list: protectedProcedure
       .input(
         z
           .object({
             status: z
-              .enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"])
+              .enum([
+                "NOVO",
+                "VISUALIZADO",
+                "CONTATADO",
+                "ATENDIDO",
+                "FECHADO",
+              ])
               .optional(),
             category: z.string().optional(),
           })
@@ -422,12 +396,17 @@ export const appRouter = router({
       )
       .query(({ input }) => dbWishlist.listWishlistRequests(input)),
 
-    // Admin: atualizar status
     updateStatus: protectedProcedure
       .input(
         z.object({
           id: z.number(),
-          status: z.enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"]),
+          status: z.enum([
+            "NOVO",
+            "VISUALIZADO",
+            "CONTATADO",
+            "ATENDIDO",
+            "FECHADO",
+          ]),
           adminNotes: z.string().optional(),
         })
       )
@@ -440,17 +419,16 @@ export const appRouter = router({
         )
       ),
 
-    // Admin: deletar
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => dbWishlist.deleteWishlistRequest(input.id)),
 
-    // Admin/Dashboard: contadores
     counts: protectedProcedure.query(() => dbWishlist.getWishlistCounts()),
   }),
 
-  // ── Pedidos / Reservas ────────────────────────────────────────────────────────
+  // ── Pedidos ────────────────────────────────────────────────────────────────
   orders: router({
+    // Público: qualquer visitante pode criar um pedido
     create: publicProcedure
       .input(
         z.object({
@@ -458,7 +436,9 @@ export const appRouter = router({
           quantity: z.number().int().min(1).default(1),
           buyerName: z.string().min(2, "Informe seu nome"),
           buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
-          buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          buyerContactType: z
+            .enum(["WHATSAPP", "EMAIL"])
+            .default("WHATSAPP"),
           paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO"]),
           unitPrice: z.number().min(0),
         })
@@ -467,10 +447,20 @@ export const appRouter = router({
 
     list: protectedProcedure
       .input(
-        z.object({
-          status: z.enum(["RESERVADO", "AGUARDANDO_PAGAMENTO", "PAGO", "CANCELADO", "EXPIRADO"]).optional(),
-          productId: z.number().optional(),
-        }).optional()
+        z
+          .object({
+            status: z
+              .enum([
+                "AGUARDANDO_PAGAMENTO",
+                "RESERVADO",
+                "PAGO",
+                "CANCELADO",
+                "EXPIRADO",
+              ])
+              .optional(),
+            productId: z.number().optional(),
+          })
+          .optional()
       )
       .query(({ input }) => dbOrders.listOrders(input)),
 
@@ -478,24 +468,37 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .query(({ input }) => dbOrders.getOrderById(input.id)),
 
+    // Confirma pagamento + debita estoque + gatilho FIFO
     confirm: protectedProcedure
-      .input(z.object({ orderId: z.number(), adminNotes: z.string().optional() }))
+      .input(
+        z.object({
+          orderId: z.number(),
+          adminNotes: z.string().optional(),
+        })
+      )
       .mutation(({ input, ctx }) =>
         dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes)
       ),
 
     cancel: protectedProcedure
-      .input(z.object({ orderId: z.number(), adminNotes: z.string().optional() }))
-      .mutation(({ input }) => dbOrders.cancelOrder(input.orderId, input.adminNotes)),
+      .input(
+        z.object({
+          orderId: z.number(),
+          adminNotes: z.string().optional(),
+        })
+      )
+      .mutation(({ input }) =>
+        dbOrders.cancelOrder(input.orderId, input.adminNotes)
+      ),
 
-    expireStale: protectedProcedure
-      .mutation(() => dbOrders.expireStaleReservations()),
+    expireStale: protectedProcedure.mutation(() =>
+      dbOrders.expireStaleReservations()
+    ),
 
-    counts: protectedProcedure
-      .query(() => dbOrders.getOrderCounts()),
+    counts: protectedProcedure.query(() => dbOrders.getOrderCounts()),
   }),
 
-  // ── Dashboard ─────────────────────────────────────────────────────────────────
+  // ── Dashboard ─────────────────────────────────────────────────────────────
   dashboard: protectedProcedure.query(async ({ ctx }) => {
     const [dashData, wishlistCounts] = await Promise.all([
       db.getDashboardData(ctx.user.id),
@@ -585,11 +588,9 @@ export const appRouter = router({
     }),
   }),
 
-  // ── Admin ───────────────────────────────────────────────────────────────────
+  // ── Admin — SEM verificação de role (qualquer usuário logado) ──────────────
   admin: router({
-    // Listar todos os usuários
-    listUsers: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+    listUsers: protectedProcedure.query(async () => {
       const dbConn = await db.getDb();
       if (!dbConn) return [];
       const { users } = await import("../drizzle/schema");
@@ -608,27 +609,28 @@ export const appRouter = router({
         .orderBy(desc(users.createdAt));
     }),
 
-    // Criar novo usuário
     createUser: protectedProcedure
-      .input(z.object({
-        email: z.string().email(),
-        name: z.string().min(2),
-        password: z.string().min(8),
-        role: z.enum(["user", "admin"]).default("user"),
-      }))
-      .mutation(async ({ input, ctx }) => {
-        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+      .input(
+        z.object({
+          email: z.string().email(),
+          name: z.string().min(2),
+          password: z.string().min(8),
+          role: z.enum(["user", "admin"]).default("user"),
+        })
+      )
+      .mutation(async ({ input }) => {
         const existing = await db.getUserByEmail(input.email);
         if (existing) throw new Error("Email já cadastrado");
         return db.createUser(input);
       }),
 
-    // Alterar role do usuário
     updateUserRole: protectedProcedure
-      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin"]) }))
+      .input(
+        z.object({ userId: z.number(), role: z.enum(["user", "admin"]) })
+      )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
-        if (input.userId === ctx.user.id) throw new Error("Não é possível alterar seu próprio papel");
+        if (input.userId === ctx.user.id)
+          throw new Error("Não é possível alterar seu próprio papel");
         const dbConn = await db.getDb();
         if (!dbConn) throw new Error("Database not available");
         const { users } = await import("../drizzle/schema");
@@ -637,16 +639,21 @@ export const appRouter = router({
           .update(users)
           .set({ role: input.role, updatedAt: new Date() })
           .where(eq(users.id, input.userId))
-          .returning({ id: users.id, email: users.email, name: users.name, role: users.role, active: users.active });
+          .returning({
+            id: users.id,
+            email: users.email,
+            name: users.name,
+            role: users.role,
+            active: users.active,
+          });
         return updated;
       }),
 
-    // Ativar/desativar usuário
     toggleUserActive: protectedProcedure
       .input(z.object({ userId: z.number(), active: z.boolean() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
-        if (input.userId === ctx.user.id) throw new Error("Não é possível desativar sua própria conta");
+        if (input.userId === ctx.user.id)
+          throw new Error("Não é possível desativar sua própria conta");
         const dbConn = await db.getDb();
         if (!dbConn) throw new Error("Database not available");
         const { users } = await import("../drizzle/schema");
@@ -655,15 +662,21 @@ export const appRouter = router({
           .update(users)
           .set({ active: input.active, updatedAt: new Date() })
           .where(eq(users.id, input.userId))
-          .returning({ id: users.id, email: users.email, name: users.name, role: users.role, active: users.active });
+          .returning({
+            id: users.id,
+            email: users.email,
+            name: users.name,
+            role: users.role,
+            active: users.active,
+          });
         return updated;
       }),
 
-    // Redefinir senha de usuário
     resetUserPassword: protectedProcedure
-      .input(z.object({ userId: z.number(), newPassword: z.string().min(8) }))
-      .mutation(async ({ input, ctx }) => {
-        if (ctx.user?.role !== "admin") throw new Error("Acesso negado");
+      .input(
+        z.object({ userId: z.number(), newPassword: z.string().min(8) })
+      )
+      .mutation(async ({ input }) => {
         const dbConn = await db.getDb();
         if (!dbConn) throw new Error("Database not available");
         const { users } = await import("../drizzle/schema");
