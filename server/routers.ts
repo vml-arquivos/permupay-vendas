@@ -1,11 +1,11 @@
 /**
- * server/routers.ts
+ * server/routers.ts — atualizado
  *
- * ALTERAÇÕES NESTA VERSÃO:
- * 1. Bloco admin.* — sem verificações de role. Qualquer autenticado tem acesso.
- * 2. orders.create — status inicial AGUARDANDO_PAGAMENTO (sem débito de estoque)
- * 3. orders.confirm — transação atômica com débito de estoque e stock_entries
- * 4. Adicionado router settings.getPricingDefaults / settings.updatePricingDefaults
+ * MUDANÇAS NESTA VERSÃO:
+ * 1. products.delete — apagar produto permanentemente
+ * 2. admin.deleteUser — apagar usuário permanentemente
+ * 3. paymentSettings.get / paymentSettings.update — configurações globais de pagamento
+ * 4. wishlist.deleteAll / simulações já tinham delete
  */
 
 import { z } from "zod";
@@ -20,6 +20,7 @@ import * as dbWishlist from "./db.wishlist";
 import * as dbImages from "./db.images";
 import * as dbOrders from "./db.orders";
 import * as dbSettings from "./db.settings";
+import * as dbPayment from "./db.payment-settings";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
 
@@ -90,7 +91,6 @@ const batchItemSchema = z.object({
   estimatedTaxRate: z.number().min(0).max(99.9).optional(),
 });
 
-// Schema de pricing defaults
 const pricingDefaultsSchema = z.object({
   taxRegime: z.string().optional(),
   taxCash: z.string().optional(),
@@ -112,12 +112,20 @@ const pricingDefaultsSchema = z.object({
   cardCustomerPaysInterest: z.boolean().optional(),
 });
 
+const paymentSettingsSchema = z.object({
+  cardDebitFee: z.number().min(0),
+  cardCreditCashFee: z.number().min(0),
+  cardCreditInstallmentFee: z.number().min(0),
+  cardInstallments: z.number().min(1),
+  cashDiscountPercent: z.number().min(0).max(100),
+});
+
 // ─── Router principal ─────────────────────────────────────────────────────────
 
 export const appRouter = router({
   system: systemRouter,
 
-  // ── Configurações globais ──────────────────────────────────────────────────
+  // ── Configurações globais de precificação (defaults) ───────────────────────
   settings: router({
     getPricingDefaults: publicProcedure.query(() =>
       dbSettings.getPricingDefaults()
@@ -125,6 +133,14 @@ export const appRouter = router({
     updatePricingDefaults: protectedProcedure
       .input(pricingDefaultsSchema)
       .mutation(({ input }) => dbSettings.updatePricingDefaults(input)),
+  }),
+
+  // ── Configurações de pagamento (centralizadas, travadas) ───────────────────
+  paymentSettings: router({
+    get: publicProcedure.query(() => dbPayment.getPaymentSettings()),
+    update: protectedProcedure
+      .input(paymentSettingsSchema)
+      .mutation(({ input }) => dbPayment.updatePaymentSettings(input)),
   }),
 
   // ── Produtos ───────────────────────────────────────────────────────────────
@@ -143,13 +159,15 @@ export const appRouter = router({
 
     update: protectedProcedure
       .input(z.object({ id: z.number(), data: productInput.partial() }))
-      .mutation(({ input }) =>
-        db.updateProduct(input.id, input.data)
-      ),
+      .mutation(({ input }) => db.updateProduct(input.id, input.data)),
 
     deactivate: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => db.deactivateProduct(input.id)),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input }) => db.deleteProduct(input.id)),
 
     duplicate: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -549,7 +567,7 @@ export const appRouter = router({
     }),
   }),
 
-  // ── Admin — SEM verificação de role (qualquer usuário logado) ──────────────
+  // ── Admin ──────────────────────────────────────────────────────────────────
   admin: router({
     listUsers: protectedProcedure.query(async () => {
       const dbConn = await db.getDb();
@@ -645,6 +663,12 @@ export const appRouter = router({
           .set({ passwordHash, updatedAt: new Date() })
           .where(eq(users.id, input.userId));
         return { success: true };
+      }),
+
+    deleteUser: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        return db.deleteUser(input.userId, ctx.user.id);
       }),
   }),
 });
