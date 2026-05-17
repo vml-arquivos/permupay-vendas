@@ -7,7 +7,7 @@
  * - Reordenar por drag-and-drop (botões ← →)
  * - Apagar imagem individual
  * - Editar texto alternativo (alt text)
- * - Mensagem amigável quando S3/R2 não está configurado
+ * - Preview em tempo real antes do upload
  */
 
 import { useRef, useState } from "react";
@@ -23,24 +23,11 @@ import {
   ImagePlus,
   Loader2,
   CheckCircle2,
-  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 
 const MAX_IMAGES = 4;
 const ACCEPTED = "image/jpeg,image/png,image/webp,image/gif";
-
-// Detecta se o erro é de storage não configurado
-function isStorageError(msg: string) {
-  return (
-    msg.includes("S3/R2") ||
-    msg.includes("storage") ||
-    msg.includes("AWS_ACCESS_KEY") ||
-    msg.includes("S3_BUCKET") ||
-    msg.includes("indisponível") ||
-    msg.includes("não configurado")
-  );
-}
 
 interface Props {
   productId: number;
@@ -52,7 +39,6 @@ export default function ImageGallery({ productId }: Props) {
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [editingAlt, setEditingAlt] = useState<number | null>(null);
   const [altDraft, setAltDraft] = useState("");
-  const [storageError, setStorageError] = useState<string | null>(null);
 
   // ── Queries e mutations ──────────────────────────────────────────────────────
   const { data: images = [], isLoading } = trpc.products.getImages.useQuery(
@@ -60,7 +46,7 @@ export default function ImageGallery({ productId }: Props) {
     { enabled: !!productId }
   );
 
-  const getUploadUrl = trpc.products.getImageUploadUrl.useMutation();
+  // Upload local — sem S3
 
   const addImage = trpc.products.addImage.useMutation({
     onSuccess: () => {
@@ -118,32 +104,20 @@ export default function ImageGallery({ productId }: Props) {
       const file = toUpload[i]!;
       setUploadingIndex(images.length + i);
       try {
-        const { uploadUrl, publicUrl, key } =
-          await getUploadUrl.mutateAsync({
-            productId,
-            filename: file.name,
-            mimeType: file.type as any,
-          });
-
-        await fetch(uploadUrl, {
-          method: "PUT",
-          body: file,
-          headers: { "Content-Type": file.type },
-        });
+        const uploadResp = await fetch(
+          `/api/upload/image?productId=${productId}&filename=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: file, headers: { "Content-Type": file.type } }
+        );
+        if (!uploadResp.ok) throw new Error(`Falha no upload: ${uploadResp.statusText}`);
+        const { url } = await uploadResp.json();
 
         await addImage.mutateAsync({
           productId,
-          url: publicUrl,
-          storageKey: key,
+          url,
+          storageKey: url,
         });
       } catch (err: any) {
-        const msg: string = err.message ?? "Erro desconhecido";
-        if (isStorageError(msg)) {
-          setStorageError(msg);
-          toast.error("Upload indisponível: storage S3/R2 não configurado no servidor.");
-        } else {
-          toast.error(`Erro ao enviar ${file.name}: ${msg}`);
-        }
+        toast.error(`Erro ao enviar ${file.name}: ${err.message}`);
       }
     }
 
@@ -176,20 +150,6 @@ export default function ImageGallery({ productId }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* ── Aviso de storage não configurado ────────────────────────────── */}
-      {storageError && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700 p-3 text-xs text-amber-800 dark:text-amber-300 space-y-1.5">
-          <p className="font-semibold flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-            Upload de imagens indisponível
-          </p>
-          <p className="leading-relaxed">{storageError}</p>
-          <p className="text-amber-600 dark:text-amber-400 font-medium">
-            Variáveis necessárias no servidor: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET, S3_REGION, S3_ENDPOINT, S3_PUBLIC_BASE_URL
-          </p>
-        </div>
-      )}
-
       {/* ── Grade de imagens ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {images.map((img, idx) => (
@@ -361,14 +321,7 @@ export default function ImageGallery({ productId }: Props) {
         <span>Máx. {MAX_IMAGES} imagens · JPEG, PNG, WebP, GIF · até 5MB cada</span>
       </div>
 
-      {/* ── Aviso quando sem imagens e sem erro de storage ───────────────── */}
-      {!storageError && images.length === 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-          <Upload className="w-3 h-3 flex-shrink-0" />
-          O upload de imagens requer as variáveis S3/R2 configuradas no servidor
-          (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_BUCKET).
-        </p>
-      )}
+
     </div>
   );
 }
