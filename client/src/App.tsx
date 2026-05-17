@@ -26,30 +26,18 @@ import Estoque from "./pages/Estoque";
 import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
 import Relatorios from "./pages/Relatorios";
+import Pedidos from "./pages/Pedidos";
 
-/**
- * PL = Protected + Layout
- *
- * Envolve o conteúdo com ProtectedRoute (autenticação) e DashboardLayout (menu lateral).
- * Páginas que já importam DashboardLayout internamente (Estoque, Relatorios, etc.)
- * receberão um DashboardLayout duplo — para evitar isso, essas páginas devem ser
- * migradas para não usar DashboardLayout internamente. Por ora, usamos apenas PL
- * para as páginas que NÃO têm DashboardLayout interno.
- */
-const PL = ({ children }: { children: React.ReactNode }) => (
-  <ProtectedRoute>
+// PL = Protected + Layout (para páginas sem DashboardLayout interno)
+const PL = ({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) => (
+  <ProtectedRoute adminOnly={adminOnly}>
     <DashboardLayout>{children}</DashboardLayout>
   </ProtectedRoute>
 );
 
-/**
- * P = Protected only
- *
- * Para páginas que JÁ têm DashboardLayout interno (Estoque, Relatorios, Usuarios,
- * Configuracoes, WishlistAdmin) — evita duplicação do layout.
- */
-const P = ({ children }: { children: React.ReactNode }) => (
-  <ProtectedRoute>{children}</ProtectedRoute>
+// P = Protected only (para páginas que já têm DashboardLayout interno)
+const P = ({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) => (
+  <ProtectedRoute adminOnly={adminOnly}>{children}</ProtectedRoute>
 );
 
 function Router() {
@@ -63,36 +51,39 @@ function Router() {
       <Route path="/simulador" component={PricingSimulator} />
       <Route path="/desejos" component={WishlistPublic} />
 
-      {/* ── DASHBOARD (sem DashboardLayout interno) ───────────────────── */}
+      {/* ── DASHBOARD ─────────────────────────────────────────────────── */}
       <Route path="/dashboard">{() => <PL><Dashboard /></PL>}</Route>
 
-      {/* ── PRODUTOS (sem DashboardLayout interno) ────────────────────── */}
+      {/* ── PRODUTOS ──────────────────────────────────────────────────── */}
       <Route path="/produtos">{() => <PL><Products /></PL>}</Route>
       <Route path="/produtos/novo">{() => <PL><ProductForm /></PL>}</Route>
       <Route path="/produtos/:id/editar">{() => <PL><ProductForm /></PL>}</Route>
 
-      {/* ── ESTOQUE (tem DashboardLayout interno) ─────────────────────── */}
+      {/* ── ESTOQUE ───────────────────────────────────────────────────── */}
       <Route path="/estoque">{() => <P><Estoque /></P>}</Route>
 
-      {/* ── SIMULAÇÕES (sem DashboardLayout interno) ──────────────────── */}
+      {/* ── SIMULAÇÕES ────────────────────────────────────────────────── */}
       <Route path="/simulacoes">{() => <P><SimulationsExport /></P>}</Route>
       <Route path="/simulacoes/:id">
         {(params: any) => <PL><SimulationDetail id={Number(params.id)} /></PL>}
       </Route>
 
-      {/* ── LOTES (sem DashboardLayout interno) ───────────────────────── */}
+      {/* ── LOTES ─────────────────────────────────────────────────────── */}
       <Route path="/lotes">{() => <PL><BatchPricing /></PL>}</Route>
       <Route path="/lotes/novo">{() => <PL><BatchPricing /></PL>}</Route>
 
-      {/* ── RELATÓRIOS (tem DashboardLayout interno) ──────────────────── */}
+      {/* ── RELATÓRIOS ────────────────────────────────────────────────── */}
       <Route path="/relatorios">{() => <P><Relatorios /></P>}</Route>
 
-      {/* ── LISTA DE DESEJOS ADMIN (tem DashboardLayout interno) ──────── */}
+      {/* ── LISTA DE DESEJOS ADMIN ────────────────────────────────────── */}
       <Route path="/desejos-admin">{() => <P><WishlistAdmin /></P>}</Route>
 
-      {/* ── ADMIN (tem DashboardLayout interno) ───────────────────────── */}
-      <Route path="/usuarios">{() => <P><Usuarios /></P>}</Route>
-      <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
+      {/* ── PEDIDOS ───────────────────────────────────────────────────── */}
+      <Route path="/pedidos">{() => <PL><Pedidos /></PL>}</Route>
+
+      {/* ── SOMENTE ADMIN ─────────────────────────────────────────────── */}
+      <Route path="/usuarios">{() => <P adminOnly><Usuarios /></P>}</Route>
+      <Route path="/configuracoes">{() => <P adminOnly><Configuracoes /></P>}</Route>
 
       <Route component={NotFound} />
     </Switch>
