@@ -251,7 +251,14 @@ export default function Marketplace() {
               PERMUPAY
             </span>
           </Link>
-          <div className="flex-1 flex justify-end">
+          <div className="flex-1 flex justify-end gap-2">
+            <a
+              href="/dashboard"
+              className="hidden sm:inline-flex px-4 py-1.5 rounded-lg text-sm font-medium hover:opacity-80 transition-opacity"
+              style={{ color: "#8a7a6a" }}
+            >
+              Dashboard
+            </a>
             <a
               href={`${PANEL_URL}/login`}
               className="px-5 py-1.5 rounded-lg border text-sm font-medium hover:opacity-80 transition-opacity"
