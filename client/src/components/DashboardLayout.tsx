@@ -36,6 +36,7 @@ import {
   Heart,
   ExternalLink,
   Store,
+  ClipboardList,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -48,6 +49,7 @@ const menuItems = [
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
   { icon: Calculator, label: "Simulações", path: "/simulacoes" },
   { icon: Layers, label: "Lotes", path: "/lotes" },
+  { icon: ClipboardList, label: "Pedidos", path: "/pedidos" },
   { icon: Heart, label: "Lista de Desejos", path: "/desejos-admin" },
   { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
 ];
@@ -220,7 +222,6 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="p-3 border-t">
-            {/* Botão rápido para a vitrine */}
             <a
               href="/vitrine"
               target="_blank"
@@ -278,7 +279,6 @@ function DashboardLayoutContent({
       </div>
 
       <SidebarInset>
-        {/* Topbar sempre visível com breadcrumb e acesso rápido */}
         <div className="flex border-b h-14 items-center gap-2 bg-background/95 px-4 backdrop-blur sticky top-0 z-40 justify-between">
           <div className="flex items-center gap-2">
             {isMobile && <SidebarTrigger className="h-9 w-9 rounded-lg" />}
