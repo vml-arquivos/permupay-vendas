@@ -1,10 +1,8 @@
 /**
- * drizzle/schema.orders.ts
+ * drizzle/schema.orders.ts — Schema Drizzle para pedidos
  *
- * ALTERAÇÕES:
- * - Status padrão: AGUARDANDO_PAGAMENTO (pedido gerado sem descontar estoque)
- * - Novo status: LIBERADO_RETIRADA (após confirmação manual do admin)
- * - Remoção do status RESERVADO como padrão (fluxo antigo de reserva 2h)
+ * Mantido separado do schema.ts principal para facilitar manutenção.
+ * Importado por server/db.orders.ts.
  */
 
 import {
@@ -17,13 +15,13 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 import { users } from "./schema";
-import { products } from "./schema";
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
 
 export const orderStatusEnum = pgEnum("permupay_order_status", [
-  "AGUARDANDO_PAGAMENTO",   // pedido gerado, aguarda confirmação manual
-  "RESERVADO",              // mantido para retrocompatibilidade
-  "PAGO",                   // pagamento confirmado pelo admin → estoque debitado
-  "LIBERADO_RETIRADA",      // alias semântico de PAGO, exibido ao cliente
+  "AGUARDANDO_PAGAMENTO",
+  "RESERVADO",
+  "PAGO",
   "CANCELADO",
   "EXPIRADO",
 ]);
@@ -34,11 +32,15 @@ export const paymentMethodEnum = pgEnum("permupay_payment_method", [
   "BOLETO",
 ]);
 
+// ─── Tabela ───────────────────────────────────────────────────────────────────
+
 export const orders = pgTable("permupay_orders", {
   id: serial("id").primaryKey(),
-  productId: integer("product_id")
-    .notNull()
-    .references(() => products.id, { onDelete: "restrict" }),
+
+  // Produto referenciado — mantemos FK sem cascade delete para preservar histórico
+  productId: integer("product_id").notNull(),
+
+  // Dados do pedido
   quantity: integer("quantity").notNull().default(1),
 
   // Dados do comprador
@@ -46,27 +48,33 @@ export const orders = pgTable("permupay_orders", {
   buyerContact: text("buyer_contact").notNull(),
   buyerContactType: text("buyer_contact_type").notNull().default("WHATSAPP"),
 
-  // Pagamento
+  // Forma de pagamento e valores
   paymentMethod: paymentMethodEnum("payment_method").notNull(),
   unitPrice: real("unit_price").notNull(),
   totalPrice: real("total_price").notNull(),
 
-  // Status e controle
-  // Padrão: AGUARDANDO_PAGAMENTO — estoque NÃO é debitado na criação
+  // Ciclo de vida
   status: orderStatusEnum("status").notNull().default("AGUARDANDO_PAGAMENTO"),
-
-  // expires_at: mantido para compatibilidade, mas não expira automaticamente no novo fluxo
   expiresAt: timestamp("expires_at").notNull(),
+
+  // Confirmação manual pelo admin
   confirmedAt: timestamp("confirmed_at"),
   confirmedBy: integer("confirmed_by").references(() => users.id, {
     onDelete: "set null",
   }),
+
+  // Cancelamento
   cancelledAt: timestamp("cancelled_at"),
+
+  // Notas internas do admin
   adminNotes: text("admin_notes"),
 
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  // Controle
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// ─── Tipos inferidos ──────────────────────────────────────────────────────────
 
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;
