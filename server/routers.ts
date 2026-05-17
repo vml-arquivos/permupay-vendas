@@ -2,11 +2,10 @@
  * server/routers.ts
  *
  * ALTERAÇÕES NESTA VERSÃO:
- * 1. Bloco admin.* — removidas verificações if (ctx.user?.role !== "admin")
- *    Qualquer usuário autenticado pode gerenciar usuários, produtos, vendas.
- * 2. orders.create — status inicial agora é AGUARDANDO_PAGAMENTO (sem débito de estoque)
- * 3. orders.confirm — débito de estoque ocorre SOMENTE aqui
- * 4. orders.list aceita novo status AGUARDANDO_PAGAMENTO como filtro padrão
+ * 1. Bloco admin.* — sem verificações de role. Qualquer autenticado tem acesso.
+ * 2. orders.create — status inicial AGUARDANDO_PAGAMENTO (sem débito de estoque)
+ * 3. orders.confirm — transação atômica com débito de estoque e stock_entries
+ * 4. Adicionado router settings.getPricingDefaults / settings.updatePricingDefaults
  */
 
 import { z } from "zod";
@@ -20,6 +19,7 @@ import * as dbBatches from "./db.batches";
 import * as dbWishlist from "./db.wishlist";
 import * as dbImages from "./db.images";
 import * as dbOrders from "./db.orders";
+import * as dbSettings from "./db.settings";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
 
@@ -90,10 +90,42 @@ const batchItemSchema = z.object({
   estimatedTaxRate: z.number().min(0).max(99.9).optional(),
 });
 
+// Schema de pricing defaults
+const pricingDefaultsSchema = z.object({
+  taxRegime: z.string().optional(),
+  taxCash: z.string().optional(),
+  taxBoleto: z.string().optional(),
+  taxDebit: z.string().optional(),
+  taxCreditCash: z.string().optional(),
+  taxCreditInstallment: z.string().optional(),
+  boletoMonths: z.string().optional(),
+  boletoMonthlyRate: z.string().optional(),
+  boletoFixedFee: z.string().optional(),
+  boletoDefaultRisk: z.string().optional(),
+  boletoCustomerPaysInterest: z.boolean().optional(),
+  cardDebitFee: z.string().optional(),
+  cardCreditCashFee: z.string().optional(),
+  cardCreditInstallmentFee: z.string().optional(),
+  cardInstallments: z.string().optional(),
+  cardAnticipationRate: z.string().optional(),
+  cardMonthlyRate: z.string().optional(),
+  cardCustomerPaysInterest: z.boolean().optional(),
+});
+
 // ─── Router principal ─────────────────────────────────────────────────────────
 
 export const appRouter = router({
   system: systemRouter,
+
+  // ── Configurações globais ──────────────────────────────────────────────────
+  settings: router({
+    getPricingDefaults: publicProcedure.query(() =>
+      dbSettings.getPricingDefaults()
+    ),
+    updatePricingDefaults: protectedProcedure
+      .input(pricingDefaultsSchema)
+      .mutation(({ input }) => dbSettings.updatePricingDefaults(input)),
+  }),
 
   // ── Produtos ───────────────────────────────────────────────────────────────
   products: router({
@@ -103,29 +135,25 @@ export const appRouter = router({
         db.createProduct({ ...input, userId: ctx.user.id })
       ),
 
-    list: protectedProcedure.query(({ ctx }) => db.listProducts(ctx.user.id)),
+    list: protectedProcedure.query(() => db.listProducts()),
 
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(({ input, ctx }) => db.getProductById(input.id, ctx.user.id)),
+      .query(({ input }) => db.getProductById(input.id)),
 
     update: protectedProcedure
       .input(z.object({ id: z.number(), data: productInput.partial() }))
-      .mutation(({ input, ctx }) =>
-        db.updateProduct(input.id, input.data, ctx.user.id)
+      .mutation(({ input }) =>
+        db.updateProduct(input.id, input.data)
       ),
 
     deactivate: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ input, ctx }) =>
-        db.deactivateProduct(input.id, ctx.user.id)
-      ),
+      .mutation(({ input }) => db.deactivateProduct(input.id)),
 
     duplicate: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ input, ctx }) =>
-        db.duplicateProduct(input.id, ctx.user.id)
-      ),
+      .mutation(({ input }) => db.duplicateProduct(input.id)),
 
     getImages: protectedProcedure
       .input(z.object({ productId: z.number() }))
@@ -162,21 +190,13 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbImages.reorderProductImages(
-          input.productId,
-          ctx.user.id,
-          input.orderedIds
-        )
+        dbImages.reorderProductImages(input.productId, ctx.user.id, input.orderedIds)
       ),
 
     deleteImage: protectedProcedure
       .input(z.object({ imageId: z.number(), productId: z.number() }))
       .mutation(({ input, ctx }) =>
-        dbImages.deleteProductImageRecord(
-          input.imageId,
-          input.productId,
-          ctx.user.id
-        )
+        dbImages.deleteProductImageRecord(input.imageId, input.productId, ctx.user.id)
       ),
 
     updateImageAlt: protectedProcedure
@@ -188,24 +208,13 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbImages.updateImageAltText(
-          input.imageId,
-          input.productId,
-          ctx.user.id,
-          input.altText
-        )
+        dbImages.updateImageAltText(input.imageId, input.productId, ctx.user.id, input.altText)
       ),
 
     setImageUrl: protectedProcedure
-      .input(
-        z.object({ productId: z.number(), imageUrl: z.string().url() })
-      )
+      .input(z.object({ productId: z.number(), imageUrl: z.string().url() }))
       .mutation(({ input, ctx }) =>
-        dbBatches.updateProductImage(
-          input.productId,
-          ctx.user.id,
-          input.imageUrl
-        )
+        dbBatches.updateProductImage(input.productId, ctx.user.id, input.imageUrl)
       ),
 
     togglePublished: protectedProcedure
@@ -217,12 +226,7 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbBatches.togglePublished(
-          input.productId,
-          ctx.user.id,
-          input.published,
-          input.promoTag
-        )
+        dbBatches.togglePublished(input.productId, ctx.user.id, input.published, input.promoTag)
       ),
 
     adjustStock: protectedProcedure
@@ -235,13 +239,7 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbBatches.adjustStock(
-          input.productId,
-          ctx.user.id,
-          input.quantity,
-          input.unitCost,
-          input.notes
-        )
+        dbBatches.adjustStock(input.productId, ctx.user.id, input.quantity, input.unitCost, input.notes)
       ),
 
     stockEntries: protectedProcedure
@@ -263,21 +261,15 @@ export const appRouter = router({
         dbBatches.createBatch({ ...input, userId: ctx.user.id })
       ),
 
-    list: protectedProcedure.query(({ ctx }) =>
-      dbBatches.listBatches(ctx.user.id)
-    ),
+    list: protectedProcedure.query(() => dbBatches.listBatches()),
 
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(({ input, ctx }) =>
-        dbBatches.getBatchById(input.id, ctx.user.id)
-      ),
+      .query(({ input }) => dbBatches.getBatchById(input.id)),
 
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ input, ctx }) =>
-        dbBatches.deleteBatch(input.id, ctx.user.id)
-      ),
+      .mutation(({ input }) => dbBatches.deleteBatch(input.id)),
 
     process: protectedProcedure
       .input(
@@ -304,9 +296,7 @@ export const appRouter = router({
     products: publicProcedure.query(() => dbBatches.getPublishedProducts()),
     productsByCategory: publicProcedure
       .input(z.object({ category: z.string().optional() }))
-      .query(({ input }) =>
-        dbBatches.getPublishedProductsByCategory(input.category)
-      ),
+      .query(({ input }) => dbBatches.getPublishedProductsByCategory(input.category)),
     productById: publicProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => dbBatches.getPublishedProductById(input.id)),
@@ -320,27 +310,19 @@ export const appRouter = router({
         db.createSimulation({ ...input, userId: ctx.user.id })
       ),
 
-    list: protectedProcedure.query(({ ctx }) =>
-      db.listSimulations(ctx.user.id)
-    ),
+    list: protectedProcedure.query(() => db.listSimulations()),
 
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(({ input, ctx }) =>
-        db.getSimulationById(input.id, ctx.user.id)
-      ),
+      .query(({ input }) => db.getSimulationById(input.id)),
 
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ input, ctx }) =>
-        db.deleteSimulation(input.id, ctx.user.id)
-      ),
+      .mutation(({ input }) => db.deleteSimulation(input.id)),
 
     duplicate: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(({ input, ctx }) =>
-        db.duplicateSimulation(input.id, ctx.user.id)
-      ),
+      .mutation(({ input }) => db.duplicateSimulation(input.id)),
   }),
 
   // ── Lista de Desejos ──────────────────────────────────────────────────────
@@ -382,13 +364,7 @@ export const appRouter = router({
         z
           .object({
             status: z
-              .enum([
-                "NOVO",
-                "VISUALIZADO",
-                "CONTATADO",
-                "ATENDIDO",
-                "FECHADO",
-              ])
+              .enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"])
               .optional(),
             category: z.string().optional(),
           })
@@ -400,23 +376,12 @@ export const appRouter = router({
       .input(
         z.object({
           id: z.number(),
-          status: z.enum([
-            "NOVO",
-            "VISUALIZADO",
-            "CONTATADO",
-            "ATENDIDO",
-            "FECHADO",
-          ]),
+          status: z.enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"]),
           adminNotes: z.string().optional(),
         })
       )
       .mutation(({ input, ctx }) =>
-        dbWishlist.updateWishlistStatus(
-          input.id,
-          input.status,
-          input.adminNotes,
-          ctx.user.id
-        )
+        dbWishlist.updateWishlistStatus(input.id, input.status, input.adminNotes, ctx.user.id)
       ),
 
     delete: protectedProcedure
@@ -428,7 +393,6 @@ export const appRouter = router({
 
   // ── Pedidos ────────────────────────────────────────────────────────────────
   orders: router({
-    // Público: qualquer visitante pode criar um pedido
     create: publicProcedure
       .input(
         z.object({
@@ -436,9 +400,7 @@ export const appRouter = router({
           quantity: z.number().int().min(1).default(1),
           buyerName: z.string().min(2, "Informe seu nome"),
           buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
-          buyerContactType: z
-            .enum(["WHATSAPP", "EMAIL"])
-            .default("WHATSAPP"),
+          buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
           paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO"]),
           unitPrice: z.number().min(0),
         })
@@ -468,7 +430,6 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .query(({ input }) => dbOrders.getOrderById(input.id)),
 
-    // Confirma pagamento + debita estoque + gatilho FIFO
     confirm: protectedProcedure
       .input(
         z.object({
@@ -625,9 +586,7 @@ export const appRouter = router({
       }),
 
     updateUserRole: protectedProcedure
-      .input(
-        z.object({ userId: z.number(), role: z.enum(["user", "admin"]) })
-      )
+      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin"]) }))
       .mutation(async ({ input, ctx }) => {
         if (input.userId === ctx.user.id)
           throw new Error("Não é possível alterar seu próprio papel");
@@ -673,9 +632,7 @@ export const appRouter = router({
       }),
 
     resetUserPassword: protectedProcedure
-      .input(
-        z.object({ userId: z.number(), newPassword: z.string().min(8) })
-      )
+      .input(z.object({ userId: z.number(), newPassword: z.string().min(8) }))
       .mutation(async ({ input }) => {
         const dbConn = await db.getDb();
         if (!dbConn) throw new Error("Database not available");
