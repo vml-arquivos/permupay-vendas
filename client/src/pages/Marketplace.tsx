@@ -14,7 +14,7 @@
 import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { Heart, ChevronRight } from "lucide-react";
+import { Heart } from "lucide-react";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 interface CatalogProduct {
@@ -71,13 +71,13 @@ function getStockStatus(p: CatalogProduct) {
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function ProductSkeleton() {
   return (
-    <div className="bg-white rounded-3xl overflow-hidden shadow-sm animate-pulse">
+    <div className="bg-white rounded-2xl overflow-hidden border border-stone-100 shadow-sm animate-pulse">
       <div className="aspect-square bg-stone-100" />
-      <div className="p-5 space-y-3">
-        <div className="h-3 bg-stone-100 rounded w-20" />
-        <div className="h-5 bg-stone-100 rounded w-4/5" />
+      <div className="p-4 space-y-2.5">
+        <div className="h-2.5 bg-stone-100 rounded w-16" />
+        <div className="h-4 bg-stone-100 rounded w-4/5" />
         <div className="h-3 bg-stone-100 rounded w-3/5" />
-        <div className="h-7 bg-stone-100 rounded w-1/3 mt-2" />
+        <div className="h-6 bg-stone-100 rounded w-1/3 mt-3" />
       </div>
     </div>
   );
@@ -85,62 +85,77 @@ function ProductSkeleton() {
 
 // ── Card de Produto ───────────────────────────────────────────────────────────
 function ProductCard({ product }: { product: CatalogProduct }) {
-  const stockStatus   = getStockStatus(product);
-  const inStock       = stockStatus !== "out_of_stock";
-  const price         = getDisplayPrice(product);
+  const stockStatus      = getStockStatus(product);
+  const inStock          = stockStatus !== "out_of_stock";
+  const isLowStock       = stockStatus === "low_stock";
+  const price            = getDisplayPrice(product);
   const cardInstallments = Math.max(1, Math.round(product.cardInstallments ?? 3));
-  const cardPrice     = (product.suggestedPriceCard ?? 0) > 0 ? product.suggestedPriceCard : null;
-  const catMeta       = CATEGORY_META[product.category];
+  const cardPrice        = (product.suggestedPriceCard ?? 0) > 0 ? product.suggestedPriceCard : null;
+  const pixPrice         = (product.suggestedPricePix  ?? 0) > 0 ? product.suggestedPricePix  : null;
+  const catMeta          = CATEGORY_META[product.category];
 
   return (
     <Link href={`/vitrine/${product.id}`}>
-      <div
-        className={`bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group ${!inStock ? "opacity-70" : ""}`}
-      >
-        {/* ── Imagem — NÃO cortada ── */}
-        <div className="relative bg-stone-50" style={{ aspectRatio: "1 / 1" }}>
+      <div className={`bg-white rounded-2xl overflow-hidden border border-stone-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group flex flex-col h-full ${!inStock ? "opacity-60" : ""}`}>
+
+        {/* ── Imagem ── */}
+        <div className="relative bg-stone-50 shrink-0" style={{ aspectRatio: "1 / 1" }}>
           {product.imageUrl ? (
             <img
               src={product.imageUrl}
               alt={product.name}
-              className="w-full h-full object-contain p-6 group-hover:scale-105 transition-transform duration-500"
+              className="w-full h-full object-contain p-5 group-hover:scale-105 transition-transform duration-500"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <span className="text-7xl opacity-15 select-none">✨</span>
+            <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+              <span className="text-6xl opacity-10 select-none">🛍️</span>
+              <span className="text-[10px] text-stone-300 font-medium uppercase tracking-widest">Sem imagem</span>
             </div>
           )}
 
-          {/* Badges */}
+          {/* Badge promoTag */}
           {product.promoTag && inStock && (
-            <span className="absolute top-3 left-3 bg-rose-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide shadow-sm">
+            <span className="absolute top-3 left-3 bg-rose-500 text-white text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider shadow-sm">
               {product.promoTag}
             </span>
           )}
-          {stockStatus === "low_stock" && (
-            <span className="absolute top-3 right-3 bg-amber-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm">
+
+          {/* Badge baixo estoque */}
+          {isLowStock && inStock && (
+            <span className="absolute top-3 right-3 bg-amber-400 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm">
               Últimas unidades
             </span>
           )}
+
+          {/* Overlay indisponível */}
           {!inStock && (
-            <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
+            <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
               <span className="bg-stone-700 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
                 Indisponível
               </span>
             </div>
           )}
+
+          {/* Botão flutuante "Ver produto" no hover */}
+          {inStock && (
+            <div className="absolute inset-x-0 bottom-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300 px-3 pb-3">
+              <div className="w-full py-2 rounded-xl bg-stone-900/90 backdrop-blur-sm text-white text-xs font-bold text-center tracking-wide">
+                Ver produto →
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Conteúdo ── */}
-        <div className="p-5">
+        <div className="p-4 flex flex-col flex-1">
           {/* Categoria */}
-          <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-widest mb-1.5">
+          <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1.5">
             {catMeta?.icon && <span className="mr-1">{catMeta.icon}</span>}
             {catMeta?.label ?? product.category}
           </p>
 
           {/* Nome */}
-          <h3 className="font-semibold text-stone-900 text-base leading-snug line-clamp-2 group-hover:text-stone-600 transition-colors">
+          <h3 className="font-semibold text-stone-900 text-sm sm:text-base leading-snug line-clamp-2 group-hover:text-stone-600 transition-colors flex-1">
             {product.name}
           </h3>
 
@@ -151,49 +166,42 @@ function ProductCard({ product }: { product: CatalogProduct }) {
             </p>
           )}
 
-          {/* Preço + seta */}
-          {inStock && price ? (
-            <div className="mt-4 flex items-end justify-between">
-              <div>
-                <p className="text-xl font-bold text-stone-900 leading-none">
+          {/* Preços */}
+          <div className="mt-3 pt-3 border-t border-stone-50">
+            {inStock && price ? (
+              <>
+                {/* Preço principal (PIX em destaque se disponível) */}
+                <p className="text-xl font-extrabold text-stone-900 leading-none">
                   {formatBRL(price.value)}
                 </p>
-                <p className="text-xs text-stone-400 mt-1">
+
+                {/* Condição */}
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
                   {price.label === "PIX" && (
-                    <span className="text-emerald-600 font-semibold">no PIX</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                      ⚡ no PIX
+                    </span>
                   )}
-                  {price.label === "Cartão" && cardPrice && cardInstallments > 1 && (
-                    <span>ou {cardInstallments}x de {formatBRL(cardPrice / cardInstallments)}</span>
+                  {cardPrice && cardInstallments > 1 && (
+                    <span className="text-[10px] text-stone-400 font-medium">
+                      ou {cardInstallments}x de {formatBRL(cardPrice / cardInstallments)} no cartão
+                    </span>
                   )}
-                  {price.label === "Boleto" && (
-                    <span>no boleto</span>
-                  )}
-                </p>
-              </div>
-              <div className="w-9 h-9 rounded-full bg-stone-900 group-hover:bg-stone-700 flex items-center justify-center transition-colors shrink-0">
-                <ChevronRight className="w-4 h-4 text-white" />
-              </div>
-            </div>
-          ) : inStock ? (
-            <div className="mt-4 flex items-center justify-between">
+                </div>
+              </>
+            ) : inStock ? (
               <p className="text-sm text-stone-400 italic">Consulte o preço</p>
-              <div className="w-9 h-9 rounded-full bg-stone-900 group-hover:bg-stone-700 flex items-center justify-center transition-colors">
-                <ChevronRight className="w-4 h-4 text-white" />
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4">
+            ) : (
               <Link href="/desejos">
                 <button
                   onClick={(e) => e.stopPropagation()}
-                  className="text-xs text-stone-400 hover:text-stone-700 flex items-center gap-1 transition-colors"
+                  className="text-xs text-stone-400 hover:text-rose-500 flex items-center gap-1 transition-colors"
                 >
-                  <Heart className="w-3 h-3" />
-                  Avisar quando chegar
+                  <Heart className="w-3 h-3" /> Avisar quando chegar
                 </button>
               </Link>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </Link>
@@ -344,11 +352,11 @@ export default function Marketplace() {
 
       {/* ── FILTROS DE CATEGORIA ─────────────────────────────────────────── */}
       {availableCategories.length > 1 && (
-        <div className="border-b border-stone-200 bg-white/60 backdrop-blur-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-2 overflow-x-auto">
+        <div className="bg-white border-b border-stone-200/60">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
             <button
               onClick={() => setActiveCategory(null)}
-              className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === null ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
+              className={`shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${activeCategory === null ? "bg-stone-900 text-white shadow-sm" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
             >
               Todos
             </button>
@@ -356,7 +364,7 @@ export default function Marketplace() {
               <button
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === cat ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
+                className={`shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${activeCategory === cat ? "bg-stone-900 text-white shadow-sm" : "bg-stone-100 text-stone-600 hover:bg-stone-200"}`}
               >
                 {CATEGORY_META[cat]?.icon} {CATEGORY_META[cat]?.label ?? cat}
               </button>
@@ -382,13 +390,13 @@ export default function Marketplace() {
         </div>
 
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array.from({ length: 6 }).map((_, i) => <ProductSkeleton key={i} />)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {Array.from({ length: 8 }).map((_, i) => <ProductSkeleton key={i} />)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-24">
             <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-stone-100 flex items-center justify-center">
-              <span className="text-4xl">✨</span>
+              <span className="text-4xl">🛍️</span>
             </div>
             <h3 className="text-xl font-semibold text-stone-700 mb-2">Vitrine em breve</h3>
             <p className="text-stone-400 mb-8">Estamos preparando os produtos. Volte em breve!</p>
@@ -400,8 +408,7 @@ export default function Marketplace() {
             </Link>
           </div>
         ) : (
-          /* Grid: 1 col mobile, 2 col tablet, 3 col desktop */
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {filtered.map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
@@ -412,14 +419,17 @@ export default function Marketplace() {
       {/* ── SEÇÃO LISTA DE DESEJOS ───────────────────────────────────────── */}
       <section className="py-20 mt-8" style={{ backgroundColor: "#ede8e0" }}>
         <div className="max-w-3xl mx-auto px-4 text-center">
-          <h2 className="text-2xl font-bold text-stone-900 mb-3">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-stone-200 mb-6">
+            <Heart className="w-7 h-7 text-stone-600" />
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-bold text-stone-900 mb-3">
             Sua Lista de Desejos Personalizada
           </h2>
-          <p className="text-stone-500 mb-8 text-sm">
-            Não encontrou o que procura? Registre sua demanda e entraremos em contato.
+          <p className="text-stone-500 mb-8 text-sm sm:text-base max-w-md mx-auto">
+            Não encontrou o que procura? Registre sua demanda e entraremos em contato quando disponível.
           </p>
           <Link href="/desejos">
-            <button className="px-8 py-3.5 rounded-xl bg-stone-900 text-white text-sm font-semibold hover:bg-stone-700 transition-colors inline-flex items-center gap-2">
+            <button className="px-8 py-3.5 rounded-xl bg-stone-900 text-white text-sm font-semibold hover:bg-stone-700 transition-colors inline-flex items-center gap-2 shadow-lg hover:shadow-xl">
               <Heart className="w-4 h-4" />
               Registrar Demanda
             </button>
