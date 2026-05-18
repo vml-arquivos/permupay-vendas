@@ -170,7 +170,6 @@ export const batchItems = pgTable("permupay_batch_items", {
   unitCostBrl: real("unit_cost_brl").notNull().default(0),
   quantity: integer("quantity").notNull().default(1),
   totalItemCost: real("total_item_cost").notNull().default(0),
-  // Custo operacional rateado proporcionalmente (fórmula de rateio)
   allocatedOperationalCost: real("allocated_operational_cost")
     .notNull()
     .default(0),
@@ -259,29 +258,24 @@ export const wishlistStatusEnum = pgEnum("permupay_wishlist_status", [
 export const wishlistRequests = pgTable("permupay_wishlist_requests", {
   id: serial("id").primaryKey(),
 
-  // Identidade do solicitante
   visitorName: text("visitor_name").notNull(),
   contact: text("contact").notNull(),
   contactType: text("contact_type").notNull().default("WHATSAPP"),
 
-  // O que procura
   category: text("category"),
   brand: text("brand"),
   model: text("model"),
   description: text("description").notNull(),
 
-  // Orçamento
   budgetMin: real("budget_min").notNull().default(0),
   budgetMax: real("budget_max").notNull().default(0),
 
-  // Gestão admin
   status: wishlistStatusEnum("status").notNull().default("NOVO"),
   adminNotes: text("admin_notes"),
   attendedBy: integer("attended_by").references(() => users.id, {
     onDelete: "set null",
   }),
 
-  // Controle
   isAnonymous: boolean("is_anonymous").notNull().default(false),
   ipHash: text("ip_hash"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -290,7 +284,6 @@ export const wishlistRequests = pgTable("permupay_wishlist_requests", {
 
 export type WishlistRequest = typeof wishlistRequests.$inferSelect;
 export type InsertWishlistRequest = typeof wishlistRequests.$inferInsert;
-
 
 // ─── Tabela: app_settings (configurações globais) ─────────────────────────────
 
@@ -310,8 +303,8 @@ export const productImages = pgTable("permupay_product_images", {
   productId: integer("product_id")
     .notNull()
     .references(() => products.id, { onDelete: "cascade" }),
-  url: text("url").notNull(),                          // URL pública no S3/R2
-  storageKey: text("storage_key"),                     // chave no bucket (para deletar)
+  url: text("url").notNull(),
+  storageKey: text("storage_key"),
   isThumbnail: boolean("is_thumbnail").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   altText: text("alt_text"),
@@ -320,3 +313,18 @@ export const productImages = pgTable("permupay_product_images", {
 
 export type ProductImage = typeof productImages.$inferSelect;
 export type InsertProductImage = typeof productImages.$inferInsert;
+
+// ─── Tabela: payment_settings (configurações globais de pagamento) ─────────────
+
+export const paymentSettings = pgTable("permupay_payment_settings", {
+  id: serial("id").primaryKey(),
+  cardDebitFee: real("card_debit_fee").notNull().default(1.5),
+  cardCreditCashFee: real("card_credit_cash_fee").notNull().default(2.5),
+  cardCreditInstallmentFee: real("card_credit_installment_fee").notNull().default(3.5),
+  cardInstallments: real("card_installments").notNull().default(6),
+  cashDiscountPercent: real("cash_discount_percent").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type PaymentSetting = typeof paymentSettings.$inferSelect;
+export type InsertPaymentSetting = typeof paymentSettings.$inferInsert;
