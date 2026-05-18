@@ -1,11 +1,10 @@
 /**
- * server/routers.ts — atualizado
+ * server/routers.ts
  *
- * MUDANÇAS NESTA VERSÃO:
- * 1. products.delete — apagar produto permanentemente
- * 2. admin.deleteUser — apagar usuário permanentemente
- * 3. paymentSettings.get / paymentSettings.update — configurações globais de pagamento
- * 4. wishlist.deleteAll / simulações já tinham delete
+ * CHANGELOG v13:
+ * 1. paymentSettingsSchema expandido com Fiscal, Boleto, Cartão e Descontos Universais.
+ * 2. taxCash (PIX) removido do paymentSettingsSchema — forçado como 0 no db.payment-settings.ts.
+ * 3. Todos os outros procedimentos INTACTOS.
  */
 
 import { z } from "zod";
@@ -112,12 +111,45 @@ const pricingDefaultsSchema = z.object({
   cardCustomerPaysInterest: z.boolean().optional(),
 });
 
+// ─── paymentSettingsSchema — EXPANDIDO (v13) ──────────────────────────────────
+// taxCash (PIX) AUSENTE — forçado como 0 no db.payment-settings.ts.
+// Todos os campos são opcionais para permitir PATCH parcial.
+
 const paymentSettingsSchema = z.object({
-  cardDebitFee: z.number().min(0),
-  cardCreditCashFee: z.number().min(0),
-  cardCreditInstallmentFee: z.number().min(0),
-  cardInstallments: z.number().min(1),
-  cashDiscountPercent: z.number().min(0).max(100),
+  // Fiscal
+  taxRegime: z
+    .enum(["SIMPLES_NACIONAL", "LUCRO_PRESUMIDO", "LUCRO_REAL", "MANUAL"])
+    .optional(),
+  taxBoleto: z.number().min(0).max(100).optional(),
+  taxDebit: z.number().min(0).max(100).optional(),
+  taxCreditCash: z.number().min(0).max(100).optional(),
+  taxCreditInstallment: z.number().min(0).max(100).optional(),
+
+  // Cartão
+  cardDebitFee: z.number().min(0).max(100).optional(),
+  cardCreditCashFee: z.number().min(0).max(100).optional(),
+  cardCreditInstallmentFee: z.number().min(0).max(100).optional(),
+  cardInstallments: z.number().int().min(1).max(48).optional(),
+  cardAnticipationRate: z.number().min(0).max(100).optional(),
+  cardMonthlyRate: z.number().min(0).max(100).optional(),
+  cardCustomerPaysInterest: z.boolean().optional(),
+
+  // Boleto
+  boletoMonths: z.number().int().min(1).max(60).optional(),
+  boletoMonthlyRate: z.number().min(0).max(100).optional(),
+  boletoFixedFee: z.number().min(0).optional(),
+  boletoDefaultRisk: z.number().min(0).max(100).optional(),
+  boletoCustomerPaysInterest: z.boolean().optional(),
+
+  // Descontos universais (% sobre preço final ao cliente)
+  discountPix: z.number().min(0).max(100).optional(),
+  discountCash: z.number().min(0).max(100).optional(),
+  discountBoleto: z.number().min(0).max(100).optional(),
+  discountDebit: z.number().min(0).max(100).optional(),
+  discountCredit: z.number().min(0).max(100).optional(),
+
+  // Legado (mantido para compatibilidade)
+  cashDiscountPercent: z.number().min(0).max(100).optional(),
 });
 
 // ─── Router principal ─────────────────────────────────────────────────────────
