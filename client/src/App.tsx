@@ -25,6 +25,7 @@ import BatchPricing from "./pages/BatchPricing";
 import Estoque from "./pages/Estoque";
 import Usuarios from "./pages/Usuarios";
 import Configuracoes from "./pages/Configuracoes";
+import ConfiguracoesPagamento from "./pages/ConfiguracoesPagamento";
 import Relatorios from "./pages/Relatorios";
 import Pedidos from "./pages/Pedidos";
 
@@ -84,6 +85,7 @@ function Router() {
       {/* ── SOMENTE ADMIN ─────────────────────────────────────────────── */}
       <Route path="/usuarios">{() => <P><Usuarios /></P>}</Route>
       <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
+      <Route path="/configuracoes-pagamento">{() => <P><ConfiguracoesPagamento /></P>}</Route>
 
       <Route component={NotFound} />
     </Switch>
