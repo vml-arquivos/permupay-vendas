@@ -127,15 +127,11 @@ function calculateFinalUnitCost(costPriceBrl: number, data: any): number {
 }
 
 // ─── Funções de Produtos ──────────────────────────────────────────────────────
-//
-// ALTERAÇÃO: listProducts e getProductById não filtram mais por userId.
-// Qualquer usuário autenticado vê todos os produtos.
 
 export async function listProducts(_userId?: number) {
   const db = await getDb();
   if (!db) return [];
   try {
-    // Sem filtro por userId — acesso total para todos os autenticados
     return await db
       .select()
       .from(products)
@@ -150,7 +146,6 @@ export async function getProductById(id: number, _userId?: number) {
   const db = await getDb();
   if (!db) return undefined;
   try {
-    // Sem filtro por userId — acesso total para todos os autenticados
     const r = await db
       .select()
       .from(products)
@@ -313,7 +308,6 @@ export async function updateProduct(id: number, data: any, _userId?: number) {
     if (data.categoryLabel !== undefined) updateData.categoryLabel = data.categoryLabel ? String(data.categoryLabel).trim() : null;
     if (data.promoTag !== undefined) updateData.promoTag = data.promoTag ? String(data.promoTag).trim() : null;
     if (data.published !== undefined) updateData.published = data.published === true;
-    // Preços calculados — só atualiza se veio no payload (sem sobrescrever com zero)
     if (data.suggestedPrice !== undefined) updateData.suggestedPrice = Math.max(0, Number(data.suggestedPrice) || 0);
     if (data.suggestedPricePix !== undefined) updateData.suggestedPricePix = Math.max(0, Number(data.suggestedPricePix) || 0);
     if (data.suggestedPriceCard !== undefined) updateData.suggestedPriceCard = Math.max(0, Number(data.suggestedPriceCard) || 0);
@@ -343,7 +337,6 @@ export async function updateProduct(id: number, data: any, _userId?: number) {
     if (data.cardMonthlyRate !== undefined) updateData.cardMonthlyRate = Math.max(0, Number(data.cardMonthlyRate) || 1.99);
     if (data.cardCustomerPaysInterest !== undefined) updateData.cardCustomerPaysInterest = data.cardCustomerPaysInterest === true;
 
-    // Recalcular custo BRL/unitário apenas quando campos de custo mudaram
     if (
       data.costCurrency !== undefined ||
       data.costPrice !== undefined ||
@@ -364,7 +357,6 @@ export async function updateProduct(id: number, data: any, _userId?: number) {
       }
     }
 
-    // Sem filtro por userId — acesso total para todos os autenticados
     const [r] = await db
       .update(products)
       .set(updateData)
@@ -379,6 +371,17 @@ export async function updateProduct(id: number, data: any, _userId?: number) {
 
 export async function deactivateProduct(id: number, _userId?: number) {
   return updateProduct(id, { active: false });
+}
+
+export async function deleteProduct(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  try {
+    await db.delete(products).where(eq(products.id, id));
+  } catch (error) {
+    console.error("[DB] Erro ao deletar produto:", error);
+    throw error;
+  }
 }
 
 export async function duplicateProduct(id: number, _userId?: number) {
@@ -427,7 +430,6 @@ export async function listSimulations(_userId?: number) {
   const db = await getDb();
   if (!db) return [];
   try {
-    // Sem filtro por userId — acesso total para todos os autenticados
     return await db
       .select()
       .from(pricingSimulations)
@@ -474,6 +476,20 @@ export async function duplicateSimulation(id: number, _userId?: number) {
   return createSimulation({ ...rest, name: `${s.name} (Cópia)` });
 }
 
+// ─── Funções de Usuários ──────────────────────────────────────────────────────
+
+export async function deleteUser(userId: number, currentUserId: number) {
+  if (userId === currentUserId) throw new Error("Não é possível remover sua própria conta");
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  try {
+    await db.delete(users).where(eq(users.id, userId));
+  } catch (error) {
+    console.error("[DB] Erro ao deletar usuário:", error);
+    throw error;
+  }
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export async function getDashboardData(_userId?: number) {
@@ -483,7 +499,6 @@ export async function getDashboardData(_userId?: number) {
       listSimulations(),
     ]);
 
-    // Dados de pedidos (opcional — falha suave se tabela não existir)
     let orderCounts = {
       aguardando: 0,
       pagos: 0,
@@ -511,7 +526,6 @@ export async function getDashboardData(_userId?: number) {
         ["SAUDAVEL", "EXCELENTE"].includes(s.diagnosis)
       ).length,
       recentSimulations: sims.slice(0, 5),
-      // Dados de pedidos/vendas
       ordersAguardando: orderCounts.aguardando,
       ordersPagos: orderCounts.pagos,
       ordersCancelados: orderCounts.cancelados,
