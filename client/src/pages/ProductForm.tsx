@@ -1,22 +1,22 @@
 /**
- * ProductForm.tsx — Cadastro e Edição de Produto
+ * ProductForm.tsx — Cadastro e Edição de Produto (v2 — Formulário Enxuto)
  *
- * Formulário unificado: identidade, custos, margem, fiscal, boleto, cartão,
- * cards de resultado e oferta comercial para vitrine.
+ * MUDANÇAS v2:
+ * - Seções "Configuração Fiscal", "Boleto" e "Cartão" REMOVIDAS da UI.
+ * - Todas as taxas vêm exclusivamente de `trpc.paymentSettings.get` (fonte única).
+ * - handleCalculate usa globalSettings em vez de estado local de taxas.
+ * - taxCash (PIX) é sempre forçado como 0 no motor (regra de negócio).
+ * - FormState agora contém APENAS: Identidade, Custo, Margem, Estoque, Links.
  *
- * REGRAS:
- * - Não expõe custo, margem, imposto ou lucro na vitrine.
- * - Salva preços calculados (suggestedPrice*) para exibição pública.
- * - Motor de cálculo importado de shared/pricingCalculator.ts (fonte única).
+ * LÓGICA DE NEGÓCIO INTACTA: hooks, queries, mutations, rotas inalteradas.
  */
+
 import { useEffect, useMemo, useState, useCallback, type ChangeEvent } from "react";
 import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
   calculatePricing,
   isPricingError,
-  SUGGESTED_TAX_RATES,
-  TAX_REGIME_LABELS,
   PAYMENT_METHOD_LABELS,
   formatCurrency,
   formatPercent,
@@ -32,8 +32,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -47,34 +45,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  Info,
-  Calculator,
-  Package,
-  DollarSign,
-  Percent,
-  CreditCard,
-  Banknote,
-  Sparkles,
-  Tag,
-  Eye,
-  EyeOff,
-  Save,
-  ArrowLeft,
-  TrendingUp,
-  TrendingDown,
-  RefreshCcw,
+  AlertCircle, AlertTriangle, CheckCircle2, XCircle, Info, Calculator,
+  DollarSign, CreditCard, Banknote, Sparkles, Tag, Eye, Save,
+  ArrowLeft, TrendingUp, TrendingDown, RefreshCcw, Settings2,
 } from "lucide-react";
 import ImageGallery from "@/components/ImageGallery";
+import DashboardLayout from "@/components/DashboardLayout";
 import { toast } from "sonner";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
+
 type MarginMode = "PERCENT" | "VALUE";
 type PaymentPlatform = "MERCADO_PAGO" | "PAGSEGURO" | "OUTRO";
 
+/** FormState enxuto: sem campos de fiscal, boleto ou cartão */
 interface FormState {
   // Identidade
   name: string;
@@ -102,28 +86,7 @@ interface FormState {
   marginMode: MarginMode;
   desiredMarginRate: string;
   desiredMarginValue: string;
-  // Fiscal
-  taxRegime: TaxRegime;
-  taxCash: string;
-  taxBoleto: string;
-  taxDebit: string;
-  taxCreditCash: string;
-  taxCreditInstallment: string;
-  // Boleto
-  boletoMonths: string;
-  boletoMonthlyRate: string;
-  boletoFixedFee: string;
-  boletoDefaultRisk: string;
-  boletoCustomerPaysInterest: boolean;
-  // Cartão
-  cardDebitFee: string;
-  cardCreditCashFee: string;
-  cardCreditInstallmentFee: string;
-  cardInstallments: string;
-  cardAnticipationRate: string;
-  cardMonthlyRate: string;
-  cardCustomerPaysInterest: boolean;
-  // Pagamento externo
+  // Links de pagamento
   paymentPlatform: PaymentPlatform;
   pixKey: string;
   pixLink: string;
@@ -154,24 +117,6 @@ const defaultForm: FormState = {
   marginMode: "PERCENT",
   desiredMarginRate: "30",
   desiredMarginValue: "",
-  taxRegime: "SIMPLES_NACIONAL",
-  taxCash: "6",
-  taxBoleto: "6",
-  taxDebit: "6",
-  taxCreditCash: "6",
-  taxCreditInstallment: "6",
-  boletoMonths: "3",
-  boletoMonthlyRate: "1.99",
-  boletoFixedFee: "3.50",
-  boletoDefaultRisk: "2",
-  boletoCustomerPaysInterest: false,
-  cardDebitFee: "1.5",
-  cardCreditCashFee: "2.5",
-  cardCreditInstallmentFee: "3.5",
-  cardInstallments: "6",
-  cardAnticipationRate: "1.5",
-  cardMonthlyRate: "1.99",
-  cardCustomerPaysInterest: false,
   paymentPlatform: "MERCADO_PAGO",
   pixKey: "",
   pixLink: "",
@@ -179,79 +124,8 @@ const defaultForm: FormState = {
   boletoUrl: "",
 };
 
-const pricingDefaultFields = [
-  "taxRegime",
-  "taxCash",
-  "taxBoleto",
-  "taxDebit",
-  "taxCreditCash",
-  "taxCreditInstallment",
-  "boletoMonths",
-  "boletoMonthlyRate",
-  "boletoFixedFee",
-  "boletoDefaultRisk",
-  "boletoCustomerPaysInterest",
-  "cardDebitFee",
-  "cardCreditCashFee",
-  "cardCreditInstallmentFee",
-  "cardInstallments",
-  "cardAnticipationRate",
-  "cardMonthlyRate",
-  "cardCustomerPaysInterest",
-] as const;
-
-type PricingDefaultsPayload = Pick<FormState, (typeof pricingDefaultFields)[number]>;
-
-function pickPricingDefaults(form: FormState): PricingDefaultsPayload {
-  return {
-    taxRegime: form.taxRegime,
-    taxCash: form.taxCash,
-    taxBoleto: form.taxBoleto,
-    taxDebit: form.taxDebit,
-    taxCreditCash: form.taxCreditCash,
-    taxCreditInstallment: form.taxCreditInstallment,
-    boletoMonths: form.boletoMonths,
-    boletoMonthlyRate: form.boletoMonthlyRate,
-    boletoFixedFee: form.boletoFixedFee,
-    boletoDefaultRisk: form.boletoDefaultRisk,
-    boletoCustomerPaysInterest: form.boletoCustomerPaysInterest,
-    cardDebitFee: form.cardDebitFee,
-    cardCreditCashFee: form.cardCreditCashFee,
-    cardCreditInstallmentFee: form.cardCreditInstallmentFee,
-    cardInstallments: form.cardInstallments,
-    cardAnticipationRate: form.cardAnticipationRate,
-    cardMonthlyRate: form.cardMonthlyRate,
-    cardCustomerPaysInterest: form.cardCustomerPaysInterest,
-  };
-}
-
-function normalizePricingDefaults(value: unknown): Partial<PricingDefaultsPayload> {
-  if (!value || typeof value !== "object") return {};
-  const source = value as Partial<Record<keyof PricingDefaultsPayload, unknown>>;
-  const out: Partial<PricingDefaultsPayload> = {};
-
-  for (const field of pricingDefaultFields) {
-    const raw = source[field];
-    if (raw === undefined || raw === null) continue;
-    if (field === "boletoCustomerPaysInterest" || field === "cardCustomerPaysInterest") {
-      out[field] = Boolean(raw) as never;
-    } else {
-      out[field] = String(raw) as never;
-    }
-  }
-
-  if (
-    out.taxRegime &&
-    !["SIMPLES_NACIONAL", "LUCRO_PRESUMIDO", "LUCRO_REAL", "MANUAL"].includes(out.taxRegime)
-  ) {
-    delete out.taxRegime;
-  }
-
-  return out;
-}
-
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
 function n(val: string): number {
   if (!val) return 0;
   const v = parseFloat(val.replace(",", "."));
@@ -260,74 +134,44 @@ function n(val: string): number {
 
 function diagnosticConfig(status: string) {
   switch (status) {
-    case "EXCELENTE":
-      return { color: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
-    case "SAUDAVEL":
-      return { color: "bg-green-50 text-green-700 border-green-200", icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
-    case "ATENCAO":
-      return { color: "bg-yellow-50 text-yellow-700 border-yellow-200", icon: <AlertCircle className="w-3.5 h-3.5" /> };
-    case "RISCO":
-      return { color: "bg-orange-50 text-orange-700 border-orange-200", icon: <AlertTriangle className="w-3.5 h-3.5" /> };
-    case "PREJUIZO":
-      return { color: "bg-red-50 text-red-700 border-red-200", icon: <XCircle className="w-3.5 h-3.5" /> };
-    default:
-      return { color: "bg-gray-50 text-gray-700 border-gray-200", icon: null };
+    case "EXCELENTE":  return { color: "text-emerald-400", icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
+    case "SAUDAVEL":   return { color: "text-green-400",   icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
+    case "ATENCAO":    return { color: "text-amber-400",   icon: <AlertCircle className="w-3.5 h-3.5" /> };
+    case "RISCO":      return { color: "text-orange-400",  icon: <AlertTriangle className="w-3.5 h-3.5" /> };
+    case "PREJUIZO":   return { color: "text-red-400",     icon: <XCircle className="w-3.5 h-3.5" /> };
+    default:           return { color: "text-[#5A5A52]",   icon: null };
   }
 }
 
 function methodIcon(method: PaymentMethod) {
   switch (method) {
-    case "PIX": return <Sparkles className="w-4 h-4" />;
-    case "BOLETO": return <Banknote className="w-4 h-4" />;
-    case "DEBITO": return <CreditCard className="w-4 h-4" />;
-    case "CREDITO_A_VISTA": return <CreditCard className="w-4 h-4" />;
+    case "PIX":               return <Sparkles className="w-4 h-4" />;
+    case "BOLETO":            return <Banknote className="w-4 h-4" />;
+    case "DEBITO":            return <CreditCard className="w-4 h-4" />;
+    case "CREDITO_A_VISTA":   return <CreditCard className="w-4 h-4" />;
     case "CREDITO_PARCELADO": return <Tag className="w-4 h-4" />;
   }
 }
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
-function SectionCard({ icon, title, subtitle, children }: {
-  icon: React.ReactNode;
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className="shadow-sm">
-      <CardHeader className="pb-4">
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-            {icon}
-          </div>
-          <div>
-            <CardTitle className="text-sm font-semibold">{title}</CardTitle>
-            {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
 
-function FF({ label, tooltip, required, children }: {
-  label: string;
-  tooltip?: string;
-  required?: boolean;
-  children: React.ReactNode;
+function Field({ label, tooltip, required, children }: {
+  label: string; tooltip?: string; required?: boolean; children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
-        <Label className="text-xs font-medium text-foreground/80">
-          {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+        <Label className="text-[10px] font-semibold text-[#5A5A52] tracking-[0.12em] uppercase">
+          {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
         </Label>
         {tooltip && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+              <Info className="w-3 h-3 text-[#3A3A34] cursor-help" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-xs">{tooltip}</TooltipContent>
+            <TooltipContent className="max-w-xs text-[11px] border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#0F0F0E", color: "#C8B99A" }}>
+              {tooltip}
+            </TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -337,100 +181,92 @@ function FF({ label, tooltip, required, children }: {
 }
 
 function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  prefix?: string;
-  suffix?: string;
-  disabled?: boolean;
+  value: string; onChange: (v: string) => void;
+  placeholder?: string; prefix?: string; suffix?: string; disabled?: boolean;
 }) {
   return (
     <div className="relative flex items-center">
-      {prefix && <span className="absolute left-3 text-xs text-muted-foreground font-medium pointer-events-none">{prefix}</span>}
+      {prefix && <span className="absolute left-3 text-[10px] text-[#4A4A44] pointer-events-none font-mono">{prefix}</span>}
       <Input
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder ?? "0"}
-        step="any"
-        min={0}
+        step="any" min={0}
         disabled={disabled}
-        className={`h-9 text-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+        className={`h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
       />
-      {suffix && <span className="absolute right-3 text-xs text-muted-foreground font-medium pointer-events-none">{suffix}</span>}
+      {suffix && <span className="absolute right-3 text-[10px] text-[#4A4A44] pointer-events-none font-mono">{suffix}</span>}
     </div>
   );
 }
 
-function ResultCard({ result, isBest, isWorst }: { result: PaymentResult; isBest: boolean; isWorst: boolean }) {
+function SectionBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="border border-[#1E1E1B] overflow-hidden mb-0" style={{ backgroundColor: "#111110" }}>
+      <div className="px-4 py-3 border-b border-[#1A1A17]" style={{ backgroundColor: "#0F0F0E" }}>
+        <span className="text-[8px] font-bold tracking-[0.25em] uppercase text-[#5A5A52]"
+          style={{ fontFamily: "'Montserrat', sans-serif" }}>
+          {title}
+        </span>
+      </div>
+      <div className="p-4 space-y-4">{children}</div>
+    </div>
+  );
+}
+
+function DarkResultCard({ result, isBest }: { result: PaymentResult; isBest: boolean }) {
   const diag = diagnosticConfig(result.diagnostic);
   return (
-    <div className={`relative rounded-xl border bg-card p-4 transition-all duration-200 ${
-      isBest ? "border-green-300 shadow-md ring-1 ring-green-200" : isWorst ? "border-red-200 opacity-80" : "border-border"
-    }`}>
+    <div className={`p-3.5 border transition-all ${isBest ? "border-[#C8B99A]/20 bg-[#C8B99A]/5" : "border-[#1E1E1B] bg-[#111110]"}`}>
       {isBest && (
-        <span className="absolute -top-2.5 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-500 text-white">
-          <TrendingUp className="w-3 h-3" /> Melhor opção
+        <span className="inline-flex items-center gap-1 text-[7px] font-bold tracking-[0.25em] uppercase text-[#C8B99A] mb-2"
+          style={{ fontFamily: "'Montserrat', sans-serif" }}>
+          <TrendingUp className="w-2.5 h-2.5" /> Melhor opção
         </span>
       )}
-      {isWorst && (
-        <span className="absolute -top-2.5 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-400 text-white">
-          <TrendingDown className="w-3 h-3" /> Menor margem
-        </span>
-      )}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-primary">{methodIcon(result.method)}</span>
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[#C8B99A]">{methodIcon(result.method)}</span>
           <div>
-            <p className="text-xs font-semibold text-foreground">{result.methodLabel}</p>
+            <p className="text-[10px] font-semibold text-[#7A7268] tracking-wider uppercase"
+              style={{ fontFamily: "'Montserrat', sans-serif" }}>
+              {result.methodLabel}
+            </p>
             {result.installments > 1 && (
-              <p className="text-[10px] text-muted-foreground">
-                {result.installments}x de {formatCurrency(result.installmentValue)}
+              <p className="text-[9px] text-[#3A3A34] font-light">
+                {result.installments}× {formatCurrency(result.installmentValue)}
               </p>
             )}
           </div>
         </div>
-        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${diag.color}`}>
-          {diag.icon}{result.diagnostic}
+        <span className={`text-[8px] font-bold tracking-wide ${diag.color}`}
+          style={{ fontFamily: "'Montserrat', sans-serif" }}>
+          {result.diagnostic}
         </span>
       </div>
-      <div className="text-2xl font-bold text-foreground tracking-tight mb-3">
+      <p className="text-xl font-bold text-[#E8E3D8] tracking-tight mb-2.5"
+        style={{ fontFamily: "'Lato', sans-serif" }}>
         {formatCurrency(result.suggestedPrice)}
-      </div>
-      <div className="space-y-1 text-xs border-t pt-3">
+      </p>
+      <div className="space-y-1 text-[9px] border-t border-[#1A1A17] pt-2.5">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Custo base:</span>
-          <span>{formatCurrency(result.baseCost)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Margem desejada:</span>
-          <span className="text-green-600 font-medium">+{formatCurrency(result.marginValue)}</span>
-        </div>
-        <div className="flex justify-between border-t border-dashed pt-1">
-          <span className="font-semibold">Subtotal:</span>
-          <span className="font-semibold">{formatCurrency(result.subtotalWithMargin)}</span>
+          <span className="text-[#3A3A34] font-light">Impostos:</span>
+          <span className="text-[#5A5A52]">{formatCurrency(result.totalTax)}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Impostos:</span>
-          <span>{formatCurrency(result.totalTax)}</span>
+          <span className="text-[#3A3A34] font-light">Taxas/Juros:</span>
+          <span className="text-[#5A5A52]">{formatCurrency(result.totalFees + result.totalInterest)}</span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Taxas/Juros:</span>
-          <span>{formatCurrency(result.totalFees + result.totalInterest)}</span>
-        </div>
-        <div className="flex justify-between border-t pt-1">
-          <span className="text-muted-foreground">Lucro líquido:</span>
-          <span className={`font-semibold ${result.netProfit >= 0 ? "text-green-600" : "text-red-500"}`}>
+        <div className="flex justify-between border-t border-[#1A1A17] pt-1">
+          <span className="text-[#3A3A34] font-light">Lucro líquido:</span>
+          <span className={`font-semibold ${result.netProfit >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
             {formatCurrency(result.netProfit)} ({formatPercent(result.realMarginRate)})
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Preço psicológico:</span>
-          <span className="font-medium">{formatCurrency(result.psychologicalPrice)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Mín. sem prejuízo:</span>
-          <span>{formatCurrency(result.minPriceNoLoss)}</span>
+          <span className="text-[#2E2E2A] font-light">Preço psicológico:</span>
+          <span className="text-[#3A3A34]">{formatCurrency(result.psychologicalPrice)}</span>
         </div>
       </div>
     </div>
@@ -438,6 +274,7 @@ function ResultCard({ result, isBest, isWorst }: { result: PaymentResult; isBest
 }
 
 // ── Componente Principal ──────────────────────────────────────────────────────
+
 export default function ProductForm() {
   const [, setLocation] = useLocation();
   const params = useParams<{ id?: string }>();
@@ -448,26 +285,27 @@ export default function ProductForm() {
   const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [defaultsApplied, setDefaultsApplied] = useState(false);
-  // Imagens pendentes para upload ao criar produto novo
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
 
-  // Queries
+  // ── Queries ───────────────────────────────────────────────────────────────
   const productQuery = trpc.products.byId.useQuery(
     { id: productId! },
     { enabled: isEditing }
   );
   const utils = trpc.useUtils();
   const addImageMutation = trpc.products.addImage.useMutation();
-  const pricingDefaultsQuery = trpc.settings.getPricingDefaults.useQuery(undefined, {
+
+  /**
+   * FONTE ÚNICA DE TAXAS: configurações globais de pagamento.
+   * O ProductForm NÃO tem mais estados locais de fiscal, boleto ou cartão.
+   */
+  const globalSettings = trpc.paymentSettings.get.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
   });
-  const updatePricingDefaults = trpc.settings.updatePricingDefaults.useMutation();
 
   const createProduct = trpc.products.create.useMutation({
     onSuccess: async (newProduct) => {
-      // Após criar, fazer upload das imagens pendentes usando o mesmo endpoint da galeria.
       if (pendingImages.length > 0) {
         for (const file of pendingImages) {
           try {
@@ -479,39 +317,36 @@ export default function ProductForm() {
                 headers: { "Content-Type": file.type || "application/octet-stream" },
               }
             );
-
-            if (!uploadResp.ok) {
-              throw new Error(`Falha no upload: ${uploadResp.statusText}`);
-            }
-
+            if (!uploadResp.ok) throw new Error(`Falha no upload: ${uploadResp.statusText}`);
             const { url } = await uploadResp.json();
-
             await addImageMutation.mutateAsync({
               productId: newProduct.id,
               url,
               storageKey: url,
               altText: file.name,
             });
-          } catch (err: any) {
-            toast.warning(
-              `Imagem "${file.name}" não pôde ser enviada. Produto criado normalmente.`
-            );
+          } catch {
+            toast.warning(`Imagem "${file.name}" não pôde ser enviada. Produto criado normalmente.`);
           }
         }
       }
-
       utils.products.list.invalidate();
       setLocation("/produtos");
       toast.success("Produto criado!");
     },
     onError: (e) => { toast.error(e.message); setIsSaving(false); },
   });
+
   const updateProduct = trpc.products.update.useMutation({
-    onSuccess: () => { utils.products.list.invalidate(); setLocation("/produtos"); toast.success("Produto atualizado!"); },
+    onSuccess: () => {
+      utils.products.list.invalidate();
+      setLocation("/produtos");
+      toast.success("Produto atualizado!");
+    },
     onError: (e) => { toast.error(e.message); setIsSaving(false); },
   });
 
-  // Seleção de imagens pendentes (novo produto)
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handlePendingImageSelect = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).slice(0, 4);
     setPendingImages(files);
@@ -520,66 +355,14 @@ export default function ProductForm() {
   }, []);
 
   useEffect(() => {
-    return () => {
-      pendingPreviews.forEach((url) => URL.revokeObjectURL(url));
-    };
+    return () => { pendingPreviews.forEach((url) => URL.revokeObjectURL(url)); };
   }, [pendingPreviews]);
 
-  const applyPricingDefaultsToForm = useCallback((defaults: unknown) => {
-    const normalized = normalizePricingDefaults(defaults);
-    setForm((prev) => ({ ...prev, ...normalized }));
-  }, []);
-
-  useEffect(() => {
-    if (!isEditing && !defaultsApplied && pricingDefaultsQuery.data) {
-      applyPricingDefaultsToForm(pricingDefaultsQuery.data);
-      setDefaultsApplied(true);
-    }
-  }, [isEditing, defaultsApplied, pricingDefaultsQuery.data, applyPricingDefaultsToForm]);
-
-  const handleSavePricingDefaults = useCallback(async () => {
-    try {
-      await updatePricingDefaults.mutateAsync(pickPricingDefaults(form));
-      await utils.settings.getPricingDefaults.invalidate();
-      toast.success("Taxas e juros salvos como padrão.");
-    } catch (err: any) {
-      toast.error(err?.message || "Não foi possível salvar os padrões.");
-    }
-  }, [form, updatePricingDefaults, utils.settings.getPricingDefaults]);
-
-  const handleRestorePricingDefaults = useCallback(async () => {
-    try {
-      const restored = pickPricingDefaults(defaultForm);
-      setForm((prev) => ({ ...prev, ...restored }));
-      await updatePricingDefaults.mutateAsync(restored);
-      await utils.settings.getPricingDefaults.invalidate();
-      toast.success("Padrões restaurados.");
-    } catch (err: any) {
-      toast.error(err?.message || "Não foi possível restaurar os padrões.");
-    }
-  }, [updatePricingDefaults, utils.settings.getPricingDefaults]);
-
-  const set = useCallback((field: keyof FormState) => (value: string | boolean) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  }, []);
-
-  const handleTaxRegimeChange = useCallback((regime: TaxRegime) => {
-    // Apenas muda o regime — NÃO sobrescreve as taxas configuradas pelo usuário.
-    // Use o botão "Aplicar taxas sugeridas" para aplicar os valores padrão do regime.
-    setForm((prev) => ({ ...prev, taxRegime: regime }));
-  }, []);
-
-  const handleApplySuggestedTaxes = useCallback(() => {
-    const rates = SUGGESTED_TAX_RATES[form.taxRegime];
-    setForm((prev) => ({
-      ...prev,
-      taxCash: String(rates.cash),
-      taxBoleto: String(rates.boleto),
-      taxDebit: String(rates.debit),
-      taxCreditCash: String(rates.creditCash),
-      taxCreditInstallment: String(rates.creditInstallment),
-    }));
-  }, [form.taxRegime]);
+  const set = useCallback(
+    (field: keyof FormState) => (value: string | boolean) =>
+      setForm((prev) => ({ ...prev, [field]: value })),
+    []
+  );
 
   // Preencher formulário ao editar
   useEffect(() => {
@@ -609,28 +392,6 @@ export default function ProductForm() {
         marginMode: ((p as any).marginMode as MarginMode) || "PERCENT",
         desiredMarginRate: p.desiredMarginRate ? String(p.desiredMarginRate) : "30",
         desiredMarginValue: p.desiredMarginValue ? String(p.desiredMarginValue) : "",
-        taxRegime: (p.taxRegime as TaxRegime) || "SIMPLES_NACIONAL",
-        // Configuração Fiscal
-        taxCash: (p as any).taxCash != null ? String((p as any).taxCash) : "6",
-        taxBoleto: (p as any).taxBoleto != null ? String((p as any).taxBoleto) : "6",
-        taxDebit: (p as any).taxDebit != null ? String((p as any).taxDebit) : "6",
-        taxCreditCash: (p as any).taxCreditCash != null ? String((p as any).taxCreditCash) : "6",
-        taxCreditInstallment: (p as any).taxCreditInstallment != null ? String((p as any).taxCreditInstallment) : "6",
-        // Configuração de Boleto
-        boletoMonths: (p as any).boletoMonths != null ? String((p as any).boletoMonths) : "3",
-        boletoMonthlyRate: (p as any).boletoMonthlyRate != null ? String((p as any).boletoMonthlyRate) : "1.99",
-        boletoFixedFee: (p as any).boletoFixedFee != null ? String((p as any).boletoFixedFee) : "3.50",
-        boletoDefaultRisk: (p as any).boletoDefaultRisk != null ? String((p as any).boletoDefaultRisk) : "2",
-        boletoCustomerPaysInterest: (p as any).boletoCustomerPaysInterest ?? false,
-        // Configuração de Cartão
-        cardDebitFee: (p as any).cardDebitFee != null ? String((p as any).cardDebitFee) : "1.5",
-        cardCreditCashFee: (p as any).cardCreditCashFee != null ? String((p as any).cardCreditCashFee) : "2.5",
-        cardCreditInstallmentFee: (p as any).cardCreditInstallmentFee != null ? String((p as any).cardCreditInstallmentFee) : "3.5",
-        cardInstallments: (p as any).cardInstallments != null ? String((p as any).cardInstallments) : "6",
-        cardAnticipationRate: (p as any).cardAnticipationRate != null ? String((p as any).cardAnticipationRate) : "1.5",
-        cardMonthlyRate: (p as any).cardMonthlyRate != null ? String((p as any).cardMonthlyRate) : "1.99",
-        cardCustomerPaysInterest: (p as any).cardCustomerPaysInterest ?? false,
-        // Links de pagamento
         paymentPlatform: (p.paymentPlatform as PaymentPlatform) || "OUTRO",
         pixKey: p.pixKey || "",
         pixLink: p.pixLink || "",
@@ -640,18 +401,17 @@ export default function ProductForm() {
     }
   }, [productQuery.data]);
 
-  // Custo em BRL derivado
+  // ── Derivados ─────────────────────────────────────────────────────────────
   const costPriceBrl = useMemo(() => {
     if (form.costCurrency === "USD") return n(form.costPriceUsd) * n(form.usdExchangeRate);
     return n(form.costPrice);
   }, [form.costCurrency, form.costPrice, form.costPriceUsd, form.usdExchangeRate]);
 
-  // Custo final unitário
-  const finalUnitCost = useMemo(() => {
-    return costPriceBrl + n(form.packagingCost) + n(form.inboundShippingCost) + n(form.operationalCost);
-  }, [costPriceBrl, form.packagingCost, form.inboundShippingCost, form.operationalCost]);
+  const finalUnitCost = useMemo(
+    () => costPriceBrl + n(form.packagingCost) + n(form.inboundShippingCost) + n(form.operationalCost),
+    [costPriceBrl, form.packagingCost, form.inboundShippingCost, form.operationalCost]
+  );
 
-  // Margem efetiva para o cálculo
   const effectiveMarginRate = useMemo(() => {
     if (form.marginMode === "VALUE") {
       if (finalUnitCost <= 0) return 0;
@@ -660,11 +420,15 @@ export default function ProductForm() {
     return n(form.desiredMarginRate);
   }, [form.marginMode, form.desiredMarginRate, form.desiredMarginValue, finalUnitCost]);
 
-  // Calcular precificação automaticamente
+  // ── Calcular — usa EXCLUSIVAMENTE globalSettings ──────────────────────────
   const handleCalculate = useCallback(() => {
     setCalcError(null);
     if (!form.name.trim()) { setCalcError("Informe o nome do produto."); return; }
     if (costPriceBrl <= 0) { setCalcError("Informe o preço de custo."); return; }
+    if (!globalSettings.data) { setCalcError("Aguardando configurações globais de pagamento..."); return; }
+
+    const gs = globalSettings.data;
+
     const input: PricingInput = {
       productName: form.name.trim(),
       category: form.category,
@@ -674,75 +438,48 @@ export default function ProductForm() {
       inboundShippingCost: n(form.inboundShippingCost),
       operationalCost: n(form.operationalCost),
       desiredMarginRate: effectiveMarginRate,
-      taxRegime: form.taxRegime,
+      // Regime fiscal da configuração global
+      taxRegime: (gs.taxRegime as TaxRegime) ?? "SIMPLES_NACIONAL",
       taxRates: {
-        cash: n(form.taxCash),
-        boleto: n(form.taxBoleto),
-        debit: n(form.taxDebit),
-        creditCash: n(form.taxCreditCash),
-        creditInstallment: n(form.taxCreditInstallment),
+        cash: 0,                                          // PIX: sempre isento
+        boleto: gs.taxBoleto ?? 6,
+        debit: gs.taxDebit ?? 6,
+        creditCash: gs.taxCreditCash ?? 6,
+        creditInstallment: gs.taxCreditInstallment ?? 6,
       },
       boleto: {
-        months: Math.max(1, Math.round(n(form.boletoMonths))),
-        monthlyInterestRate: n(form.boletoMonthlyRate),
-        fixedFee: n(form.boletoFixedFee),
-        defaultRiskRate: n(form.boletoDefaultRisk),
-        customerPaysInterest: form.boletoCustomerPaysInterest,
+        months: Math.max(1, Math.round(gs.boletoMonths ?? 3)),
+        monthlyInterestRate: gs.boletoMonthlyRate ?? 1.99,
+        fixedFee: gs.boletoFixedFee ?? 3.50,
+        defaultRiskRate: gs.boletoDefaultRisk ?? 2,
+        customerPaysInterest: gs.boletoCustomerPaysInterest ?? false,
       },
       card: {
-        debitFeeRate: n(form.cardDebitFee),
-        creditCashFeeRate: n(form.cardCreditCashFee),
-        creditInstallmentFeeRate: n(form.cardCreditInstallmentFee),
-        installments: Math.max(1, Math.round(n(form.cardInstallments))),
-        anticipationRate: n(form.cardAnticipationRate),
-        monthlyInterestRate: n(form.cardMonthlyRate),
-        customerPaysInterest: form.cardCustomerPaysInterest,
+        debitFeeRate: gs.cardDebitFee ?? 1.5,
+        creditCashFeeRate: gs.cardCreditCashFee ?? 2.5,
+        creditInstallmentFeeRate: gs.cardCreditInstallmentFee ?? 3.5,
+        installments: Math.max(1, Math.round(gs.cardInstallments ?? 6)),
+        anticipationRate: gs.cardAnticipationRate ?? 1.5,
+        monthlyInterestRate: gs.cardMonthlyRate ?? 1.99,
+        customerPaysInterest: gs.cardCustomerPaysInterest ?? false,
       },
     };
+
     const calc = calculatePricing(input);
     if (isPricingError(calc)) { setCalcError(calc.message); return; }
     setPricingResult(calc);
-    setTimeout(() => document.getElementById("pricing-results")?.scrollIntoView({ behavior: "smooth" }), 100);
-  }, [form, costPriceBrl, effectiveMarginRate]);
+  }, [form, costPriceBrl, effectiveMarginRate, globalSettings.data]);
 
-  // Salvar produto
+  // ── Salvar ────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!form.name.trim()) { toast.error("Informe o nome do produto."); return; }
     setIsSaving(true);
 
-    // Preços calculados para vitrine
-    // Se pricingResult for null e estiver editando, manter os preços existentes do produto
-    const pixResult = pricingResult?.results.find(r => r.method === "PIX");
-    const cardResult = pricingResult?.results.find(r => r.method === "CREDITO_A_VISTA");
-    const boletoResult = pricingResult?.results.find(r => r.method === "BOLETO");
-    const bestResult = pricingResult?.results.find(r => r.method === pricingResult.bestMethod);
-
-    // Em edição sem recálculo: não enviar suggestedPrice* — o backend mantém o valor existente
-    // Em criação sem cálculo: enviar 0 (correto, produto novo sem preço)
-    // Em criação/edição com cálculo: enviar valores calculados
-    const hasPricingResult = pricingResult !== null;
-
-    const pricePayload = hasPricingResult
-      ? {
-          suggestedPrice: bestResult?.suggestedPrice ?? 0,
-          suggestedPricePix: pixResult?.suggestedPrice ?? 0,
-          suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
-          suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
-        }
-      : isEditing
-        ? {
-            // Manter preços existentes: usar dados carregados do produto
-            suggestedPrice: productQuery.data?.suggestedPrice ?? 0,
-            suggestedPricePix: productQuery.data?.suggestedPricePix ?? 0,
-            suggestedPriceCard: productQuery.data?.suggestedPriceCard ?? 0,
-            suggestedPriceBoleto: productQuery.data?.suggestedPriceBoleto ?? 0,
-          }
-        : {
-            suggestedPrice: 0,
-            suggestedPricePix: 0,
-            suggestedPriceCard: 0,
-            suggestedPriceBoleto: 0,
-          };
+    const gs = globalSettings.data;
+    const pixResult    = pricingResult?.results.find((r) => r.method === "PIX");
+    const cardResult   = pricingResult?.results.find((r) => r.method === "CREDITO_A_VISTA");
+    const boletoResult = pricingResult?.results.find((r) => r.method === "BOLETO");
+    const bestResult   = pricingResult?.results.find((r) => r.method === pricingResult.bestMethod);
 
     const payload = {
       name: form.name.trim(),
@@ -766,573 +503,648 @@ export default function ProductForm() {
       minimumStock: n(form.minimumStock),
       desiredMarginRate: effectiveMarginRate,
       desiredMarginValue: n(form.desiredMarginValue),
-      taxRegime: form.taxRegime,
-      estimatedTaxRate: n(form.taxCash),
-      // Configuração Fiscal
-      taxCash: n(form.taxCash),
-      taxBoleto: n(form.taxBoleto),
-      taxDebit: n(form.taxDebit),
-      taxCreditCash: n(form.taxCreditCash),
-      taxCreditInstallment: n(form.taxCreditInstallment),
-      // Configuração de Boleto
-      boletoMonths: n(form.boletoMonths),
-      boletoMonthlyRate: n(form.boletoMonthlyRate),
-      boletoFixedFee: n(form.boletoFixedFee),
-      boletoDefaultRisk: n(form.boletoDefaultRisk),
-      boletoCustomerPaysInterest: form.boletoCustomerPaysInterest,
-      // Configuração de Cartão
-      cardDebitFee: n(form.cardDebitFee),
-      cardCreditCashFee: n(form.cardCreditCashFee),
-      cardCreditInstallmentFee: n(form.cardCreditInstallmentFee),
-      cardInstallments: n(form.cardInstallments),
-      cardAnticipationRate: n(form.cardAnticipationRate),
-      cardMonthlyRate: n(form.cardMonthlyRate),
-      cardCustomerPaysInterest: form.cardCustomerPaysInterest,
-      // Pagamento externo
+      marginMode: form.marginMode,
+      // Fiscal — espelha as configurações globais no snapshot do produto
+      taxRegime: (gs?.taxRegime as TaxRegime) ?? "SIMPLES_NACIONAL",
+      estimatedTaxRate: 0, // PIX isento — referência global
+      taxCash: 0,          // PIX sempre zero
+      taxBoleto: gs?.taxBoleto ?? 6,
+      taxDebit: gs?.taxDebit ?? 6,
+      taxCreditCash: gs?.taxCreditCash ?? 6,
+      taxCreditInstallment: gs?.taxCreditInstallment ?? 6,
+      // Boleto — espelha configurações globais
+      boletoMonths: gs?.boletoMonths ?? 3,
+      boletoMonthlyRate: gs?.boletoMonthlyRate ?? 1.99,
+      boletoFixedFee: gs?.boletoFixedFee ?? 3.5,
+      boletoDefaultRisk: gs?.boletoDefaultRisk ?? 2,
+      boletoCustomerPaysInterest: gs?.boletoCustomerPaysInterest ?? false,
+      // Cartão — espelha configurações globais
+      cardDebitFee: gs?.cardDebitFee ?? 1.5,
+      cardCreditCashFee: gs?.cardCreditCashFee ?? 2.5,
+      cardCreditInstallmentFee: gs?.cardCreditInstallmentFee ?? 3.5,
+      cardInstallments: gs?.cardInstallments ?? 6,
+      cardAnticipationRate: gs?.cardAnticipationRate ?? 1.5,
+      cardMonthlyRate: gs?.cardMonthlyRate ?? 1.99,
+      cardCustomerPaysInterest: gs?.cardCustomerPaysInterest ?? false,
+      // Preços calculados
+      suggestedPrice: bestResult?.suggestedPrice ?? 0,
+      suggestedPricePix: pixResult?.suggestedPrice ?? 0,
+      suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
+      suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
+      // Links de pagamento
       paymentPlatform: form.paymentPlatform,
       pixKey: form.pixKey || undefined,
       pixLink: form.pixLink || undefined,
       cardPaymentUrl: form.cardPaymentUrl || undefined,
       boletoUrl: form.boletoUrl || undefined,
-      // Margem
-      marginMode: form.marginMode,
-      // Preços calculados para vitrine (preservados em edição sem recálculo)
-      ...pricePayload,
     };
 
     if (isEditing) {
       updateProduct.mutate({ id: productId!, data: payload });
     } else {
-      createProduct.mutate(payload as any);
+      createProduct.mutate(payload);
     }
-  }, [form, costPriceBrl, effectiveMarginRate, pricingResult, isEditing, productId, productQuery.data, createProduct, updateProduct]);
+  }, [form, costPriceBrl, effectiveMarginRate, pricingResult, globalSettings.data, isEditing, productId, createProduct, updateProduct]);
 
+  // ── Loading ───────────────────────────────────────────────────────────────
   if (isEditing && productQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center space-y-2">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-muted-foreground">Carregando produto...</p>
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center space-y-4">
+            <div className="w-5 h-5 border-2 border-[#2E2E2A] border-t-[#C8B99A] rounded-full animate-spin mx-auto" />
+            <p className="text-xs text-[#4A4A44] tracking-widest uppercase font-light">Carregando produto...</p>
+          </div>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* ── Cabeçalho ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => setLocation("/produtos")} className="shrink-0">
-            <ArrowLeft className="w-4 h-4 mr-1" /> Voltar
-          </Button>
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold text-foreground truncate">
-              {isEditing ? "Editar Produto" : "Novo Produto"}
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              Cadastre, precifique e publique na vitrine
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          {isEditing && form.published && productId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => window.open(`/vitrine/${productId}`, "_blank")}
-              title="Ver produto na vitrine pública"
+    <DashboardLayout>
+      <div
+        className="max-w-[1200px] mx-auto"
+        style={{ fontFamily: "'Lato', 'Montserrat', sans-serif" }}
+      >
+
+        {/* ── Topbar da página ──────────────────────────────────────────── */}
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setLocation("/produtos")}
+              className="flex items-center gap-1.5 text-[#3A3A34] hover:text-[#7A7268] transition-colors"
+              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "9px", letterSpacing: "0.18em" }}
             >
-              <Eye className="w-4 h-4 mr-1" /> Ver na Vitrine
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCalculate}
-            disabled={!form.name.trim() || costPriceBrl <= 0}
-          >
-            <Calculator className="w-4 h-4 mr-1" /> Calcular Preços
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={isSaving}>
-            <Save className="w-4 h-4 mr-1" />
-            {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
-          </Button>
-        </div>
-      </div>
-
-      {/* ── Bloco 1: Identidade ─────────────────────────────────────────────── */}
-      <SectionCard icon={<Package className="w-4 h-4" />} title="Identidade do Produto" subtitle="Nome, descrição, categoria e publicação">
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FF label="Nome do produto" required>
-              <Input
-                value={form.name}
-                onChange={(e) => set("name")(e.target.value)}
-                placeholder="Ex: Perfume Sauvage 100ml"
-                className="h-9 text-sm"
-              />
-            </FF>
-            <FF label="Categoria" required>
-              <Select value={form.category} onValueChange={(v) => set("category")(v)}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CELULAR">Celular</SelectItem>
-                  <SelectItem value="ELETRONICO">Eletrônico</SelectItem>
-                  <SelectItem value="PERFUME">Perfume</SelectItem>
-                  <SelectItem value="OUTRO">Outro</SelectItem>
-                </SelectContent>
-              </Select>
-            </FF>
-            <FF label="Label de categoria" tooltip="Texto exibido como filtro na vitrine">
-              <Input value={form.categoryLabel} onChange={(e) => set("categoryLabel")(e.target.value)} placeholder="Ex: Fragrâncias" className="h-9 text-sm" />
-            </FF>
-            <FF label="NCM" tooltip="Nomenclatura Comum do Mercosul — código fiscal do produto">
-              <Input value={form.ncm} onChange={(e) => set("ncm")(e.target.value)} placeholder="0000.00.00" className="h-9 text-sm" />
-            </FF>
-            <FF label="Tag de promoção" tooltip="Ex: NOVO, OFERTA, -20%">
-              <Input value={form.promoTag} onChange={(e) => set("promoTag")(e.target.value)} placeholder="Ex: OFERTA" className="h-9 text-sm" />
-            </FF>
-          </div>
-          <FF label="Descrição curta" tooltip="Exibida nos cards da vitrine">
-            <Input value={form.shortDescription} onChange={(e) => set("shortDescription")(e.target.value)} placeholder="Resumo em até 120 caracteres" className="h-9 text-sm" />
-          </FF>
-          <FF label="Descrição completa">
-            <Textarea value={form.description} onChange={(e) => set("description")(e.target.value)} placeholder="Descrição detalhada do produto..." rows={3} className="text-sm resize-none" />
-          </FF>
-          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-            <div className="flex items-center gap-2">
-              {form.published ? <Eye className="w-4 h-4 text-green-600" /> : <EyeOff className="w-4 h-4 text-muted-foreground" />}
-              <div>
-                <p className="text-sm font-medium">{form.published ? "Publicado na vitrine" : "Não publicado"}</p>
-                <p className="text-xs text-muted-foreground">Controla a visibilidade pública do produto</p>
-              </div>
-            </div>
-            <Switch checked={form.published} onCheckedChange={(v) => set("published")(v)} />
-          </div>
-          {/* Galeria de imagens */}
-          <div>
-            <p className="text-xs font-medium text-foreground/80 mb-2">Galeria de imagens</p>
-            {isEditing && productId ? (
-              <ImageGallery productId={productId} />
-            ) : (
-              <div className="rounded-lg border border-dashed border-border p-4 space-y-3">
-                <Input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  multiple
-                  onChange={handlePendingImageSelect}
-                  className="text-xs"
-                />
-
-                {pendingPreviews.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {pendingPreviews.map((src, index) => (
-                      <div key={`${src}-${index}`} className="aspect-square overflow-hidden rounded-lg border bg-muted">
-                        <img
-                          src={src}
-                          alt={pendingImages[index]?.name ?? `Imagem ${index + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Selecione até 4 imagens. Elas serão enviadas automaticamente após criar o produto.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-          <FF label="Observações internas">
-            <Textarea value={form.notes} onChange={(e) => set("notes")(e.target.value)} placeholder="Notas internas (não aparecem na vitrine)" rows={2} className="text-sm resize-none" />
-          </FF>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 2: Custos e Estoque ───────────────────────────────────────── */}
-      <SectionCard icon={<DollarSign className="w-4 h-4" />} title="Custos e Estoque" subtitle="Custo do produto, embalagem, frete e controle de estoque">
-        <div className="space-y-5">
-          {/* Moeda */}
-          <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
-            <span className="text-xs font-medium text-muted-foreground">Moeda do custo:</span>
-            <div className="flex gap-2">
-              {(["BRL", "USD"] as const).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => set("costCurrency")(c)}
-                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
-                    form.costCurrency === c ? "bg-primary text-primary-foreground" : "bg-background border border-border text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {form.costCurrency === "BRL" ? (
-              <FF label="Preço de custo (BRL)" required>
-                <NI value={form.costPrice} onChange={set("costPrice")} prefix="R$" placeholder="0,00" />
-              </FF>
-            ) : (
-              <>
-                <FF label="Preço de custo (USD)" required>
-                  <NI value={form.costPriceUsd} onChange={set("costPriceUsd")} prefix="$" placeholder="0,00" />
-                </FF>
-                <FF label="Cotação do dólar" required>
-                  <NI value={form.usdExchangeRate} onChange={set("usdExchangeRate")} prefix="R$" placeholder="5,50" />
-                </FF>
-              </>
-            )}
-            <FF label="Custo de embalagem">
-              <NI value={form.packagingCost} onChange={set("packagingCost")} prefix="R$" placeholder="0,00" />
-            </FF>
-            <FF label="Frete de entrada">
-              <NI value={form.inboundShippingCost} onChange={set("inboundShippingCost")} prefix="R$" placeholder="0,00" />
-            </FF>
-            <FF label="Custo operacional">
-              <NI value={form.operationalCost} onChange={set("operationalCost")} prefix="R$" placeholder="0,00" />
-            </FF>
-            <FF label="Estoque atual">
-              <NI value={form.stockQuantity} onChange={set("stockQuantity")} placeholder="0" />
-            </FF>
-            <FF label="Estoque mínimo">
-              <NI value={form.minimumStock} onChange={set("minimumStock")} placeholder="0" />
-            </FF>
-          </div>
-          {/* Resumo de custo */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800/30">
-              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Custo em BRL</p>
-              <p className="text-lg font-bold text-blue-900 dark:text-blue-100 tabular-nums">{formatCurrency(costPriceBrl)}</p>
-            </div>
-            <div className="bg-green-50 dark:bg-green-950/20 p-3 rounded-lg border border-green-200 dark:border-green-800/30">
-              <p className="text-[10px] font-bold text-green-600 uppercase tracking-wider">Custo Final Unitário</p>
-              <p className="text-lg font-bold text-green-900 dark:text-green-100 tabular-nums">{formatCurrency(finalUnitCost)}</p>
-            </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 3: Margem ─────────────────────────────────────────────────── */}
-      <SectionCard icon={<Percent className="w-4 h-4" />} title="Margem de Lucro" subtitle="Define o lucro desejado antes de impostos e taxas">
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
-            <span className="text-xs font-medium text-muted-foreground">Modo de margem:</span>
-            <div className="flex gap-2">
-              {([["PERCENT", "Porcentagem (%)"], ["VALUE", "Valor fixo (R$)"]] as const).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => set("marginMode")(mode)}
-                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
-                    form.marginMode === mode ? "bg-primary text-primary-foreground" : "bg-background border border-border text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FF label="Margem desejada (%)" tooltip="Percentual de lucro sobre o custo base. Ex: 50% = lucro de 50% sobre o custo.">
-              <NI
-                value={form.desiredMarginRate}
-                onChange={set("desiredMarginRate")}
-                suffix="%"
-                placeholder="30"
-                disabled={form.marginMode === "VALUE"}
-              />
-            </FF>
-            <FF label="Margem em valor (R$)" tooltip="Valor fixo de lucro desejado. Usado apenas no modo Valor fixo.">
-              <NI
-                value={form.desiredMarginValue}
-                onChange={set("desiredMarginValue")}
-                prefix="R$"
-                placeholder="0,00"
-                disabled={form.marginMode === "PERCENT"}
-              />
-            </FF>
-          </div>
-          {form.marginMode === "VALUE" && finalUnitCost > 0 && n(form.desiredMarginValue) > 0 && (
-            <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/30">
-              <p className="text-xs text-purple-700 dark:text-purple-300">
-                Equivalente a <strong>{formatPercent(effectiveMarginRate)}</strong> de margem sobre o custo base de {formatCurrency(finalUnitCost)}
+              <ArrowLeft className="w-3.5 h-3.5" /> VOLTAR
+            </button>
+            <div className="pl-4 border-l border-[#1E1E1B]">
+              <h1
+                className="text-[#E8E3D8]"
+                style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "1.1rem", letterSpacing: "-0.005em" }}
+              >
+                {isEditing ? "Editar Produto" : "Novo Produto"}
+              </h1>
+              <p className="text-[#3A3A34] mt-0.5 font-light"
+                style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px" }}>
+                Cadastro, precificação e publicação na vitrine
               </p>
             </div>
-          )}
-        </div>
-      </SectionCard>
+          </div>
 
-      {/* ── Bloco 4: Fiscal ─────────────────────────────────────────────────── */}
-      <SectionCard icon={<AlertTriangle className="w-4 h-4" />} title="Configuração Fiscal" subtitle="Regime tributário e alíquotas por forma de pagamento">
-        <div className="space-y-4">
-          {/* Aviso fiscal removido */}
-          <FF label="Regime tributário">
-            <Select value={form.taxRegime} onValueChange={(v) => handleTaxRegimeChange(v as TaxRegime)}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(Object.keys(TAX_REGIME_LABELS) as TaxRegime[]).map((key) => (
-                  <SelectItem key={key} value={key}>{TAX_REGIME_LABELS[key]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FF>
-
-          <div className="flex flex-col sm:flex-row gap-2 rounded-lg border bg-muted/20 p-3">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleSavePricingDefaults}
-              disabled={updatePricingDefaults.isPending}
-              className="h-8 text-xs"
+          <div className="flex items-center gap-2">
+            {isEditing && (
+              <a
+                href={`/vitrine/${productId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-2 border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A] transition-all"
+                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.18em" }}
+              >
+                <Eye className="w-3 h-3" /> VER NA VITRINE
+              </a>
+            )}
+            <button
+              onClick={handleCalculate}
+              disabled={!form.name.trim() || costPriceBrl <= 0 || globalSettings.isLoading}
+              className="flex items-center gap-1.5 px-3 py-2 border border-[#2A2A26] text-[#5A5A52] hover:border-[#C8B99A]/30 hover:text-[#C8B99A] transition-all disabled:opacity-20 disabled:cursor-not-allowed"
+              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.18em" }}
             >
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Salvar estes valores como padrão
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleRestorePricingDefaults}
-              disabled={updatePricingDefaults.isPending}
-              className="h-8 text-xs"
+              <Calculator className="w-3 h-3" /> CALCULAR PREÇOS
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#C8B99A] text-[#0F0F0E] hover:bg-[#D9CEBA] transition-colors disabled:opacity-40"
+              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.18em" }}
             >
-              <RefreshCcw className="w-3.5 h-3.5 mr-1.5" />
-              Restaurar padrão
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleApplySuggestedTaxes}
-              className="h-8 text-xs"
-            >
-              Aplicar taxas sugeridas do regime
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[
-              { label: "Pix / À Vista", field: "taxCash" as const },
-              { label: "Boleto", field: "taxBoleto" as const },
-              { label: "Débito", field: "taxDebit" as const },
-              { label: "Crédito à Vista", field: "taxCreditCash" as const },
-              { label: "Crédito Parcelado", field: "taxCreditInstallment" as const },
-            ].map(({ label, field }) => (
-              <FF key={field} label={label}>
-                <NI value={form[field]} onChange={set(field)} suffix="%" placeholder="6" />
-              </FF>
-            ))}
+              <Save className="w-3 h-3" />
+              {isSaving ? "SALVANDO..." : isEditing ? "SALVAR ALTERAÇÕES" : "CRIAR PRODUTO"}
+            </button>
           </div>
         </div>
-      </SectionCard>
 
-      {/* ── Bloco 5: Boleto ─────────────────────────────────────────────────── */}
-      <SectionCard icon={<Banknote className="w-4 h-4" />} title="Configuração de Boleto" subtitle="Parcelamento, juros e inadimplência">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <FF label="Parcelas" tooltip="Número de parcelas do boleto parcelado">
-              <NI value={form.boletoMonths} onChange={set("boletoMonths")} placeholder="3" />
-            </FF>
-            <FF label="Juros mensal" tooltip="Taxa de juros ao mês aplicada ao boleto parcelado">
-              <NI value={form.boletoMonthlyRate} onChange={set("boletoMonthlyRate")} suffix="%" placeholder="1,99" />
-            </FF>
-            <FF label="Taxa fixa de emissão" tooltip="Custo fixo por boleto emitido (padrão R$ 3,50)">
-              <NI value={form.boletoFixedFee} onChange={set("boletoFixedFee")} prefix="R$" placeholder="3,50" />
-            </FF>
-            <FF label="Risco de inadimplência" tooltip="Percentual de perda estimado por inadimplência">
-              <NI value={form.boletoDefaultRisk} onChange={set("boletoDefaultRisk")} suffix="%" placeholder="2" />
-            </FF>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
-            <div>
-              <p className="text-sm font-medium">Juros repassado ao cliente</p>
-              <p className="text-xs text-muted-foreground">Se desligado, a empresa absorve os juros no preço</p>
-            </div>
-            <Switch checked={form.boletoCustomerPaysInterest} onCheckedChange={(v) => set("boletoCustomerPaysInterest")(v)} />
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 6: Cartão ─────────────────────────────────────────────────── */}
-      <SectionCard icon={<CreditCard className="w-4 h-4" />} title="Configuração de Cartão" subtitle="Taxas de débito, crédito e antecipação">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <FF label="Taxa débito">
-              <NI value={form.cardDebitFee} onChange={set("cardDebitFee")} suffix="%" placeholder="1,5" />
-            </FF>
-            <FF label="Taxa crédito à vista">
-              <NI value={form.cardCreditCashFee} onChange={set("cardCreditCashFee")} suffix="%" placeholder="2,5" />
-            </FF>
-            <FF label="Taxa crédito parcelado">
-              <NI value={form.cardCreditInstallmentFee} onChange={set("cardCreditInstallmentFee")} suffix="%" placeholder="3,5" />
-            </FF>
-            <FF label="Parcelas">
-              <NI value={form.cardInstallments} onChange={set("cardInstallments")} placeholder="6" />
-            </FF>
-            <FF label="Taxa de antecipação">
-              <NI value={form.cardAnticipationRate} onChange={set("cardAnticipationRate")} suffix="%" placeholder="1,5" />
-            </FF>
-            <FF label="Juros mensal">
-              <NI value={form.cardMonthlyRate} onChange={set("cardMonthlyRate")} suffix="%" placeholder="1,99" />
-            </FF>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
-            <div>
-              <p className="text-sm font-medium">Juros repassado ao cliente</p>
-              <p className="text-xs text-muted-foreground">Se desligado, a empresa absorve os juros no preço</p>
-            </div>
-            <Switch checked={form.cardCustomerPaysInterest} onCheckedChange={(v) => set("cardCustomerPaysInterest")(v)} />
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* ── Bloco 7: Calcular e Cards de Resultado ──────────────────────────── */}
-      <div id="pricing-results">
-        {calcError && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            {calcError}
+        {/* Alerta: configurações globais não carregadas */}
+        {globalSettings.isError && (
+          <div
+            className="flex items-center gap-2.5 p-3 border border-amber-900/30 mb-5"
+            style={{ backgroundColor: "rgba(120,53,15,0.1)" }}
+          >
+            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <p className="text-amber-400/80 text-[10px] font-light">
+              Não foi possível carregar as configurações globais de pagamento. Os preços calculados podem estar incorretos.
+            </p>
           </div>
         )}
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">Resultado da Precificação</h2>
-            <p className="text-xs text-muted-foreground">Clique em "Calcular Preços" para ver os valores por forma de pagamento</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleCalculate} disabled={!form.name.trim() || costPriceBrl <= 0}>
-            <RefreshCcw className="w-4 h-4 mr-1" /> Recalcular
-          </Button>
-        </div>
 
-        {pricingResult ? (
-          <div className="space-y-4">
-            {pricingResult.hasUnhealthyProduct && pricingResult.unhealthyAlert && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                {pricingResult.unhealthyAlert}
+        {/* Grid: formulário + simulador ────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-0 items-start">
+
+          {/* ── FORMULÁRIO ─────────────────────────────────────────────── */}
+          <div className="space-y-3 border border-[#1E1E1B]" style={{ backgroundColor: "#111110" }}>
+
+            {/* 1. IDENTIDADE DO PRODUTO */}
+            <SectionBlock title="Identidade do Produto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                <Field label="Nome do produto" required>
+                  <Input
+                    value={form.name}
+                    onChange={(e) => set("name")(e.target.value)}
+                    placeholder="Ex: Sauvage Eau de Parfum 100ml"
+                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm sm:col-span-2"
+                  />
+                </Field>
+
+                <Field label="Categoria" required>
+                  <Select value={form.category} onValueChange={(v) => set("category")(v)}>
+                    <SelectTrigger className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] focus:ring-0 rounded-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#111110" }}>
+                      {(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"] as ProductCategory[]).map((c) => (
+                        <SelectItem key={c} value={c} className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+
+                <Field label="Label de categoria" tooltip="Exibida na vitrine. Ex: Perfumes Importados">
+                  <Input
+                    value={form.categoryLabel}
+                    onChange={(e) => set("categoryLabel")(e.target.value)}
+                    placeholder="Ex: Perfumes Importados"
+                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                  />
+                </Field>
+
+                <Field label="NCM">
+                  <Input
+                    value={form.ncm}
+                    onChange={(e) => set("ncm")(e.target.value)}
+                    placeholder="Ex: 3303.00.10"
+                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                  />
+                </Field>
+
+                <Field label="Tag de promoção" tooltip='Aparece como badge na vitrine. Ex: "OFERTA"'>
+                  <Input
+                    value={form.promoTag}
+                    onChange={(e) => set("promoTag")(e.target.value)}
+                    placeholder="Ex: OFERTA"
+                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                  />
+                </Field>
               </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {pricingResult.results.map((r) => (
-                <ResultCard
-                  key={r.method}
-                  result={r}
-                  isBest={r.method === pricingResult.bestMethod}
-                  isWorst={r.method === pricingResult.worstMethod}
-                />
-              ))}
-            </div>
 
-            {/* Oferta comercial para vitrine */}
-            <Card className="border-primary/20 bg-primary/5">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-primary" />
-                  Oferta Comercial — O que aparece na vitrine
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  {[
-                    { label: "PIX / À Vista", value: pricingResult.results.find(r => r.method === "PIX")?.suggestedPrice },
-                    { label: "Débito", value: pricingResult.results.find(r => r.method === "DEBITO")?.suggestedPrice },
-                    { label: "Crédito à Vista", value: pricingResult.results.find(r => r.method === "CREDITO_A_VISTA")?.suggestedPrice },
-                    { label: "Crédito Parcelado", value: pricingResult.results.find(r => r.method === "CREDITO_PARCELADO") },
-                  ].map((item, i) => (
-                    <div key={i} className="p-2 rounded-lg bg-background border">
-                      <p className="text-muted-foreground mb-1">{item.label}</p>
-                      {typeof item.value === "number" ? (
-                        <p className="font-bold text-foreground">{formatCurrency(item.value)}</p>
-                      ) : item.value && typeof item.value === "object" ? (
-                        <div>
-                          <p className="font-bold text-foreground">{formatCurrency((item.value as PaymentResult).suggestedPrice)}</p>
-                          <p className="text-muted-foreground">{(item.value as PaymentResult).installments}x de {formatCurrency((item.value as PaymentResult).installmentValue)}</p>
-                        </div>
-                      ) : <p className="text-muted-foreground">—</p>}
+              <Field label="Descrição curta" tooltip="Aparece nos cards da vitrine (máx. 120 caracteres)">
+                <Input
+                  value={form.shortDescription}
+                  onChange={(e) => set("shortDescription")(e.target.value)}
+                  placeholder="Breve descrição atrativa"
+                  className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                  maxLength={120}
+                />
+              </Field>
+
+              <Field label="Descrição completa">
+                <Textarea
+                  value={form.description}
+                  onChange={(e) => set("description")(e.target.value)}
+                  placeholder="Descrição detalhada do produto..."
+                  rows={5}
+                  className="text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] resize-none focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                />
+              </Field>
+
+              <div
+                className="flex items-center justify-between p-3.5 border border-[#1A1A17]"
+                style={{ backgroundColor: "#161614" }}
+              >
+                <div>
+                  <p className="text-[11px] font-medium text-[#E8E3D8] tracking-wide">Publicado na vitrine</p>
+                  <p className="text-[9px] text-[#3A3A34] mt-0.5 font-light">Produto visível ao público</p>
+                </div>
+                <Switch
+                  checked={form.published}
+                  onCheckedChange={(v) => set("published")(v)}
+                  className="data-[state=checked]:bg-[#C8B99A]"
+                />
+              </div>
+
+              {isEditing && productId ? (
+                <div>
+                  <p className="text-[8px] text-[#3A3A34] uppercase mb-2 tracking-[0.25em] font-semibold"
+                    style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                    Galeria de imagens
+                  </p>
+                  <ImageGallery productId={productId} />
+                </div>
+              ) : (
+                <div>
+                  <p className="text-[8px] text-[#3A3A34] uppercase mb-2 tracking-[0.25em] font-semibold"
+                    style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                    Imagens pré-seleção (após criar)
+                  </p>
+                  {pendingPreviews.length > 0 ? (
+                    <div className="flex gap-2 flex-wrap">
+                      {pendingPreviews.map((src, i) => (
+                        <img key={i} src={src} alt="" className="w-16 h-16 object-cover border border-[#222220]" />
+                      ))}
                     </div>
+                  ) : (
+                    <label className="flex items-center justify-center border border-dashed border-[#1E1E1B] h-20 cursor-pointer hover:border-[#C8B99A]/20 transition-colors"
+                      style={{ backgroundColor: "#0F0F0E" }}>
+                      <span className="text-[9px] text-[#2E2E2A] font-light">Clique para selecionar imagens</span>
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={handlePendingImageSelect} />
+                    </label>
+                  )}
+                </div>
+              )}
+            </SectionBlock>
+
+            {/* 2. CUSTOS & ESTOQUE */}
+            <SectionBlock title="Custos & Estoque">
+              {/* Seletor de moeda */}
+              <div className="flex items-center gap-3 p-3 border border-[#1A1A17]" style={{ backgroundColor: "#161614" }}>
+                <span className="text-[9px] font-semibold text-[#4A4A44] tracking-[0.2em] uppercase"
+                  style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                  Moeda:
+                </span>
+                <div className="flex gap-1.5">
+                  {(["BRL", "USD"] as const).map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => set("costCurrency")(c)}
+                      className={`px-3 py-1 text-[9px] font-bold tracking-wider uppercase transition-colors ${
+                        form.costCurrency === c
+                          ? "bg-[#C8B99A] text-[#0F0F0E]"
+                          : "border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A]"
+                      }`}
+                      style={{ fontFamily: "'Montserrat', sans-serif" }}
+                    >
+                      {c}
+                    </button>
                   ))}
                 </div>
-                <div className="mt-3 p-2 rounded-lg bg-background border">
-                  <p className="text-xs text-muted-foreground mb-1">Boleto parcelado</p>
-                  {(() => {
-                    const b = pricingResult.results.find(r => r.method === "BOLETO");
-                    if (!b) return <p className="text-xs text-muted-foreground">—</p>;
-                    return (
-                      <p className="text-xs font-medium">
-                        Entrada de {formatCurrency(b.suggestedPrice / (b.installments + 1))} + {b.installments}x de {formatCurrency(b.installmentValue)}
-                      </p>
-                    );
-                  })()}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {form.costCurrency === "BRL" ? (
+                  <Field label="Preço de custo (R$)" required>
+                    <NI value={form.costPrice} onChange={set("costPrice") as any} prefix="R$" placeholder="0,00" />
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="Preço em dólar (US$)" required>
+                      <NI value={form.costPriceUsd} onChange={set("costPriceUsd") as any} prefix="US$" placeholder="0,00" />
+                    </Field>
+                    <Field label="Cotação do dólar">
+                      <NI value={form.usdExchangeRate} onChange={set("usdExchangeRate") as any} prefix="R$" placeholder="5.50" />
+                    </Field>
+                    <Field label="Custo em R$ (calculado)">
+                      <NI value={costPriceBrl > 0 ? costPriceBrl.toFixed(2) : ""} onChange={() => {}} prefix="R$" disabled />
+                    </Field>
+                  </>
+                )}
+                <Field label="Custo de embalagem">
+                  <NI value={form.packagingCost} onChange={set("packagingCost") as any} prefix="R$" placeholder="0,00" />
+                </Field>
+                <Field label="Frete de entrada">
+                  <NI value={form.inboundShippingCost} onChange={set("inboundShippingCost") as any} prefix="R$" placeholder="0,00" />
+                </Field>
+                <Field label="Custo operacional">
+                  <NI value={form.operationalCost} onChange={set("operationalCost") as any} prefix="R$" placeholder="0,00" />
+                </Field>
+              </div>
+
+              {finalUnitCost > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 border border-[#1A1A17]" style={{ backgroundColor: "#161614" }}>
+                    <p className="text-[8px] font-bold tracking-[0.22em] uppercase text-[#4A4A44] mb-1"
+                      style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                      Custo em BRL
+                    </p>
+                    <p className="text-base font-semibold text-[#E8E3D8]"
+                      style={{ fontFamily: "'Lato', sans-serif" }}>
+                      {formatCurrency(costPriceBrl)}
+                    </p>
+                  </div>
+                  <div className="p-3 border border-[#C8B99A]/15" style={{ backgroundColor: "#1A160E" }}>
+                    <p className="text-[8px] font-bold tracking-[0.22em] uppercase text-[#C8B99A]/60 mb-1"
+                      style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                      Custo Final Unitário
+                    </p>
+                    <p className="text-base font-semibold text-[#C8B99A]"
+                      style={{ fontFamily: "'Lato', sans-serif" }}>
+                      {formatCurrency(finalUnitCost)}
+                    </p>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-border p-10 text-center">
-            <Calculator className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">Preencha os custos e clique em <strong>Calcular Preços</strong></p>
-          </div>
-        )}
-      </div>
+              )}
 
-      {/* ── Bloco 8: Links de Pagamento ─────────────────────────────────────── */}
-      <SectionCard icon={<Sparkles className="w-4 h-4" />} title="Links de Pagamento" subtitle="URLs externas para PIX, cartão e boleto na vitrine">
-        <div className="space-y-4">
-          <FF label="Plataforma de pagamento">
-            <Select value={form.paymentPlatform} onValueChange={(v) => set("paymentPlatform")(v)}>
-              <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="MERCADO_PAGO">Mercado Pago</SelectItem>
-                <SelectItem value="PAGSEGURO">PagSeguro</SelectItem>
-                <SelectItem value="OUTRO">Outro</SelectItem>
-              </SelectContent>
-            </Select>
-          </FF>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FF label="Chave PIX">
-              <Input value={form.pixKey} onChange={(e) => set("pixKey")(e.target.value)} placeholder="CPF, CNPJ, e-mail ou chave aleatória" className="h-9 text-sm" />
-            </FF>
-            <FF label="Link de pagamento PIX">
-              <Input value={form.pixLink} onChange={(e) => set("pixLink")(e.target.value)} placeholder="https://..." className="h-9 text-sm" />
-            </FF>
-            <FF label="Link de pagamento Cartão">
-              <Input value={form.cardPaymentUrl} onChange={(e) => set("cardPaymentUrl")(e.target.value)} placeholder="https://..." className="h-9 text-sm" />
-            </FF>
-            <FF label="Link de pagamento Boleto">
-              <Input value={form.boletoUrl} onChange={(e) => set("boletoUrl")(e.target.value)} placeholder="https://..." className="h-9 text-sm" />
-            </FF>
+              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-[#1A1A17]">
+                <Field label="Estoque atual">
+                  <NI value={form.stockQuantity} onChange={set("stockQuantity") as any} placeholder="0" />
+                </Field>
+                <Field label="Estoque mínimo" tooltip="Alerta de reposição">
+                  <NI value={form.minimumStock} onChange={set("minimumStock") as any} placeholder="0" />
+                </Field>
+              </div>
+            </SectionBlock>
+
+            {/* 3. MARGEM DE LUCRO */}
+            <SectionBlock title="Margem de Lucro Desejada">
+              <div className="flex gap-1.5 mb-4">
+                {(["PERCENT", "VALUE"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => set("marginMode")(m)}
+                    className={`px-4 py-1.5 text-[9px] font-bold tracking-wider uppercase transition-colors ${
+                      form.marginMode === m
+                        ? "bg-[#C8B99A] text-[#0F0F0E]"
+                        : "border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A]"
+                    }`}
+                    style={{ fontFamily: "'Montserrat', sans-serif" }}
+                  >
+                    {m === "PERCENT" ? "Porcentagem (%)" : "Valor (R$)"}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {form.marginMode === "PERCENT" ? (
+                  <Field label="Margem desejada (%)" required>
+                    <NI value={form.desiredMarginRate} onChange={set("desiredMarginRate") as any} suffix="%" placeholder="30" />
+                  </Field>
+                ) : (
+                  <Field label="Margem em valor (R$)" required>
+                    <NI value={form.desiredMarginValue} onChange={set("desiredMarginValue") as any} prefix="R$" placeholder="0,00" />
+                  </Field>
+                )}
+                <Field label="Margem efetiva" disabled>
+                  <NI value={effectiveMarginRate.toFixed(2)} onChange={() => {}} suffix="%" disabled />
+                </Field>
+              </div>
+
+              {/* Aviso: taxas vêm das configurações globais */}
+              <div
+                className="flex items-start gap-2.5 p-3 border border-[#1A1A17]"
+                style={{ backgroundColor: "#0D0D0C" }}
+              >
+                <Settings2 className="w-3.5 h-3.5 text-[#C8B99A]/60 shrink-0 mt-0.5" />
+                <div>
+                  <p
+                    className="text-[#7A7268]"
+                    style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "7px", letterSpacing: "0.22em" }}
+                  >
+                    TAXAS & IMPOSTOS — CONFIGURAÇÕES GLOBAIS
+                  </p>
+                  <p className="text-[#3A3A34] mt-0.5 font-light" style={{ fontSize: "9px" }}>
+                    Fiscal, Boleto e Cartão são gerenciados em{" "}
+                    <a
+                      href="/configuracoes-pagamento"
+                      className="text-[#C8B99A]/70 hover:text-[#C8B99A] underline transition-colors"
+                    >
+                      Configurações → Pagamento
+                    </a>
+                    {globalSettings.data && (
+                      <span className="text-[#2E2E2A] ml-1">
+                        · Regime atual: {globalSettings.data.taxRegime ?? "SIMPLES_NACIONAL"}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </SectionBlock>
+
+            {/* 4. LINKS DE PAGAMENTO */}
+            <SectionBlock title="Links de Pagamento">
+              <Field label="Plataforma de pagamento">
+                <Select value={form.paymentPlatform} onValueChange={(v) => set("paymentPlatform")(v)}>
+                  <SelectTrigger className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] focus:ring-0 rounded-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#111110" }}>
+                    <SelectItem value="MERCADO_PAGO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">Mercado Pago</SelectItem>
+                    <SelectItem value="PAGSEGURO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">PagSeguro</SelectItem>
+                    <SelectItem value="OUTRO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Chave PIX" tooltip="CPF, CNPJ, email ou chave aleatória">
+                  <Input
+                    value={form.pixKey}
+                    onChange={(e) => set("pixKey")(e.target.value)}
+                    placeholder="Ex: 61999999999"
+                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                  />
+                </Field>
+                <Field label="Link PIX (URL)">
+                  <Input
+                    value={form.pixLink}
+                    onChange={(e) => set("pixLink")(e.target.value)}
+                    placeholder="https://..."
+                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                  />
+                </Field>
+                <Field label="Link Cartão (URL)">
+                  <Input
+                    value={form.cardPaymentUrl}
+                    onChange={(e) => set("cardPaymentUrl")(e.target.value)}
+                    placeholder="https://..."
+                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                  />
+                </Field>
+                <Field label="Link Boleto (URL)">
+                  <Input
+                    value={form.boletoUrl}
+                    onChange={(e) => set("boletoUrl")(e.target.value)}
+                    placeholder="https://..."
+                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                  />
+                </Field>
+              </div>
+            </SectionBlock>
+
+            {/* 5. NOTAS INTERNAS */}
+            <SectionBlock title="Observações Internas">
+              <Textarea
+                value={form.notes}
+                onChange={(e) => set("notes")(e.target.value)}
+                placeholder="Notas internas (não aparecem na vitrine)..."
+                rows={3}
+                className="text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] resize-none focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+              />
+            </SectionBlock>
+          </div>
+
+          {/* ── PAINEL DO SIMULADOR (coluna direita) ─────────────────────── */}
+          <div
+            className="lg:sticky lg:top-[60px] flex flex-col min-h-[400px] border-t lg:border-t-0 border-[#1E1E1B]"
+            style={{ backgroundColor: "#0A0A09" }}
+          >
+            <div className="px-5 py-4 border-b border-[#1A1A17]">
+              <p className="text-[7px] font-bold tracking-[0.35em] uppercase text-[#3A3A34] mb-1"
+                style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                Simulador de Lucro
+              </p>
+              <h2 className="text-sm font-light text-[#E8E3D8] tracking-wide"
+                style={{ fontFamily: "'Lato', sans-serif" }}>
+                Painel de Precificação
+              </h2>
+            </div>
+
+            <div className="flex-1 px-5 py-4 space-y-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
+
+              {/* Resumo de custo */}
+              {finalUnitCost > 0 ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="p-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
+                      <p className="text-[8px] text-[#3A3A34] tracking-wider uppercase mb-1 font-semibold"
+                        style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                        Custo BRL
+                      </p>
+                      <p className="text-sm font-semibold text-[#E8E3D8]"
+                        style={{ fontFamily: "'Lato', sans-serif" }}>
+                        {formatCurrency(costPriceBrl)}
+                      </p>
+                    </div>
+                    <div className="p-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
+                      <p className="text-[8px] text-[#3A3A34] tracking-wider uppercase mb-1 font-semibold"
+                        style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                        Custo Final
+                      </p>
+                      <p className="text-sm font-semibold text-[#C8B99A]"
+                        style={{ fontFamily: "'Lato', sans-serif" }}>
+                        {formatCurrency(finalUnitCost)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Margem inline do simulador */}
+                  <div className="p-3 space-y-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
+                    <p className="text-[8px] text-[#3A3A34] tracking-[0.25em] uppercase font-semibold"
+                      style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                      Margem Desejada
+                    </p>
+                    <div className="flex gap-1.5">
+                      {(["PERCENT", "VALUE"] as const).map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => set("marginMode")(m)}
+                          className={`flex-1 py-1.5 text-[9px] font-bold tracking-wide transition-colors ${
+                            form.marginMode === m
+                              ? "bg-[#C8B99A] text-[#0F0F0E]"
+                              : "bg-[#1A1A17] text-[#4A4A44] hover:text-[#C8B99A]"
+                          }`}
+                          style={{ fontFamily: "'Montserrat', sans-serif" }}
+                        >
+                          {m === "PERCENT" ? "%" : "R$"}
+                        </button>
+                      ))}
+                    </div>
+                    {form.marginMode === "PERCENT" ? (
+                      <NI value={form.desiredMarginRate} onChange={set("desiredMarginRate") as any} suffix="%" placeholder="30" />
+                    ) : (
+                      <NI value={form.desiredMarginValue} onChange={set("desiredMarginValue") as any} prefix="R$" placeholder="0,00" />
+                    )}
+                    {effectiveMarginRate > 0 && (
+                      <p className="text-[9px] text-[#3A3A34] font-light">
+                        Margem efetiva:{" "}
+                        <span className="text-emerald-500 font-semibold">{effectiveMarginRate.toFixed(1)}%</span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 space-y-3">
+                  <Calculator className="w-7 h-7 text-[#1E1E1B] mx-auto" />
+                  <p className="text-[10px] text-[#2A2A26] font-light tracking-wide">
+                    Informe o custo do produto para ativar o simulador
+                  </p>
+                </div>
+              )}
+
+              {/* Erro de cálculo */}
+              {calcError && (
+                <div className="flex items-start gap-2 p-3 border border-rose-900/30" style={{ backgroundColor: "#1A0808" }}>
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 mt-0.5 shrink-0" />
+                  <p className="text-[10px] text-rose-500 font-light">{calcError}</p>
+                </div>
+              )}
+
+              {/* Botão calcular */}
+              {finalUnitCost > 0 && (
+                <button
+                  onClick={handleCalculate}
+                  disabled={globalSettings.isLoading}
+                  className="w-full py-2.5 bg-[#C8B99A] text-[#0F0F0E] hover:bg-[#D9CEBA] transition-colors flex items-center justify-center gap-2 disabled:opacity-40"
+                  style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "9px", letterSpacing: "0.2em" }}
+                >
+                  <RefreshCcw className="w-3 h-3" /> CALCULAR PREÇOS
+                </button>
+              )}
+
+              {/* Resultados */}
+              {pricingResult && (
+                <div className="space-y-2.5">
+                  <div className="border-t border-[#1A1A17] pt-3">
+                    <p className="text-[8px] font-bold tracking-[0.3em] uppercase text-[#3A3A34] mb-3"
+                      style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                      Preços Sugeridos
+                    </p>
+                  </div>
+                  {pricingResult.results.map((r) => (
+                    <DarkResultCard
+                      key={r.method}
+                      result={r}
+                      isBest={r.method === pricingResult.bestMethod}
+                    />
+                  ))}
+                  <div className="pt-2 border-t border-[#1A1A17]">
+                    <p className="text-[9px] text-[#2E2E2A] font-light">
+                      Margem real (PIX):{" "}
+                      <span className="text-emerald-500 font-semibold">
+                        {formatPercent(pricingResult.results.find((r) => r.method === "PIX")?.realMarginRate ?? 0)}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer: publicar */}
+            <div className="px-5 py-4 border-t border-[#1A1A17] space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-medium text-[#E8E3D8] tracking-wide"
+                    style={{ fontFamily: "'Lato', sans-serif" }}>
+                    Publicar na Vitrine
+                  </p>
+                  <p className="text-[8px] text-[#3A3A34] mt-0.5 font-light">Visível ao público</p>
+                </div>
+                <Switch
+                  checked={form.published}
+                  onCheckedChange={(v) => set("published")(v)}
+                  className="data-[state=checked]:bg-[#C8B99A]"
+                />
+              </div>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="w-full py-3 bg-[#C8B99A] text-[#0F0F0E] hover:bg-[#D9CEBA] transition-colors disabled:opacity-30 flex items-center justify-center gap-2"
+                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "9px", letterSpacing: "0.22em" }}
+              >
+                <Save className="w-3.5 h-3.5" />
+                {isSaving ? "SALVANDO..." : isEditing ? "SALVAR ALTERAÇÕES" : "CRIAR & PUBLICAR"}
+              </button>
+            </div>
           </div>
         </div>
-      </SectionCard>
-
-      {/* Barra de ações final */}
-      <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur border-t border-border -mx-4 sm:-mx-6 px-4 sm:px-6 py-4 mt-2">
-        <div className="max-w-4xl mx-auto flex justify-between items-center gap-3">
-          <Button variant="ghost" onClick={() => setLocation("/produtos")} className="text-muted-foreground">
-            <ArrowLeft className="w-4 h-4 mr-1.5" /> Cancelar
-          </Button>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCalculate}
-              disabled={!form.name.trim() || costPriceBrl <= 0}
-            >
-              <Calculator className="w-4 h-4 mr-1" /> Calcular Preços
-            </Button>
-            <Button onClick={handleSave} disabled={isSaving} size="default">
-              <Save className="w-4 h-4 mr-2" />
-              {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
-            </Button>
-          </div>
-        </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }
