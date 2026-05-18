@@ -11,9 +11,12 @@
  *   - Taxa crédito parcelado
  *   - Número de parcelas
  *   - Desconto pagamento em dinheiro/PIX (%)
+ *
+ * NOTA: usa useEffect para sincronizar o form com query.data porque
+ * onSuccess foi removido do useQuery no React Query v5 / tRPC v11.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -101,19 +104,21 @@ export default function ConfiguracoesPagamento() {
     cashDiscountPercent: "",
   });
 
-  const query = trpc.paymentSettings.get.useQuery(undefined, {
-    onSuccess: (data) => {
-      if (!editing) {
-        setForm({
-          cardDebitFee: String(data.cardDebitFee),
-          cardCreditCashFee: String(data.cardCreditCashFee),
-          cardCreditInstallmentFee: String(data.cardCreditInstallmentFee),
-          cardInstallments: String(data.cardInstallments),
-          cashDiscountPercent: String(data.cashDiscountPercent),
-        });
-      }
-    },
-  });
+  // React Query v5 / tRPC v11 removeram onSuccess do useQuery.
+  // Usamos useEffect para popular o form quando os dados chegam do servidor.
+  const query = trpc.paymentSettings.get.useQuery();
+
+  useEffect(() => {
+    if (query.data && !editing) {
+      setForm({
+        cardDebitFee: String(query.data.cardDebitFee),
+        cardCreditCashFee: String(query.data.cardCreditCashFee),
+        cardCreditInstallmentFee: String(query.data.cardCreditInstallmentFee),
+        cardInstallments: String(query.data.cardInstallments),
+        cashDiscountPercent: String(query.data.cashDiscountPercent),
+      });
+    }
+  }, [query.data, editing]);
 
   const updateMutation = trpc.paymentSettings.update.useMutation({
     onSuccess: () => {
@@ -137,6 +142,19 @@ export default function ConfiguracoesPagamento() {
       cardInstallments: n(form.cardInstallments),
       cashDiscountPercent: n(form.cashDiscountPercent),
     });
+  };
+
+  const handleCancelEdit = () => {
+    setEditing(false);
+    if (query.data) {
+      setForm({
+        cardDebitFee: String(query.data.cardDebitFee),
+        cardCreditCashFee: String(query.data.cardCreditCashFee),
+        cardCreditInstallmentFee: String(query.data.cardCreditInstallmentFee),
+        cardInstallments: String(query.data.cardInstallments),
+        cashDiscountPercent: String(query.data.cashDiscountPercent),
+      });
+    }
   };
 
   const set = (field: keyof typeof form) => (value: string) =>
@@ -173,20 +191,7 @@ export default function ConfiguracoesPagamento() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                setEditing(false);
-                if (query.data) {
-                  setForm({
-                    cardDebitFee: String(query.data.cardDebitFee),
-                    cardCreditCashFee: String(query.data.cardCreditCashFee),
-                    cardCreditInstallmentFee: String(
-                      query.data.cardCreditInstallmentFee
-                    ),
-                    cardInstallments: String(query.data.cardInstallments),
-                    cashDiscountPercent: String(query.data.cashDiscountPercent),
-                  });
-                }
-              }}
+              onClick={handleCancelEdit}
               className="shrink-0 gap-2 text-muted-foreground"
             >
               Cancelar
