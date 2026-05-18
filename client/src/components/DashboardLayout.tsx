@@ -37,6 +37,7 @@ import {
   ExternalLink,
   Store,
   ClipboardList,
+  CreditCard,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -57,6 +58,7 @@ const menuItems = [
 const adminItems = [
   { icon: Users, label: "Usuários", path: "/usuarios" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
+  { icon: CreditCard, label: "Pagamento", path: "/configuracoes-pagamento" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -260,6 +262,10 @@ function DashboardLayoutContent({
                 <DropdownMenuItem onClick={() => setLocation("/configuracoes")} className="cursor-pointer">
                   <Settings className="mr-2 h-4 w-4" />
                   Configurações
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLocation("/configuracoes-pagamento")} className="cursor-pointer">
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Configurações de Pagamento
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
