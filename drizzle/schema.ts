@@ -1,3 +1,14 @@
+/**
+ * drizzle/schema.ts — PermuPay Vendas
+ *
+ * CHANGELOG v13:
+ * - paymentSettings expandido com campos de Boleto, Fiscal (taxRegime, taxBoleto,
+ *   taxDebit, taxCreditCash, taxCreditInstallment), Cartão (cardAnticipationRate,
+ *   cardMonthlyRate, cardCustomerPaysInterest) e Descontos Universais
+ *   (discountPix, discountCash, discountBoleto, discountDebit, discountCredit).
+ * - taxCash travado em 0 no código (PIX isento); não armazena imposto PIX.
+ * - Novos tipos exportados: PaymentSetting, InsertPaymentSetting.
+ */
 import {
   boolean,
   integer,
@@ -71,23 +82,23 @@ export const products = pgTable("permupay_products", {
   desiredMarginValue: real("desired_margin_value").notNull().default(0),
   marginMode: marginModeEnum("margin_mode").notNull().default("PERCENT"),
 
-  // Fiscal
+  // Fiscal (mantidos no produto para compatibilidade com histórico de simulações)
   taxRegime: taxRegimeEnum("tax_regime").notNull().default("SIMPLES_NACIONAL"),
   estimatedTaxRate: real("estimated_tax_rate").notNull().default(0),
-  taxCash: real("tax_cash").notNull().default(6),
+  taxCash: real("tax_cash").notNull().default(0),        // SEMPRE 0 — PIX isento
   taxBoleto: real("tax_boleto").notNull().default(6),
   taxDebit: real("tax_debit").notNull().default(6),
   taxCreditCash: real("tax_credit_cash").notNull().default(6),
   taxCreditInstallment: real("tax_credit_installment").notNull().default(6),
 
-  // Configuração de Boleto
+  // Configuração de Boleto (mantidos no produto para compatibilidade)
   boletoMonths: real("boleto_months").notNull().default(3),
   boletoMonthlyRate: real("boleto_monthly_rate").notNull().default(1.99),
   boletoFixedFee: real("boleto_fixed_fee").notNull().default(3.50),
   boletoDefaultRisk: real("boleto_default_risk").notNull().default(2),
   boletoCustomerPaysInterest: boolean("boleto_customer_pays_interest").notNull().default(false),
 
-  // Configuração de Cartão
+  // Configuração de Cartão (mantidos no produto para compatibilidade)
   cardDebitFee: real("card_debit_fee").notNull().default(1.5),
   cardCreditCashFee: real("card_credit_cash_fee").notNull().default(2.5),
   cardCreditInstallmentFee: real("card_credit_installment_fee").notNull().default(3.5),
@@ -223,7 +234,7 @@ export const pricingSimulations = pgTable("permupay_pricing_simulations", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// ─── Tipos inferidos ──────────────────────────────────────────────────────────
+// ─── Tipos inferidos — core ───────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -315,14 +326,49 @@ export type ProductImage = typeof productImages.$inferSelect;
 export type InsertProductImage = typeof productImages.$inferInsert;
 
 // ─── Tabela: payment_settings (configurações globais de pagamento) ─────────────
+//
+// REGRAS DE NEGÓCIO INEGOCIÁVEIS:
+// 1. taxCash está AUSENTE — PIX é sempre isento de imposto (forçado no código).
+// 2. discountPix..discountCredit: descontos universais independentes por forma.
+// 3. Esta tabela é a ÚNICA fonte de verdade para taxas; produtos herdam via query.
+// ──────────────────────────────────────────────────────────────────────────────
 
 export const paymentSettings = pgTable("permupay_payment_settings", {
   id: serial("id").primaryKey(),
+
+  // ── Fiscal (taxCash = PIX não existe aqui; é sempre 0 no motor) ──────────
+  taxRegime: taxRegimeEnum("tax_regime").notNull().default("SIMPLES_NACIONAL"),
+  taxBoleto: real("tax_boleto").notNull().default(6),
+  taxDebit: real("tax_debit").notNull().default(6),
+  taxCreditCash: real("tax_credit_cash").notNull().default(6),
+  taxCreditInstallment: real("tax_credit_installment").notNull().default(6),
+
+  // ── Cartão ────────────────────────────────────────────────────────────────
   cardDebitFee: real("card_debit_fee").notNull().default(1.5),
   cardCreditCashFee: real("card_credit_cash_fee").notNull().default(2.5),
   cardCreditInstallmentFee: real("card_credit_installment_fee").notNull().default(3.5),
   cardInstallments: real("card_installments").notNull().default(6),
+  cardAnticipationRate: real("card_anticipation_rate").notNull().default(1.5),
+  cardMonthlyRate: real("card_monthly_rate").notNull().default(1.99),
+  cardCustomerPaysInterest: boolean("card_customer_pays_interest").notNull().default(false),
+
+  // ── Boleto ────────────────────────────────────────────────────────────────
+  boletoMonths: real("boleto_months").notNull().default(3),
+  boletoMonthlyRate: real("boleto_monthly_rate").notNull().default(1.99),
+  boletoFixedFee: real("boleto_fixed_fee").notNull().default(3.50),
+  boletoDefaultRisk: real("boleto_default_risk").notNull().default(2),
+  boletoCustomerPaysInterest: boolean("boleto_customer_pays_interest").notNull().default(false),
+
+  // ── Descontos Universais (% sobre preço final ao cliente) ─────────────────
+  discountPix: real("discount_pix").notNull().default(0),
+  discountCash: real("discount_cash").notNull().default(0),
+  discountBoleto: real("discount_boleto").notNull().default(0),
+  discountDebit: real("discount_debit").notNull().default(0),
+  discountCredit: real("discount_credit").notNull().default(0),
+
+  // ── Legado (mantido para compatibilidade até migração total) ──────────────
   cashDiscountPercent: real("cash_discount_percent").notNull().default(0),
+
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
