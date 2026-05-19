@@ -28,6 +28,7 @@ import Configuracoes from "./pages/Configuracoes";
 import ConfiguracoesPagamento from "./pages/ConfiguracoesPagamento";
 import Relatorios from "./pages/Relatorios";
 import Pedidos from "./pages/Pedidos";
+import CategoriasAdmin from "./pages/CategoriasAdmin";
 
 // PL = Protected + Layout (para páginas sem DashboardLayout interno)
 const PL = ({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) => (
@@ -85,6 +86,7 @@ function Router() {
 
       {/* ── SOMENTE ADMIN ─────────────────────────────────────────────── */}
       <Route path="/usuarios">{() => <P><Usuarios /></P>}</Route>
+      <Route path="/categorias">{() => <P adminOnly><CategoriasAdmin /></P>}</Route>
       <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
       <Route path="/configuracoes-pagamento">{() => <P><ConfiguracoesPagamento /></P>}</Route>
 
