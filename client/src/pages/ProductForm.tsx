@@ -297,12 +297,16 @@ export default function ProductForm() {
   const addImageMutation = trpc.products.addImage.useMutation();
 
   /**
-   * FONTE ÚNICA DE TAXAS: configurações globais de pagamento.
+   * FONTE ÚNICA DE TAXAS E LINKS GLOBAIS: configurações globais de pagamento.
    * O ProductForm NÃO tem mais estados locais de fiscal, boleto ou cartão.
+   * Para links: produto novo usa defaults globais; produto antigo preserva seus valores.
    */
   const globalSettings = trpc.paymentSettings.get.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
   });
+
+  // Flag para controlar se os defaults globais de links já foram aplicados
+  const [globalLinksApplied, setGlobalLinksApplied] = useState(false);
 
   const createProduct = trpc.products.create.useMutation({
     onSuccess: async (newProduct) => {
@@ -363,6 +367,25 @@ export default function ProductForm() {
       setForm((prev) => ({ ...prev, [field]: value })),
     []
   );
+
+  // Aplicar defaults globais de links para PRODUTO NOVO (sem editar produto existente)
+  useEffect(() => {
+    if (!isEditing && globalSettings.data && !globalLinksApplied) {
+      const gs = globalSettings.data;
+      setForm((prev) => ({
+        ...prev,
+        // Aplica defaults globais somente se o campo estiver vazio
+        paymentPlatform: prev.paymentPlatform === "MERCADO_PAGO" && gs.paymentPlatform
+          ? (gs.paymentPlatform as "MERCADO_PAGO" | "PAGSEGURO" | "OUTRO")
+          : prev.paymentPlatform,
+        pixKey: prev.pixKey === "" && gs.pixKey ? gs.pixKey : prev.pixKey,
+        pixLink: prev.pixLink === "" && gs.pixLink ? gs.pixLink : prev.pixLink,
+        cardPaymentUrl: prev.cardPaymentUrl === "" && gs.cardPaymentUrl ? gs.cardPaymentUrl : prev.cardPaymentUrl,
+        boletoUrl: prev.boletoUrl === "" && gs.boletoUrl ? gs.boletoUrl : prev.boletoUrl,
+      }));
+      setGlobalLinksApplied(true);
+    }
+  }, [isEditing, globalSettings.data, globalLinksApplied]);
 
   // Preencher formulário ao editar
   useEffect(() => {
@@ -919,6 +942,22 @@ export default function ProductForm() {
 
             {/* 4. LINKS DE PAGAMENTO */}
             <SectionBlock title="Links de Pagamento">
+              {/* Aviso: defaults globais */}
+              {!isEditing && globalSettings.data && (globalSettings.data.pixKey || globalSettings.data.pixLink || globalSettings.data.cardPaymentUrl || globalSettings.data.boletoUrl) && (
+                <div
+                  className="flex items-start gap-2.5 p-3 border border-[#1A1A17] mb-4"
+                  style={{ backgroundColor: "#0D0D0C" }}
+                >
+                  <Settings2 className="w-3.5 h-3.5 text-[#C8B99A]/60 shrink-0 mt-0.5" />
+                  <p className="text-[9px] text-[#3A3A34] font-light">
+                    Links pré-preenchidos com os{" "}
+                    <a href="/configuracoes-pagamento" className="text-[#C8B99A]/70 hover:text-[#C8B99A] underline">
+                      defaults globais
+                    </a>.
+                    Altere aqui para sobrescrever apenas este produto.
+                  </p>
+                </div>
+              )}
               <Field label="Plataforma de pagamento">
                 <Select value={form.paymentPlatform} onValueChange={(v) => set("paymentPlatform")(v)}>
                   <SelectTrigger className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] focus:ring-0 rounded-sm">
