@@ -43,6 +43,7 @@ import {
   AlertCircle, Link2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { QRCodeSVG } from "qrcode.react";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

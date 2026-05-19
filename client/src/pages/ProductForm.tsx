@@ -56,7 +56,6 @@ import { toast } from "sonner";
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 type MarginMode = "PERCENT" | "VALUE";
-type PaymentPlatform = "MERCADO_PAGO" | "PAGSEGURO" | "OUTRO";
 
 /** FormState enxuto: sem campos de fiscal, boleto ou cartão */
 interface FormState {
@@ -86,12 +85,7 @@ interface FormState {
   marginMode: MarginMode;
   desiredMarginRate: string;
   desiredMarginValue: string;
-  // Links de pagamento
-  paymentPlatform: PaymentPlatform;
-  pixKey: string;
-  pixLink: string;
-  cardPaymentUrl: string;
-  boletoUrl: string;
+
 }
 
 const defaultForm: FormState = {
@@ -117,11 +111,7 @@ const defaultForm: FormState = {
   marginMode: "PERCENT",
   desiredMarginRate: "30",
   desiredMarginValue: "",
-  paymentPlatform: "MERCADO_PAGO",
-  pixKey: "",
-  pixLink: "",
-  cardPaymentUrl: "",
-  boletoUrl: "",
+
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -306,7 +296,6 @@ export default function ProductForm() {
   });
 
   // Flag para controlar se os defaults globais de links já foram aplicados
-  const [globalLinksApplied, setGlobalLinksApplied] = useState(false);
 
   const createProduct = trpc.products.create.useMutation({
     onSuccess: async (newProduct) => {
@@ -368,24 +357,6 @@ export default function ProductForm() {
     []
   );
 
-  // Aplicar defaults globais de links para PRODUTO NOVO (sem editar produto existente)
-  useEffect(() => {
-    if (!isEditing && globalSettings.data && !globalLinksApplied) {
-      const gs = globalSettings.data;
-      setForm((prev) => ({
-        ...prev,
-        // Aplica defaults globais somente se o campo estiver vazio
-        paymentPlatform: prev.paymentPlatform === "MERCADO_PAGO" && gs.paymentPlatform
-          ? (gs.paymentPlatform as "MERCADO_PAGO" | "PAGSEGURO" | "OUTRO")
-          : prev.paymentPlatform,
-        pixKey: prev.pixKey === "" && gs.pixKey ? gs.pixKey : prev.pixKey,
-        pixLink: prev.pixLink === "" && gs.pixLink ? gs.pixLink : prev.pixLink,
-        cardPaymentUrl: prev.cardPaymentUrl === "" && gs.cardPaymentUrl ? gs.cardPaymentUrl : prev.cardPaymentUrl,
-        boletoUrl: prev.boletoUrl === "" && gs.boletoUrl ? gs.boletoUrl : prev.boletoUrl,
-      }));
-      setGlobalLinksApplied(true);
-    }
-  }, [isEditing, globalSettings.data, globalLinksApplied]);
 
   // Preencher formulário ao editar
   useEffect(() => {
@@ -415,11 +386,7 @@ export default function ProductForm() {
         marginMode: ((p as any).marginMode as MarginMode) || "PERCENT",
         desiredMarginRate: p.desiredMarginRate ? String(p.desiredMarginRate) : "30",
         desiredMarginValue: p.desiredMarginValue ? String(p.desiredMarginValue) : "",
-        paymentPlatform: (p.paymentPlatform as PaymentPlatform) || "OUTRO",
-        pixKey: p.pixKey || "",
-        pixLink: p.pixLink || "",
-        cardPaymentUrl: p.cardPaymentUrl || "",
-        boletoUrl: p.boletoUrl || "",
+
       }));
     }
   }, [productQuery.data]);
@@ -555,11 +522,7 @@ export default function ProductForm() {
       suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
       suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
       // Links de pagamento
-      paymentPlatform: form.paymentPlatform,
-      pixKey: form.pixKey || undefined,
-      pixLink: form.pixLink || undefined,
-      cardPaymentUrl: form.cardPaymentUrl || undefined,
-      boletoUrl: form.boletoUrl || undefined,
+
     };
 
     if (isEditing) {
@@ -904,7 +867,7 @@ export default function ProductForm() {
                     <NI value={form.desiredMarginValue} onChange={set("desiredMarginValue") as any} prefix="R$" placeholder="0,00" />
                   </Field>
                 )}
-                <Field label="Margem efetiva" disabled>
+                <Field label="Margem efetiva">
                   <NI value={effectiveMarginRate.toFixed(2)} onChange={() => {}} suffix="%" disabled />
                 </Field>
               </div>
@@ -940,74 +903,7 @@ export default function ProductForm() {
               </div>
             </SectionBlock>
 
-            {/* 4. LINKS DE PAGAMENTO */}
-            <SectionBlock title="Links de Pagamento">
-              {/* Aviso: defaults globais */}
-              {!isEditing && globalSettings.data && (globalSettings.data.pixKey || globalSettings.data.pixLink || globalSettings.data.cardPaymentUrl || globalSettings.data.boletoUrl) && (
-                <div
-                  className="flex items-start gap-2.5 p-3 border border-[#1A1A17] mb-4"
-                  style={{ backgroundColor: "#0D0D0C" }}
-                >
-                  <Settings2 className="w-3.5 h-3.5 text-[#C8B99A]/60 shrink-0 mt-0.5" />
-                  <p className="text-[9px] text-[#3A3A34] font-light">
-                    Links pré-preenchidos com os{" "}
-                    <a href="/configuracoes-pagamento" className="text-[#C8B99A]/70 hover:text-[#C8B99A] underline">
-                      defaults globais
-                    </a>.
-                    Altere aqui para sobrescrever apenas este produto.
-                  </p>
-                </div>
-              )}
-              <Field label="Plataforma de pagamento">
-                <Select value={form.paymentPlatform} onValueChange={(v) => set("paymentPlatform")(v)}>
-                  <SelectTrigger className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] focus:ring-0 rounded-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#111110" }}>
-                    <SelectItem value="MERCADO_PAGO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">Mercado Pago</SelectItem>
-                    <SelectItem value="PAGSEGURO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">PagSeguro</SelectItem>
-                    <SelectItem value="OUTRO" className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">Outro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Chave PIX" tooltip="CPF, CNPJ, email ou chave aleatória">
-                  <Input
-                    value={form.pixKey}
-                    onChange={(e) => set("pixKey")(e.target.value)}
-                    placeholder="Ex: 61999999999"
-                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
-                  />
-                </Field>
-                <Field label="Link PIX (URL)">
-                  <Input
-                    value={form.pixLink}
-                    onChange={(e) => set("pixLink")(e.target.value)}
-                    placeholder="https://..."
-                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
-                  />
-                </Field>
-                <Field label="Link Cartão (URL)">
-                  <Input
-                    value={form.cardPaymentUrl}
-                    onChange={(e) => set("cardPaymentUrl")(e.target.value)}
-                    placeholder="https://..."
-                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
-                  />
-                </Field>
-                <Field label="Link Boleto (URL)">
-                  <Input
-                    value={form.boletoUrl}
-                    onChange={(e) => set("boletoUrl")(e.target.value)}
-                    placeholder="https://..."
-                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
-                  />
-                </Field>
-              </div>
-            </SectionBlock>
-
-            {/* 5. NOTAS INTERNAS */}
+            {/* 4. OBSERVAÇÕES INTERNAS */}
             <SectionBlock title="Observações Internas">
               <Textarea
                 value={form.notes}

@@ -99,6 +99,13 @@
       "when": 1779300000000,
       "tag": "0013_payment_settings_expansion",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779400000000,
+      "tag": "0014_payment_settings_links",
+      "breakpoints": true
     }
   ]
 }

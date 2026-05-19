@@ -135,7 +135,7 @@ export function ImageUpload({
       await setImageUrl.mutateAsync({ productId, imageUrl: finalUrl });
 
       setState({ type: "success", url: finalUrl });
-      onSuccess(publicUrl);
+      onSuccess(finalUrl);
     } catch (err: any) {
       setState({ type: "error", message: err.message ?? "Erro ao fazer upload." });
     }

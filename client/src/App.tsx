@@ -57,8 +57,9 @@ function Router() {
 
       {/* ── PRODUTOS ──────────────────────────────────────────────────── */}
       <Route path="/produtos">{() => <PL><Products /></PL>}</Route>
-      <Route path="/produtos/novo">{() => <PL><ProductForm /></PL>}</Route>
-      <Route path="/produtos/:id/editar">{() => <PL><ProductForm /></PL>}</Route>
+      {/* ProductForm já inclui DashboardLayout internamente — usar P para evitar duplicação */}
+      <Route path="/produtos/novo">{() => <P><ProductForm /></P>}</Route>
+      <Route path="/produtos/:id/editar">{() => <P><ProductForm /></P>}</Route>
 
       {/* ── ESTOQUE ───────────────────────────────────────────────────── */}
       <Route path="/estoque">{() => <P><Estoque /></P>}</Route>

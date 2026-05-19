@@ -129,13 +129,13 @@ const paymentSettingsSchema = z.object({
   cardDebitFee: z.number().min(0).max(100).optional(),
   cardCreditCashFee: z.number().min(0).max(100).optional(),
   cardCreditInstallmentFee: z.number().min(0).max(100).optional(),
-  cardInstallments: z.number().int().min(1).max(48).optional(),
+  cardInstallments: z.number().min(1).max(48).optional(),
   cardAnticipationRate: z.number().min(0).max(100).optional(),
   cardMonthlyRate: z.number().min(0).max(100).optional(),
   cardCustomerPaysInterest: z.boolean().optional(),
 
   // Boleto
-  boletoMonths: z.number().int().min(1).max(60).optional(),
+  boletoMonths: z.number().min(1).max(60).optional(),
   boletoMonthlyRate: z.number().min(0).max(100).optional(),
   boletoFixedFee: z.number().min(0).optional(),
   boletoDefaultRisk: z.number().min(0).max(100).optional(),

@@ -160,17 +160,7 @@ export async function confirmOrder(
       .where(eq(orders.id, orderId))
       .returning();
 
-    // 8. Gatilho FIFO fora da transação (opcional, falha suave)
-    if (newStock === 0) {
-      setImmediate(async () => {
-        try {
-          const { activateNextBatchIfNeeded } = await import("./db.batches");
-          await activateNextBatchIfNeeded(existing.productId);
-        } catch (err) {
-          console.warn("[orders] activateNextBatchIfNeeded falhou:", err);
-        }
-      });
-    }
+    // 8. Gatilho FIFO reservado para implementação futura
 
     return updated;
   });

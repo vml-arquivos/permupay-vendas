@@ -150,7 +150,7 @@ export default function Marketplace() {
   const products = (data ?? []) as CatalogProduct[];
   const PANEL = import.meta.env.VITE_PANEL_URL ?? "";
 
-  const cats = useMemo(() => [...new Set(products.map((p) => p.category))], [products]);
+  const cats = useMemo(() => Array.from(new Set(products.map((p) => p.category))), [products]);
   const filtered = useMemo(() => cat ? products.filter((p) => p.category === cat) : products, [products, cat]);
 
   // Produto destaque para o hero
