@@ -74,24 +74,25 @@ function Field({
   tooltip?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex items-center gap-1.5">
-        <Label className="text-[10px] font-semibold text-muted-foreground tracking-[0.12em] uppercase">
-          {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
+        <Label className="text-xs font-medium text-muted-foreground tracking-wider uppercase">
+          {label}
+          {required && <span className="text-rose-500 ml-0.5">*</span>}
         </Label>
         {tooltip && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Info className="w-3 h-3 text-muted-foreground cursor-help" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-[11px]">
+            <TooltipContent className="max-w-xs text-xs">
               {tooltip}
             </TooltipContent>
           </Tooltip>
         )}
       </div>
       {children}
-      {hint && <p className="text-[9px] text-muted-foreground leading-relaxed font-light">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground leading-relaxed font-light">{hint}</p>}
     </div>
   );
 }
@@ -107,7 +108,7 @@ function NumInput({
   return (
     <div className="relative flex items-center">
       {prefix && (
-        <span className="absolute left-3 text-[10px] text-muted-foreground pointer-events-none font-mono">
+        <span className="absolute left-3 text-xs text-muted-foreground pointer-events-none font-mono">
           {prefix}
         </span>
       )}
@@ -122,7 +123,7 @@ function NumInput({
         className={`h-9 text-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
       />
       {suffix && (
-        <span className="absolute right-3 text-[10px] text-muted-foreground pointer-events-none font-mono">
+        <span className="absolute right-3 text-xs text-muted-foreground pointer-events-none font-mono">
           {suffix}
         </span>
       )}
@@ -150,7 +151,7 @@ function TextInput({
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-5">
+    <div className="rounded-lg border border-border bg-card p-6">
       {children}
     </div>
   );
