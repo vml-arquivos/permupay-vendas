@@ -150,6 +150,13 @@ const paymentSettingsSchema = z.object({
 
   // Legado (mantido para compatibilidade)
   cashDiscountPercent: z.number().min(0).max(100).optional(),
+
+  // Links e plataforma globais (defaults para novos produtos)
+  paymentPlatform: z.enum(["MERCADO_PAGO", "PAGSEGURO", "OUTRO"]).optional(),
+  pixKey: z.string().optional().nullable(),
+  pixLink: z.string().optional().nullable(),
+  cardPaymentUrl: z.string().optional().nullable(),
+  boletoUrl: z.string().optional().nullable(),
 });
 
 // ─── Router principal ─────────────────────────────────────────────────────────
