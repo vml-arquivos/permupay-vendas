@@ -1,8 +1,12 @@
 /**
  * Marketplace.tsx — Vitrine Pública PermuPay (v4 — Editorial Luxury)
  *
- * Design: branco puro, tipografia Cormorant Garamond + DM Sans,
- * grid assimétrico, hover states cinematográficos, contraste preciso.
+ * Design: branco puro, tipografia modernizada (Montserrat + Poppins),
+ * grid simétrico (proporção 1/1 para todas as imagens), hover discreto e
+ * contraste preciso. O objetivo é criar uma vitrine minimalista com
+ * padronização de cartões e uma tipografia sem serifa forte para o título
+ * e sem serifa arredondada para o texto, facilitando a leitura e
+ * transmitindo uma sensação premium.
  * Lógica de negócio 100% intacta.
  */
 import { useState, useMemo } from "react";
@@ -25,9 +29,11 @@ interface CatalogProduct {
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const CAT: Record<string, string> = {
-  CELULAR: "Celulares", ELETRONICO: "Eletrônicos",
-  PERFUME: "Perfumes & Fragrâncias", OUTRO: "Outros",
+  CELULAR: "Celulares",
+  ELETRONICO: "Eletrônicos",
+  PERFUME: "Perfumes & Fragrâncias",
   BEBIDA: "Bebidas",
+  OUTRO: "Outros",
 };
 
 const pixPrice = (p: CatalogProduct) =>
@@ -39,8 +45,10 @@ const hasStock = (p: CatalogProduct) => (p.stockQuantity ?? 0) > 0;
 const isLow    = (p: CatalogProduct) => (p.minimumStock ?? 0) > 0 && (p.stockQuantity ?? 0) <= (p.minimumStock ?? 0);
 
 // ── Fontes Google injetadas uma vez ──────────────────────────────────────────
-// Carrega famílias Poppins e Montserrat em vários pesos para uma tipografia moderna
-const FONT_LINK = "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap";
+// Substituímos as fontes serifadas clássicas por famílias modernas.
+// Montserrat serve como serif (títulos, headings) e Poppins para corpo de texto.
+const FONT_LINK =
+  "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap";
 
 if (typeof document !== "undefined" && !document.getElementById("mkt-fonts")) {
   const link = document.createElement("link");
@@ -50,9 +58,9 @@ if (typeof document !== "undefined" && !document.getElementById("mkt-fonts")) {
   document.head.appendChild(link);
 }
 
-// Define fontes serif e sans: ambas usam Montserrat/Poppins para evitar contraste excessivo entre títulos e texto
-const SERIF = "'Montserrat', 'Poppins', sans-serif";
-const SANS  = "'Poppins', 'Montserrat', sans-serif";
+// Montserrat será usada para títulos (sem serifa forte) e Poppins para textos.
+const SERIF = "'Montserrat', system-ui, sans-serif";
+const SANS  = "'Poppins', system-ui, sans-serif";
 
 // ── Logo ──────────────────────────────────────────────────────────────────────
 function Logo({ size = 30 }: { size?: number }) {
@@ -87,6 +95,8 @@ function ProductCard({ product: p, index }: { product: CatalogProduct; index: nu
   const card  = cardPrice(p);
   const inst  = Math.max(1, Math.round(p.cardInstallments ?? 3));
 
+  // Cards agora têm proporção fixa (1/1) para todas as imagens.
+  const isPortrait = false;
 
   return (
     <Link href={`/vitrine/${p.id}`}>
@@ -243,10 +253,10 @@ export default function Marketplace() {
             <div className="flex items-center gap-3 cursor-pointer group select-none">
               <Logo />
               <div className="leading-none">
-                <span className="block text-xs font-medium text-neutral-400 tracking-[0.25em] uppercase">Shop</span>
+                <span className="block text-[7px] font-medium text-neutral-400 tracking-[0.32em] uppercase">Shop</span>
                 <span
-                  className="block tracking-[0.18em] text-neutral-900 group-hover:text-neutral-500 transition-colors"
-                  style={{ fontFamily: SANS, fontWeight: 700, fontSize: "0.95rem" }}
+                  className="block tracking-[0.22em] text-neutral-900 group-hover:text-neutral-500 transition-colors"
+                  style={{ fontFamily: SANS, fontWeight: 700, fontSize: "0.82rem" }}
                 >
                   PERMUPAY
                 </span>
@@ -257,24 +267,24 @@ export default function Marketplace() {
           <nav className="hidden md:flex items-center gap-10">
             <button
               onClick={() => setCat(null)}
-              className="text-xs font-medium tracking-[0.18em] uppercase transition-colors pb-px border-b"
+              className="text-[10px] font-medium tracking-[0.18em] uppercase transition-colors pb-px border-b"
               style={{ color: cat === null ? "#111" : "#aaa", borderColor: cat === null ? "#111" : "transparent" }}
             >
               Catálogo
             </button>
             <Link href="/desejos">
-              <span className="text-xs font-medium tracking-[0.18em] uppercase text-neutral-400 hover:text-neutral-800 cursor-pointer transition-colors">
+              <span className="text-[10px] font-medium tracking-[0.18em] uppercase text-neutral-400 hover:text-neutral-800 cursor-pointer transition-colors">
                 Lista de Desejos
               </span>
             </Link>
-            <a href={`${PANEL}/login`} className="text-xs font-medium tracking-[0.18em] uppercase text-neutral-400 hover:text-neutral-800 transition-colors">
+            <a href={`${PANEL}/login`} className="text-[10px] font-medium tracking-[0.18em] uppercase text-neutral-400 hover:text-neutral-800 transition-colors">
               Gerenciar
             </a>
           </nav>
 
           <a
             href={`${PANEL}/login`}
-            className="text-xs font-semibold tracking-[0.2em] uppercase px-5 py-2.5 transition-all duration-200"
+            className="text-[9px] font-semibold tracking-[0.2em] uppercase px-5 py-2.5 transition-all duration-200"
             style={{ border: "1px solid #111", color: "#111", backgroundColor: "transparent" }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "#111"; (e.currentTarget as HTMLElement).style.color = "#fff"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; (e.currentTarget as HTMLElement).style.color = "#111"; }}
@@ -292,39 +302,22 @@ export default function Marketplace() {
           <div className="space-y-8">
             <div className="flex items-center gap-3">
               <div className="w-8 h-px bg-neutral-300" />
-            <span
-              className="text-xs font-medium tracking-[0.3em] uppercase text-neutral-500"
-              style={{ fontFamily: SANS }}
-            >
-              Catálogo Exclusivo · Shoop PermuPay
-            </span>
+              <span
+                className="text-[9px] font-medium tracking-[0.38em] uppercase text-neutral-400"
+                style={{ fontFamily: SANS }}
+              >
+                Catálogo Exclusivo · Shoop PermuPay
+              </span>
             </div>
 
-            <h1
-              style={{
-                fontFamily: SERIF,
-                fontSize: "clamp(2.8rem, 5.5vw, 4.4rem)",
-                fontWeight: 700,
-                color: "#111",
-                lineHeight: 1.04,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              A sua vitrine
-              <br />
-              <span
-                style={{
-                  color: "#b45309",
-                  fontWeight: 700,
-                }}
-              >
-                dos desejos
-              </span>
+            <h1 style={{ fontFamily: SERIF, fontSize: "clamp(2.8rem, 5.5vw, 4.4rem)", fontWeight: 300, color: "#111", lineHeight: 1.04, letterSpacing: "-0.02em" }}>
+              A sua vitrine<br />
+              <em style={{ color: "#b45309", fontStyle: "italic", fontWeight: 400 }}>dos desejos.</em>
             </h1>
 
             <p className="text-neutral-500 text-sm leading-relaxed max-w-sm font-light" style={{ fontFamily: SANS }}>
-              Produtos selecionados. Preços transparentes.<br />
-              Compra simples, segura e sofisticada.
+              Seleção curada de perfumes, gadgets e bebidas originais.<br />
+              Pagamento rápido via Pix e entrega segura.
             </p>
 
             <div className="flex flex-wrap gap-3 pt-2">
@@ -360,8 +353,7 @@ export default function Marketplace() {
               <Link href={`/vitrine/${featured.id}`}>
                 <div className="relative z-10 cursor-pointer group">
                   <div
-                    className="w-64 h-64 rounded-sm flex items-center justify-center overflow-hidden transition-transform duration-700 group-hover:scale-105"
-                    style={{ backgroundColor: "#F8F8F6" }}
+                    className="w-64 h-64 rounded-sm flex items-center justify-center overflow-hidden transition-transform duration-700 group-hover:scale-105 bg-white"
                   >
                     <img
                       src={featured.imageUrl!}
@@ -389,7 +381,7 @@ export default function Marketplace() {
                 </div>
               </Link>
             ) : (
-              <div className="relative z-10 w-64 h-64 flex items-center justify-center rounded-sm" style={{ backgroundColor: "#F8F8F6" }}>
+              <div className="relative z-10 w-64 h-64 flex items-center justify-center rounded-sm bg-white">
                 <ShoppingBag className="w-14 h-14 text-neutral-200" />
               </div>
             )}
@@ -405,13 +397,12 @@ export default function Marketplace() {
               <button
                 key={String(key)}
                 onClick={() => setCat(key)}
-                className={
-                  `shrink-0 px-3 py-2 text-sm font-semibold uppercase rounded-md transition-colors duration-200 ` +
-                  (cat === key
-                    ? 'text-neutral-900 bg-neutral-100 shadow-inner'
-                    : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-50')
-                }
-                style={{ fontFamily: SANS }}
+                className="shrink-0 text-xs font-semibold tracking-[0.2em] uppercase pb-0.5 border-b transition-all duration-200"
+                style={{
+                  color: cat === key ? "#111" : "#6B7280", // neutral-400 for inactive
+                  borderColor: cat === key ? "#111" : "transparent",
+                  fontFamily: SANS,
+                }}
               >
                 {label}
               </button>
@@ -432,17 +423,9 @@ export default function Marketplace() {
                 Coleção em destaque
               </p>
             </div>
-            <h2
-              style={{
-                fontFamily: SERIF,
-                fontSize: "clamp(1.8rem, 3vw, 2.8rem)",
-                fontWeight: 700,
-                color: "#111",
-                lineHeight: 1.08,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Vitrine dos <span style={{ color: "#92400e", fontWeight: 700 }}>Desejos</span>
+            <h2 style={{ fontFamily: SERIF, fontSize: "clamp(1.8rem, 3vw, 2.8rem)", fontWeight: 300, color: "#111", lineHeight: 1.08, letterSpacing: "-0.02em" }}>
+              Vitrine dos{" "}
+              <em style={{ color: "#92400e", fontStyle: "italic", fontWeight: 400 }}>Desejos</em>
             </h2>
           </div>
           {!isLoading && filtered.length > 0 && (
@@ -510,19 +493,9 @@ export default function Marketplace() {
             <Heart className="w-5 h-5 text-neutral-400" />
           </div>
 
-          <h2
-            style={{
-              fontFamily: SERIF,
-              fontSize: "clamp(1.5rem, 3vw, 2.1rem)",
-              fontWeight: 700,
-              color: "#111",
-              lineHeight: 1.2,
-              letterSpacing: "-0.01em",
-            }}
-          >
-            Sua Lista de Desejos
-            <br />
-            <span style={{ fontWeight: 700 }}>Personalizada</span>
+          <h2 style={{ fontFamily: SERIF, fontSize: "clamp(1.5rem, 3vw, 2.1rem)", fontWeight: 300, color: "#111", lineHeight: 1.2, letterSpacing: "-0.01em" }}>
+            Sua Lista de Desejos<br />
+            <em style={{ fontStyle: "italic", fontWeight: 400 }}>Personalizada</em>
           </h2>
 
           <p className="text-sm text-neutral-500 leading-relaxed font-light max-w-xs mx-auto" style={{ fontFamily: SANS }}>
