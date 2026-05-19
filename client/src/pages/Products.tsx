@@ -41,6 +41,7 @@ import {
   ImageOff,
   RefreshCw,
   Ban,
+  Share2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -88,6 +89,29 @@ export default function Products() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  /**
+   * Compartilha ou copia o link público de um produto
+   *
+   * Utiliza a API de compartilhamento nativa do navegador quando disponível.
+   * Caso contrário, copia a URL para a área de transferência e mostra um toast.
+   */
+  const shareProduct = (product: any) => {
+    const baseUrl = import.meta.env.VITE_STOREFRONT_URL || "https://shoop.permupay.com.br";
+    const url = `${baseUrl}/vitrine/${product.id}`;
+    if (navigator.share) {
+      navigator
+        .share({ title: product.name, url })
+        .catch(() => {
+          // fallback para copiar se o usuário cancelar
+          navigator.clipboard.writeText(url);
+          toast.success("Link copiado!");
+        });
+    } else {
+      navigator.clipboard.writeText(url);
+      toast.success("Link copiado!");
+    }
+  };
+
   const filteredProducts = (products as any[]).filter((p) => {
     const matchSearch =
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -103,8 +127,13 @@ export default function Products() {
   const draftCount = (products as any[]).filter((p) => !p.published).length;
 
   const exportToExcel = () => {
-    if (products.length === 0) { toast.error("Nenhum produto para exportar"); return; }
+    if (products.length === 0) {
+      toast.error("Nenhum produto para exportar");
+      return;
+    }
     const now = new Date().toISOString().split("T")[0];
+    // Base URL da vitrine, definida no .env (fallback para domínio padrão)
+    const baseUrl = import.meta.env.VITE_STOREFRONT_URL || "https://shoop.permupay.com.br";
     const catalogRows = (products as any[]).map((p) => ({
       "Nome do Produto": p.name,
       "Categoria": p.category,
@@ -114,6 +143,7 @@ export default function Products() {
       "Publicado na Vitrine": p.published ? "Sim" : "Não",
       "Status": p.active ? "Ativo" : "Inativo",
       "Data de Criação": new Date(p.createdAt).toLocaleDateString("pt-BR"),
+      "Link do Produto": `${baseUrl}/vitrine/${p.id}`,
     }));
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(catalogRows);
@@ -349,6 +379,14 @@ export default function Products() {
                     </Link>
                     <Button variant="outline" size="sm" className="gap-1.5" onClick={() => duplicate.mutate({ id: product.id })}>
                       <Copy className="w-3.5 h-3.5" /> Duplicar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => shareProduct(product)}
+                    >
+                      <Share2 className="w-3.5 h-3.5" /> Compartilhar
                     </Button>
                     <Button
                       variant="outline"
