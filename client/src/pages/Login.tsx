@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle } from "lucide-react";
+import logo from "@/assets/logo.png";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -58,7 +59,8 @@ export default function Login() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-8">
         {/* Header */}
-        <div className="space-y-2 text-center">
+        <div className="space-y-3 text-center">
+          <img src={logo} alt="Shop PermuPay" className="h-20 w-auto object-contain mx-auto" />
           <h1 className="text-2xl font-bold tracking-tight">
             PermuPay Vendas
           </h1>
