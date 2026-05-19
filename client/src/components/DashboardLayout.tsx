@@ -43,6 +43,7 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import logo from "@/assets/logo.png";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -164,8 +165,8 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed && (
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="h-6 w-6 rounded-md bg-primary flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary-foreground">P</span>
+                  <div className="h-8 w-8 rounded-md overflow-hidden shrink-0 bg-transparent flex items-center justify-center">
+                    <img src={logo} alt="Shop PermuPay" className="h-full w-full object-contain" />
                   </div>
                   <span className="font-semibold tracking-tight truncate text-sm">PermuPay</span>
                 </div>
