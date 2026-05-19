@@ -55,6 +55,11 @@ type ProductView = "todos" | "publicados" | "rascunhos";
 export default function Products() {
   const utils = trpc.useUtils();
   const { data: products = [] } = trpc.products.list.useQuery();
+  // Settings globais — usadas como fallback para detectar links de pagamento
+  // em produtos criados antes da herança automática ser implementada
+  const { data: globalPayment } = trpc.paymentSettings.get.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [view, setView] = useState<ProductView>("todos");
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: number; name: string } | null>(null);
@@ -390,7 +395,16 @@ export default function Products() {
           ) : (
             <div className="grid gap-4">
               {filteredProducts.map((product: any) => {
-                const hasPaymentMethod = !!(product.pixLink || product.pixKey || product.cardPaymentUrl || product.boletoUrl);
+                // Links do produto específico
+                const productPixKey  = product.pixKey  || product.pixLink;
+                const productCard    = product.cardPaymentUrl;
+                const productBoleto  = product.boletoUrl;
+                // Links globais (fallback para produtos criados antes da herança automática)
+                const globalPixKey   = globalPayment?.pixKey  || globalPayment?.pixLink;
+                const globalCard     = globalPayment?.cardPaymentUrl;
+                const globalBoleto   = globalPayment?.boletoUrl;
+                // Considera configurado se tiver link no produto OU nas settings globais
+                const hasPaymentMethod = !!(productPixKey || productCard || productBoleto || globalPixKey || globalCard || globalBoleto);
                 const lowStock = (product.minimumStock ?? 0) > 0 && (product.stockQuantity ?? 0) <= (product.minimumStock ?? 0);
                 const noImage = !product.imageUrl;
                 const hasPix = (product.suggestedPricePix ?? 0) > 0;
