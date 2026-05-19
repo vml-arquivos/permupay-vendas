@@ -142,24 +142,25 @@ function Field({ label, tooltip, required, hint, children }: {
   label: string; tooltip?: string; required?: boolean; hint?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex items-center gap-1.5">
-        <Label className="text-[10px] font-semibold text-muted-foreground tracking-[0.12em] uppercase">
-          {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
+        <Label className="text-xs font-medium text-muted-foreground tracking-wider uppercase">
+          {label}
+          {required && <span className="text-rose-500 ml-0.5">*</span>}
         </Label>
         {tooltip && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Info className="w-3 h-3 text-muted-foreground cursor-help" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-[11px]">
+            <TooltipContent className="max-w-xs text-xs">
               {tooltip}
             </TooltipContent>
           </Tooltip>
         )}
       </div>
       {children}
-      {hint && <p className="text-[9px] text-muted-foreground leading-relaxed font-light">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground leading-relaxed font-light">{hint}</p>}
     </div>
   );
 }
@@ -171,7 +172,7 @@ function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
   return (
     <div className="relative flex items-center">
       {prefix && (
-        <span className="absolute left-3 text-[10px] text-muted-foreground pointer-events-none font-mono">
+        <span className="absolute left-3 text-xs text-muted-foreground pointer-events-none font-mono">
           {prefix}
         </span>
       )}
@@ -186,7 +187,7 @@ function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
         className={`h-9 text-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
       />
       {suffix && (
-        <span className="absolute right-3 text-[10px] text-muted-foreground pointer-events-none font-mono">
+        <span className="absolute right-3 text-xs text-muted-foreground pointer-events-none font-mono">
           {suffix}
         </span>
       )}
@@ -197,7 +198,7 @@ function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
 /** Card de seção — idêntico ao de ConfiguracoesPagamento */
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-5">
+    <div className="rounded-lg border border-border bg-card p-6">
       {children}
     </div>
   );
@@ -626,8 +627,10 @@ export default function ProductForm() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"] as ProductCategory[]).map((c) => (
-                        <SelectItem key={c} value={c} className="text-sm">{c}</SelectItem>
+                      {(["CELULAR", "ELETRONICO", "PERFUME", "BEBIDA", "OUTRO"]).map((c) => (
+                        <SelectItem key={c} value={c as any} className="text-sm capitalize">
+                          {c.charAt(0) + c.slice(1).toLowerCase()}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
