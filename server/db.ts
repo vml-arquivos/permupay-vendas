@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
@@ -135,7 +135,7 @@ export async function listProducts(_userId?: number) {
     return await db
       .select()
       .from(products)
-      .orderBy(desc(products.createdAt));
+      .orderBy(asc(products.displayOrder), desc(products.createdAt));
   } catch (error) {
     console.error("[DB] Erro ao listar produtos:", error);
     return [];
@@ -541,12 +541,22 @@ export async function getDashboardData(_userId?: number) {
       lastSimulation: null,
       attentionCount: 0,
       healthyCount: 0,
-      recentSimulations: [],
-      ordersAguardando: 0,
-      ordersPagos: 0,
-      ordersCancelados: 0,
-      faturamentoConfirmado: 0,
-      ticketMedio: 0,
-    };
+  
+export async function reorderProducts(orderedIds: number[]) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        await tx
+          .update(products)
+          .set({ displayOrder: i + 1 })
+          .where(eq(products.id, orderedIds[i]));
+      }
+    });
+  } catch (error) {
+    console.error("[DB] Erro ao reordenar produtos:", error);
+    throw error;
   }
 }
+
