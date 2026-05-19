@@ -541,7 +541,18 @@ export async function getDashboardData(_userId?: number) {
       lastSimulation: null,
       attentionCount: 0,
       healthyCount: 0,
-  
+      recentSimulations: [],
+      ordersAguardando: 0,
+      ordersPagos: 0,
+      ordersCancelados: 0,
+      faturamentoConfirmado: 0,
+      ticketMedio: 0,
+    };
+  }
+}
+
+// ─── Reordenação de Produtos ──────────────────────────────────────────────────
+
 export async function reorderProducts(orderedIds: number[]) {
   const db = await getDb();
   if (!db) return;
@@ -559,4 +570,3 @@ export async function reorderProducts(orderedIds: number[]) {
     throw error;
   }
 }
-
