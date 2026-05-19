@@ -40,6 +40,7 @@ const CATEGORY_META: Record<string, string> = {
   CELULAR: "Celulares",
   ELETRONICO: "Eletrônicos",
   PERFUME: "Perfumes",
+  BEBIDA: "Bebidas",
   OUTRO: "Outros",
 };
 
@@ -293,7 +294,7 @@ export default function ProductPage() {
           {/* IMAGEM */}
           <div className="relative">
             <div
-              className="rounded-3xl overflow-hidden bg-stone-50"
+              className="rounded-3xl overflow-hidden bg-white"
               style={{ aspectRatio: "1 / 1" }}
             >
               {p.imageUrl ? (
