@@ -97,14 +97,14 @@ function ProductCard({ product: p }: { product: CatalogProduct }) {
         >
           {p.imageUrl ? (
             /*
-             * object-cover: imagem preenche o container inteiro.
-             * Scale apenas no <img> — nunca no container pai — para
-             * preservar o tamanho do card e o alinhamento do grid.
+             * object-contain + padding: imagem NUNCA é cortada.
+             * A imagem inteira sempre aparece dentro do card.
+             * Scale no hover age só no <img>, o container não muda.
              */
             <img
               src={p.imageUrl}
               alt={p.name}
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.07]"
+              className="absolute inset-0 w-full h-full object-contain p-5 transition-transform duration-700 ease-out group-hover:scale-[1.05]"
             />
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
@@ -245,10 +245,10 @@ export default function Marketplace() {
         className="sticky top-0 z-50 border-b border-neutral-100"
         style={{ backgroundColor: "rgba(255,255,255,0.96)", backdropFilter: "blur(12px)" }}
       >
-        <div className="max-w-7xl mx-auto px-6 lg:px-16 h-14 flex items-center justify-between gap-8">
+        <div className="max-w-7xl mx-auto px-6 lg:px-16 h-24 flex items-center justify-between gap-8">
           <Link href="/vitrine">
             <div className="flex items-center gap-3 cursor-pointer select-none">
-              <Logo size={38} />
+              <Logo size={114} />
             </div>
           </Link>
 
@@ -523,7 +523,7 @@ export default function Marketplace() {
       <footer className="border-t border-neutral-100 py-10 bg-white">
         <div className="max-w-7xl mx-auto px-6 lg:px-16 flex flex-col sm:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <Logo size={26} />
+            <Logo size={78} />
           </div>
 
           <nav className="flex items-center gap-8">
