@@ -182,7 +182,7 @@ export default function Dashboard() {
       {/* ── Cabeçalho ─────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-0.5">Painel de controle</p>
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-1">Painel de controle</p>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
