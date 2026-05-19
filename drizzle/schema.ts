@@ -21,6 +21,7 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -276,13 +277,19 @@ export const wishlistRequests = pgTable("permupay_wishlist_requests", {
   contact: text("contact").notNull(),
   contactType: text("contact_type").notNull().default("WHATSAPP"),
 
+  // Campos legados — mantidos para compatibilidade com pedidos antigos
   category: text("category"),
   brand: text("brand"),
   model: text("model"),
-  description: text("description").notNull(),
+  description: text("description").notNull().default(""),
 
   budgetMin: real("budget_min").notNull().default(0),
   budgetMax: real("budget_max").notNull().default(0),
+
+  // Campos novos v2 — seleção de produtos do catálogo
+  productIds: integer("product_ids").array().notNull().default(sql`'{}'::integer[]`),
+  phone: text("phone"),
+  notesPublic: text("notes_public"),
 
   status: wishlistStatusEnum("status").notNull().default("NOVO"),
   adminNotes: text("admin_notes"),
@@ -298,6 +305,22 @@ export const wishlistRequests = pgTable("permupay_wishlist_requests", {
 
 export type WishlistRequest = typeof wishlistRequests.$inferSelect;
 export type InsertWishlistRequest = typeof wishlistRequests.$inferInsert;
+
+// ─── Tabela: categories (categorias dinâmicas) ────────────────────────────────
+
+export const categories = pgTable("permupay_categories", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  label: text("label").notNull(),
+  emoji: text("emoji").notNull().default("📦"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type Category = typeof categories.$inferSelect;
+export type InsertCategory = typeof categories.$inferInsert;
 
 // ─── Tabela: app_settings (configurações globais) ─────────────────────────────
 
