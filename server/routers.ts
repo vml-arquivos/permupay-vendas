@@ -394,12 +394,16 @@ export const appRouter = router({
           visitorName: z.string().min(2),
           contact: z.string().min(8),
           contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          // Campos novos v2
+          productIds: z.array(z.number().int().positive()).min(1),
+          notesPublic: z.string().max(300).optional(),
+          // Campos legados opcionais (compatibilidade com código existente)
           category: z
             .enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"])
             .optional(),
           brand: z.string().optional(),
           model: z.string().optional(),
-          description: z.string().min(10),
+          description: z.string().optional(),
           budgetMin: z.number().min(0).default(0),
           budgetMax: z.number().min(0).default(0),
           isAnonymous: z.boolean().default(false),
@@ -413,12 +417,20 @@ export const appRouter = router({
         const ipHash = ipRaw
           ? Buffer.from(ipRaw).toString("base64").slice(0, 16)
           : undefined;
-        return dbWishlist.createWishlistRequest({ ...input, ipHash });
+        // Garante description não-null para schema legado
+        const description = input.description ?? "";
+        return dbWishlist.createWishlistRequest({ ...input, description, ipHash });
       }),
 
     myRequests: publicProcedure
-      .input(z.object({ contact: z.string().min(1) }))
-      .query(({ input }) => dbWishlist.getWishlistByContact(input.contact)),
+      .input(z.object({
+        contact: z.string().min(1).optional(),
+        phone: z.string().min(1).optional(),
+      }))
+      .query(({ input }) => {
+        const lookup = input.phone ?? input.contact ?? "";
+        return dbWishlist.getWishlistByContact(lookup);
+      }),
 
     list: protectedProcedure
       .input(
@@ -450,6 +462,45 @@ export const appRouter = router({
       .mutation(({ input }) => dbWishlist.deleteWishlistRequest(input.id)),
 
     counts: protectedProcedure.query(() => dbWishlist.getWishlistCounts()),
+  }),
+
+  // ── Categorias ─────────────────────────────────────────────────────────────
+  categories: router({
+    list: publicProcedure
+      .input(z.object({ onlyActive: z.boolean().default(false) }).optional())
+      .query(({ input }) => dbWishlist.listCategories(input?.onlyActive)),
+
+    create: protectedProcedure
+      .input(
+        z.object({
+          slug: z.string().min(2).max(50),
+          label: z.string().min(2).max(100),
+          emoji: z.string().max(10).default("📦"),
+          sortOrder: z.number().int().default(0),
+          active: z.boolean().default(true),
+        })
+      )
+      .mutation(({ input }) => dbWishlist.createCategory(input)),
+
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int(),
+          slug: z.string().min(2).max(50).optional(),
+          label: z.string().min(2).max(100).optional(),
+          emoji: z.string().max(10).optional(),
+          sortOrder: z.number().int().optional(),
+          active: z.boolean().optional(),
+        })
+      )
+      .mutation(({ input }) => {
+        const { id, ...data } = input;
+        return dbWishlist.updateCategory(id, data);
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(({ input }) => dbWishlist.deleteCategory(input.id)),
   }),
 
   // ── Pedidos ────────────────────────────────────────────────────────────────
