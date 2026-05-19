@@ -92,7 +92,7 @@ function ProductLine({
 }) {
   // Filtra produtos disponíveis: mostra todos, marca os já selecionados em outras linhas
   const available = products.filter(
-    (p) => p.productId !== entry.productId && (!usedIds.has(p.id) || p.id === entry.productId)
+    (p) => !usedIds.has(p.id) || p.id === entry.productId
   );
 
   const selected = products.find((p) => p.id === entry.productId);
@@ -278,9 +278,6 @@ export default function WishlistPublic() {
       contactType: "WHATSAPP",
       productIds: validProductIds,
       notesPublic: notesPublic.trim() || undefined,
-      description: "",    // campo legado — vazio
-      budgetMin: 0,
-      budgetMax: 0,
     });
   };
 
