@@ -192,6 +192,20 @@ export async function createProduct(data: any) {
     const costPriceBrl = calculateCostPriceBrl({ ...data, costCurrency });
     const finalUnitCostBrl = calculateFinalUnitCost(costPriceBrl, data);
 
+    // Herdar links globais de pagamento se o produto não tiver links próprios
+    let inheritedPix: string | null = null;
+    let inheritedPixLink: string | null = null;
+    let inheritedCard: string | null = null;
+    let inheritedBoleto: string | null = null;
+    try {
+      const { getPaymentSettings } = await import("./db.payment-settings");
+      const gs = await getPaymentSettings();
+      inheritedPix      = gs.pixKey      ?? null;
+      inheritedPixLink  = gs.pixLink     ?? null;
+      inheritedCard     = gs.cardPaymentUrl ?? null;
+      inheritedBoleto   = gs.boletoUrl   ?? null;
+    } catch { /* fallback silencioso — não bloqueia criação */ }
+
     const productData = {
       name: String(data.name).trim(),
       category: data.category,
@@ -224,10 +238,11 @@ export async function createProduct(data: any) {
       suggestedPriceCard: Math.max(0, Number(data.suggestedPriceCard) || 0),
       suggestedPriceBoleto: Math.max(0, Number(data.suggestedPriceBoleto) || 0),
       paymentPlatform: data.paymentPlatform || "MERCADO_PAGO",
-      pixKey: data.pixKey ? String(data.pixKey).trim() : null,
-      pixLink: data.pixLink ? String(data.pixLink).trim() : null,
-      cardPaymentUrl: data.cardPaymentUrl ? String(data.cardPaymentUrl).trim() : null,
-      boletoUrl: data.boletoUrl ? String(data.boletoUrl).trim() : null,
+      // Links de pagamento: usa os do produto se informados, senão herda os globais
+      pixKey:        data.pixKey        ? String(data.pixKey).trim()        : inheritedPix,
+      pixLink:       data.pixLink       ? String(data.pixLink).trim()       : inheritedPixLink,
+      cardPaymentUrl: data.cardPaymentUrl ? String(data.cardPaymentUrl).trim() : inheritedCard,
+      boletoUrl:     data.boletoUrl     ? String(data.boletoUrl).trim()     : inheritedBoleto,
       desiredMarginValue: Math.max(0, Number(data.desiredMarginValue) || 0),
       marginMode: data.marginMode || "PERCENT",
       taxCash: Math.max(0, Number(data.taxCash) || 6),
