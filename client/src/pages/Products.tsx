@@ -221,13 +221,19 @@ export default function Products() {
       ) : (
         <div className="grid gap-4">
           {filteredProducts.map((product: any) => {
-            const hasPaymentMethod = product.pixLink || product.pixKey || product.cardPaymentUrl || product.boletoUrl;
+            // Status: pagamento configurado = tem pelo menos um link OU chave Pix
+            const hasPaymentMethod = !!(product.pixLink || product.pixKey || product.cardPaymentUrl || product.boletoUrl);
+            // Status: baixo estoque = tem estoque mínimo definido E estoque atual abaixo do mínimo
             const lowStock = (product.minimumStock ?? 0) > 0 && (product.stockQuantity ?? 0) <= (product.minimumStock ?? 0);
+            // Status: sem imagem
             const noImage = !product.imageUrl;
+            // Preços calculados
             const hasPix = (product.suggestedPricePix ?? 0) > 0;
             const hasCard = (product.suggestedPriceCard ?? 0) > 0;
             const hasBoleto = (product.suggestedPriceBoleto ?? 0) > 0;
             const hasAnyPrice = hasPix || hasCard || hasBoleto || (product.suggestedPrice ?? 0) > 0;
+            // Produto publicado sem pagamento configurado = alerta crítico
+            const publishedWithoutPayment = product.published && !hasPaymentMethod;
 
             return (
               <div
@@ -266,7 +272,16 @@ export default function Products() {
                           {!product.active && <Badge variant="secondary" className="text-xs opacity-60">Inativo</Badge>}
                           {product.promoTag && <Badge className="bg-orange-100 text-orange-700 border-0 text-xs">🏷️ {product.promoTag}</Badge>}
                           {lowStock && <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">⚠️ Baixo estoque</Badge>}
-                          {!hasPaymentMethod && product.published && <Badge variant="outline" className="text-red-600 border-red-300 text-xs">Sem pagamento</Badge>}
+                          {publishedWithoutPayment && (
+                            <Badge variant="outline" className="text-red-600 border-red-300 text-xs">
+                              ⚠️ Sem pagamento configurado
+                            </Badge>
+                          )}
+                          {!hasPaymentMethod && !product.published && (
+                            <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">
+                              Sem pagamento configurado
+                            </Badge>
+                          )}
                           {noImage && <Badge variant="outline" className="text-slate-500 border-slate-300 text-xs"><ImageOff className="w-3 h-3 mr-1" />Sem imagem</Badge>}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
