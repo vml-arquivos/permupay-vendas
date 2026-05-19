@@ -274,6 +274,10 @@ export const appRouter = router({
         dbBatches.updateProductImage(input.productId, ctx.user.id, input.imageUrl)
       ),
 
+    reorder: protectedProcedure
+      .input(z.object({ orderedIds: z.array(z.number()) }))
+      .mutation(({ input }) => db.reorderProducts(input.orderedIds)),
+
     togglePublished: protectedProcedure
       .input(
         z.object({
