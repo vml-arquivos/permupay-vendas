@@ -244,7 +244,7 @@ export default function ProductPage() {
         className="sticky top-0 z-40 border-b border-neutral-100"
         style={{ backgroundColor: "rgba(255,255,255,0.96)", backdropFilter: "blur(12px)" }}
       >
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between gap-6">
+        <div className="max-w-6xl mx-auto px-6 h-24 flex items-center justify-between gap-6">
           {/* Voltar */}
           <Link href="/vitrine">
             <button
@@ -259,7 +259,7 @@ export default function ProductPage() {
           {/* Logo */}
           <Link href="/vitrine">
             <div className="cursor-pointer select-none">
-              <img src={logo} alt="Shop PermuPay" className="h-8 w-auto object-contain" />
+              <img src={logo} alt="Shop PermuPay" className="h-24 w-auto object-contain" />
             </div>
           </Link>
 
@@ -294,8 +294,8 @@ export default function ProductPage() {
                 <img
                   src={p.imageUrl}
                   alt={p.name}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  /* object-cover: sem padding, sem corte em bordas bizarras */
+                  className="absolute inset-0 w-full h-full object-contain p-8"
+                  /* object-contain: imagem NUNCA é cortada, aparece inteira */
                 />
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
