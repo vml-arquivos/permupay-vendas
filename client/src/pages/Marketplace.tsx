@@ -55,12 +55,12 @@ const SERIF = "'Montserrat', 'Poppins', sans-serif";
 const SANS  = "'Poppins', 'Montserrat', sans-serif";
 
 // ── Logo ──────────────────────────────────────────────────────────────────────
-function Logo({ size = 86 }: { size?: number }) {
+function Logo({ size = 34 }: { size?: number }) {
   return (
     <img
       src={logo}
       alt="Shop PermuPay"
-      style={{ height: size, width: "auto", maxWidth: 180 }}
+      style={{ height: size, width: "auto" }}
       className="shrink-0 object-contain"
     />
   );
@@ -241,10 +241,10 @@ export default function Marketplace() {
         className="sticky top-0 z-50 border-b border-neutral-100"
         style={{ backgroundColor: "rgba(255,255,255,0.96)", backdropFilter: "blur(12px)" }}
       >
-        <div className="max-w-7xl mx-auto px-6 lg:px-16 h-24 flex items-center justify-between gap-8">
+        <div className="max-w-7xl mx-auto px-6 lg:px-16 h-16 flex items-center justify-between gap-8">
           <Link href="/vitrine">
             <div className="flex items-center gap-3 cursor-pointer group select-none">
-              <Logo size={92} />
+              <Logo size={46} />
             </div>
           </Link>
 
@@ -539,7 +539,7 @@ export default function Marketplace() {
       <footer className="border-t border-neutral-100 py-10 bg-white">
         <div className="max-w-7xl mx-auto px-6 lg:px-16 flex flex-col sm:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <Logo size={52} />
+            <Logo size={28} />
           </div>
 
           <nav className="flex items-center gap-8">
