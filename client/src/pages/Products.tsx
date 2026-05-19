@@ -249,11 +249,11 @@ export default function Products() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3 flex-1 min-w-0">
                       {product.imageUrl ? (
-                        <div className="w-14 h-14 rounded-lg border shrink-0 overflow-hidden bg-muted">
-                          <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                        <div className="w-14 h-14 rounded-lg border shrink-0 overflow-hidden bg-white">
+                          <img src={product.imageUrl} alt={product.name} className="w-full h-full object-contain p-1" />
                         </div>
                       ) : (
-                        <div className="w-14 h-14 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                        <div className="w-14 h-14 rounded-lg bg-white border flex items-center justify-center shrink-0">
                           <ShoppingBag className="w-5 h-5 text-muted-foreground/40" />
                         </div>
                       )}
