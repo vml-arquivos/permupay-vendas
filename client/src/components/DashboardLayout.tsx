@@ -38,6 +38,7 @@ import {
   Store,
   ClipboardList,
   CreditCard,
+  Tag,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -58,6 +59,7 @@ const menuItems = [
 
 const adminItems = [
   { icon: Users, label: "Usuários", path: "/usuarios" },
+  { icon: Tag, label: "Categorias", path: "/categorias" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
   { icon: CreditCard, label: "Pagamento", path: "/configuracoes-pagamento" },
 ];
