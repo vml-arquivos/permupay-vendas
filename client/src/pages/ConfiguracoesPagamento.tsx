@@ -7,12 +7,15 @@
  * 3. Lucro líquido real: impostos e taxas embutidos de forma retroativa no preço
  *    final — nunca descontados da margem do lojista.
  * 4. Modo view/edit: campos travados até clicar em "Editar".
+ * 5. Links e plataforma globais: defaults para novos produtos (podem ser
+ *    sobrescritos individualmente por produto).
  *
  * Seções:
  *  A. Regime & Alíquotas Fiscais
  *  B. Descontos Universais por Forma de Pagamento
  *  C. Configuração de Cartão (Débito / Crédito)
  *  D. Configuração de Boleto
+ *  E. Pagamentos Externos (plataforma, links globais)
  */
 
 import { useState, useEffect } from "react";
@@ -37,7 +40,7 @@ import {
 import {
   Lock, Unlock, Save, Loader2, Info, CreditCard,
   FileText, Zap, Banknote, Percent, ShieldCheck,
-  AlertCircle,
+  AlertCircle, Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,6 +58,12 @@ const TAX_REGIME_LABELS: Record<string, string> = {
   MANUAL: "Manual (alíquotas livres)",
 };
 
+const PAYMENT_PLATFORM_LABELS: Record<string, string> = {
+  MERCADO_PAGO: "Mercado Pago",
+  PAGSEGURO: "PagSeguro",
+  OUTRO: "Outro",
+};
+
 // ── Sub-componentes ───────────────────────────────────────────────────────────
 
 function Field({
@@ -66,22 +75,22 @@ function Field({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
-        <Label className="text-[10px] font-semibold text-[#5A5A52] tracking-[0.12em] uppercase">
+        <Label className="text-[10px] font-semibold text-muted-foreground tracking-[0.12em] uppercase">
           {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
         </Label>
         {tooltip && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Info className="w-3 h-3 text-[#3A3A34] cursor-help" />
+              <Info className="w-3 h-3 text-muted-foreground cursor-help" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-[11px] border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#0F0F0E", color: "#C8B99A" }}>
+            <TooltipContent className="max-w-xs text-[11px]">
               {tooltip}
             </TooltipContent>
           </Tooltip>
         )}
       </div>
       {children}
-      {hint && <p className="text-[9px] text-[#3A3A34] leading-relaxed font-light">{hint}</p>}
+      {hint && <p className="text-[9px] text-muted-foreground leading-relaxed font-light">{hint}</p>}
     </div>
   );
 }
@@ -97,7 +106,7 @@ function NumInput({
   return (
     <div className="relative flex items-center">
       {prefix && (
-        <span className="absolute left-3 text-[10px] text-[#4A4A44] pointer-events-none font-mono">
+        <span className="absolute left-3 text-[10px] text-muted-foreground pointer-events-none font-mono">
           {prefix}
         </span>
       )}
@@ -109,13 +118,39 @@ function NumInput({
         step="any"
         min={0}
         disabled={isDisabled}
-        className={`h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${isDisabled ? "opacity-40 cursor-not-allowed" : ""}`}
+        className={`h-9 text-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
       />
       {suffix && (
-        <span className="absolute right-3 text-[10px] text-[#4A4A44] pointer-events-none font-mono">
+        <span className="absolute right-3 text-[10px] text-muted-foreground pointer-events-none font-mono">
           {suffix}
         </span>
       )}
+    </div>
+  );
+}
+
+function TextInput({
+  value, onChange, disabled, placeholder,
+}: {
+  value: string; onChange: (v: string) => void;
+  disabled?: boolean; placeholder?: string;
+}) {
+  return (
+    <Input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder ?? ""}
+      disabled={disabled}
+      className={`h-9 text-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+    />
+  );
+}
+
+function SectionCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-5">
+      {children}
     </div>
   );
 }
@@ -126,22 +161,14 @@ function SectionHeader({
   icon: React.ReactNode; title: string; subtitle: string;
 }) {
   return (
-    <div className="flex items-start gap-3 pb-4 border-b border-[#1A1A17] mb-5">
-      <div className="w-9 h-9 border border-[#222220] flex items-center justify-center text-[#C8B99A] shrink-0" style={{ backgroundColor: "#161614" }}>
+    <div className="flex items-start gap-3 pb-4 border-b border-border mb-5">
+      <div className="w-9 h-9 rounded-md border border-border bg-muted flex items-center justify-center text-muted-foreground shrink-0">
         {icon}
       </div>
       <div>
-        <p className="text-[11px] font-semibold text-[#E8E3D8] tracking-wide">{title}</p>
-        <p className="text-[10px] text-[#4A4A44] font-light mt-0.5">{subtitle}</p>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
       </div>
-    </div>
-  );
-}
-
-function SectionCard({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="border border-[#1E1E1B] p-5" style={{ backgroundColor: "#111110" }}>
-      {children}
     </div>
   );
 }
@@ -175,6 +202,12 @@ interface FormState {
   discountBoleto: string;
   discountDebit: string;
   discountCredit: string;
+  // Links e plataforma globais
+  paymentPlatform: string;
+  pixKey: string;
+  pixLink: string;
+  cardPaymentUrl: string;
+  boletoUrl: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -200,6 +233,11 @@ const EMPTY_FORM: FormState = {
   discountBoleto: "0",
   discountDebit: "0",
   discountCredit: "0",
+  paymentPlatform: "MERCADO_PAGO",
+  pixKey: "",
+  pixLink: "",
+  cardPaymentUrl: "",
+  boletoUrl: "",
 };
 
 function dataToForm(data: Record<string, unknown>): FormState {
@@ -229,6 +267,11 @@ function dataToForm(data: Record<string, unknown>): FormState {
     discountBoleto: s("discountBoleto", "0"),
     discountDebit: s("discountDebit", "0"),
     discountCredit: s("discountCredit", "0"),
+    paymentPlatform: s("paymentPlatform", "MERCADO_PAGO"),
+    pixKey: data["pixKey"] != null && data["pixKey"] !== "null" ? String(data["pixKey"]) : "",
+    pixLink: data["pixLink"] != null && data["pixLink"] !== "null" ? String(data["pixLink"]) : "",
+    cardPaymentUrl: data["cardPaymentUrl"] != null && data["cardPaymentUrl"] !== "null" ? String(data["cardPaymentUrl"]) : "",
+    boletoUrl: data["boletoUrl"] != null && data["boletoUrl"] !== "null" ? String(data["boletoUrl"]) : "",
   };
 }
 
@@ -293,6 +336,12 @@ export default function ConfiguracoesPagamento() {
       discountBoleto: n(form.discountBoleto),
       discountDebit: n(form.discountDebit),
       discountCredit: n(form.discountCredit),
+      // Links e plataforma globais
+      paymentPlatform: form.paymentPlatform as any,
+      pixKey: form.pixKey || null,
+      pixLink: form.pixLink || null,
+      cardPaymentUrl: form.cardPaymentUrl || null,
+      boletoUrl: form.boletoUrl || null,
     });
   };
 
@@ -300,84 +349,64 @@ export default function ConfiguracoesPagamento() {
 
   return (
     <DashboardLayout>
-      <div
-        className="max-w-3xl mx-auto space-y-0"
-        style={{ fontFamily: "'Lato', 'Montserrat', sans-serif" }}
-      >
+      <div className="space-y-6 max-w-3xl">
+
         {/* ── Cabeçalho da página ──────────────────────────────────────── */}
-        <div className="flex items-start justify-between gap-4 mb-8">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <p
-              className="text-[7px] text-[#3A3A34] uppercase mb-1.5 tracking-[0.4em]"
-              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600 }}
-            >
-              Painel Administrativo
-            </p>
-            <h1
-              className="text-[#E8E3D8]"
-              style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "1.6rem", letterSpacing: "-0.01em" }}
-            >
-              Configurações de{" "}
-              <span style={{ fontWeight: 700 }}>Pagamento</span>
+            <h1 className="text-2xl font-bold text-foreground">
+              Configurações de Pagamento
             </h1>
-            <p
-              className="text-[#4A4A44] mt-1.5 max-w-lg"
-              style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "12px", letterSpacing: "0.02em" }}
-            >
-              Taxas fiscais, tarifas de gateway e descontos globais por forma de pagamento.
+            <p className="text-sm text-muted-foreground mt-1">
+              Taxas fiscais, tarifas de gateway, descontos globais e links de pagamento padrão.
               Aplicados automaticamente em todos os cálculos de precificação.
             </p>
           </div>
 
           <div className="shrink-0 flex items-center gap-2">
             {editing && (
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleCancelEdit}
-                className="px-4 py-2 border border-[#222220] text-[#5A5A52] hover:text-[#E8E3D8] transition-colors"
-                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "8px", letterSpacing: "0.22em" }}
               >
-                CANCELAR
-              </button>
+                Cancelar
+              </Button>
             )}
             {!editing ? (
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setEditing(true)}
-                className="flex items-center gap-2 px-4 py-2 border border-[#2A2A26] text-[#7A7268] hover:border-[#C8B99A]/40 hover:text-[#C8B99A] transition-all"
-                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.22em" }}
+                className="gap-2"
               >
                 <Unlock className="w-3.5 h-3.5" />
-                EDITAR
-              </button>
+                Editar
+              </Button>
             ) : (
-              <button
+              <Button
+                size="sm"
                 onClick={handleSave}
                 disabled={updateMutation.isPending}
-                className="flex items-center gap-2 px-5 py-2 bg-[#C8B99A] text-[#0A0A09] hover:bg-[#D9CEBA] transition-colors disabled:opacity-40"
-                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.22em" }}
+                className="gap-2"
               >
                 {updateMutation.isPending
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   : <Save className="w-3.5 h-3.5" />
                 }
-                SALVAR
-              </button>
+                Salvar
+              </Button>
             )}
           </div>
         </div>
 
         {/* Aviso de bloqueio */}
         {locked && (
-          <div
-            className="flex items-center gap-3 p-3.5 border border-[#1A1A17] mb-6"
-            style={{ backgroundColor: "#0D0D0C" }}
-          >
-            <Lock className="w-3.5 h-3.5 text-[#3A3A34] shrink-0" />
-            <span
-              className="text-[#3A3A34]"
-              style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "11px" }}
-            >
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
+            <Lock className="w-4 h-4 text-muted-foreground shrink-0" />
+            <span className="text-sm text-muted-foreground">
               Configurações travadas. Clique em{" "}
-              <span className="text-[#C8B99A] font-medium">Editar</span>{" "}
+              <span className="text-foreground font-medium">Editar</span>{" "}
               para modificar.
             </span>
           </div>
@@ -392,23 +421,15 @@ export default function ConfiguracoesPagamento() {
           />
 
           {/* PIX isento — aviso fixo */}
-          <div
-            className="flex items-start gap-2.5 p-3 border border-emerald-900/30 mb-5"
-            style={{ backgroundColor: "rgba(6,78,59,0.08)" }}
-          >
-            <Zap className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2.5 p-3 rounded-md border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-950/20 mb-5">
+            <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-500 shrink-0 mt-0.5" />
             <div>
-              <p
-                className="text-emerald-400"
-                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.22em" }}
-              >
+              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                 PIX — ISENTO FISCAL
               </p>
-              <p
-                className="text-[#4A4A44] mt-0.5"
-                style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "10px" }}
-              >
-                O imposto sobre pagamentos via PIX é sempre <strong className="text-emerald-500/70">zero (0%)</strong>.
+              <p className="text-xs text-muted-foreground mt-0.5">
+                O imposto sobre pagamentos via PIX é sempre{" "}
+                <strong className="text-emerald-600 dark:text-emerald-500">zero (0%)</strong>.
                 Regra de negócio inegociável — forçada no motor de cálculo.
               </p>
             </div>
@@ -421,12 +442,12 @@ export default function ConfiguracoesPagamento() {
                 onValueChange={set("taxRegime") as (v: string) => void}
                 disabled={locked}
               >
-                <SelectTrigger className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] focus:ring-0 rounded-sm">
+                <SelectTrigger className="h-9 text-sm">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#111110" }}>
+                <SelectContent>
                   {Object.entries(TAX_REGIME_LABELS).map(([v, l]) => (
-                    <SelectItem key={v} value={v} className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">
+                    <SelectItem key={v} value={v} className="text-sm">
                       {l}
                     </SelectItem>
                   ))}
@@ -442,9 +463,9 @@ export default function ConfiguracoesPagamento() {
                 <Input
                   value="0"
                   disabled
-                  className="h-9 text-sm border-[#222220] bg-[#141412] text-emerald-500/60 pr-8 rounded-sm opacity-60 cursor-not-allowed"
+                  className="h-9 text-sm pr-8 opacity-50 cursor-not-allowed text-emerald-600 dark:text-emerald-500"
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#4A4A44] pointer-events-none font-mono">%</span>
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-mono">%</span>
               </div>
             </Field>
 
@@ -466,8 +487,6 @@ export default function ConfiguracoesPagamento() {
           </div>
         </SectionCard>
 
-        <div className="h-3" />
-
         {/* ── B. DESCONTOS UNIVERSAIS ──────────────────────────────────── */}
         <SectionCard>
           <SectionHeader
@@ -476,16 +495,11 @@ export default function ConfiguracoesPagamento() {
             subtitle="Percentual de desconto aplicado no preço final ao cliente por modalidade"
           />
 
-          <div
-            className="flex items-start gap-2.5 p-3 border border-[#1A1A17] mb-5"
-            style={{ backgroundColor: "#0D0D0C" }}
-          >
-            <AlertCircle className="w-3.5 h-3.5 text-[#C8B99A] shrink-0 mt-0.5" />
-            <p
-              className="text-[#4A4A44]"
-              style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "10px" }}
-            >
-              Os descontos são aplicados <strong className="text-[#7A7268]">sobre o preço final calculado</strong>,
+          <div className="flex items-start gap-2.5 p-3 rounded-md border border-border bg-muted/30 mb-5">
+            <AlertCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground">
+              Os descontos são aplicados{" "}
+              <strong className="text-foreground">sobre o preço final calculado</strong>,
               nunca sobre a margem do lojista. Ex: desconto PIX 5% → preço final × 0,95.
             </p>
           </div>
@@ -510,19 +524,14 @@ export default function ConfiguracoesPagamento() {
 
           {/* Preview dos descontos ativos */}
           {[
-            { label: "PIX", val: n(form.discountPix), icon: <Zap className="w-3 h-3" /> },
-            { label: "Dinheiro", val: n(form.discountCash), icon: <Banknote className="w-3 h-3" /> },
-            { label: "Boleto", val: n(form.discountBoleto), icon: <FileText className="w-3 h-3" /> },
-            { label: "Débito", val: n(form.discountDebit), icon: <CreditCard className="w-3 h-3" /> },
-            { label: "Crédito", val: n(form.discountCredit), icon: <CreditCard className="w-3 h-3" /> },
+            { label: "PIX", val: n(form.discountPix) },
+            { label: "Dinheiro", val: n(form.discountCash) },
+            { label: "Boleto", val: n(form.discountBoleto) },
+            { label: "Débito", val: n(form.discountDebit) },
+            { label: "Crédito", val: n(form.discountCredit) },
           ].filter((d) => d.val > 0).length > 0 && (
-            <div className="mt-4 pt-4 border-t border-[#1A1A17]">
-              <p
-                className="text-[7px] text-[#2E2E2A] uppercase mb-2 tracking-[0.3em]"
-                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600 }}
-              >
-                Descontos ativos — preview
-              </p>
+            <div className="mt-4 pt-4 border-t border-border">
+              <p className="text-xs text-muted-foreground mb-2">Descontos ativos</p>
               <div className="flex flex-wrap gap-2">
                 {[
                   { label: "PIX", val: n(form.discountPix) },
@@ -535,8 +544,7 @@ export default function ConfiguracoesPagamento() {
                   .map((d) => (
                     <span
                       key={d.label}
-                      className="inline-flex items-center gap-1 border border-[#C8B99A]/20 text-[#C8B99A] px-2.5 py-1"
-                      style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "8px", letterSpacing: "0.15em", backgroundColor: "rgba(200,185,154,0.05)" }}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2.5 py-1 text-xs font-medium text-foreground"
                     >
                       {d.label}: −{d.val}%
                     </span>
@@ -545,8 +553,6 @@ export default function ConfiguracoesPagamento() {
             </div>
           )}
         </SectionCard>
-
-        <div className="h-3" />
 
         {/* ── C. CARTÃO ────────────────────────────────────────────────── */}
         <SectionCard>
@@ -577,21 +583,10 @@ export default function ConfiguracoesPagamento() {
             </Field>
           </div>
 
-          <div
-            className="flex items-center justify-between p-3.5 border border-[#1A1A17]"
-            style={{ backgroundColor: "#161614" }}
-          >
+          <div className="flex items-center justify-between p-3.5 rounded-md border border-border bg-muted/20">
             <div>
-              <p
-                className="text-[#E8E3D8]"
-                style={{ fontFamily: "'Lato', sans-serif", fontWeight: 400, fontSize: "12px" }}
-              >
-                Juros repassado ao cliente
-              </p>
-              <p
-                className="text-[#3A3A34] mt-0.5"
-                style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "10px" }}
-              >
+              <p className="text-sm font-medium text-foreground">Juros repassado ao cliente</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Se ativado, o cliente absorve os juros do parcelamento
               </p>
             </div>
@@ -599,12 +594,9 @@ export default function ConfiguracoesPagamento() {
               checked={form.cardCustomerPaysInterest}
               onCheckedChange={(v) => !locked && set("cardCustomerPaysInterest")(v)}
               disabled={locked}
-              className="data-[state=checked]:bg-[#C8B99A]"
             />
           </div>
         </SectionCard>
-
-        <div className="h-3" />
 
         {/* ── D. BOLETO ────────────────────────────────────────────────── */}
         <SectionCard>
@@ -629,21 +621,10 @@ export default function ConfiguracoesPagamento() {
             </Field>
           </div>
 
-          <div
-            className="flex items-center justify-between p-3.5 border border-[#1A1A17]"
-            style={{ backgroundColor: "#161614" }}
-          >
+          <div className="flex items-center justify-between p-3.5 rounded-md border border-border bg-muted/20">
             <div>
-              <p
-                className="text-[#E8E3D8]"
-                style={{ fontFamily: "'Lato', sans-serif", fontWeight: 400, fontSize: "12px" }}
-              >
-                Juros repassado ao cliente
-              </p>
-              <p
-                className="text-[#3A3A34] mt-0.5"
-                style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "10px" }}
-              >
+              <p className="text-sm font-medium text-foreground">Juros repassado ao cliente</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Se desligado, a empresa absorve os juros no preço final
               </p>
             </div>
@@ -651,20 +632,106 @@ export default function ConfiguracoesPagamento() {
               checked={form.boletoCustomerPaysInterest}
               onCheckedChange={(v) => !locked && set("boletoCustomerPaysInterest")(v)}
               disabled={locked}
-              className="data-[state=checked]:bg-[#C8B99A]"
             />
           </div>
         </SectionCard>
 
-        <div className="h-3" />
+        {/* ── E. PAGAMENTOS EXTERNOS ───────────────────────────────────── */}
+        <SectionCard>
+          <SectionHeader
+            icon={<Link2 className="w-4 h-4" />}
+            title="Pagamentos Externos"
+            subtitle="Plataforma e links globais padrão — usados automaticamente em novos produtos"
+          />
+
+          <div className="flex items-start gap-2.5 p-3 rounded-md border border-border bg-muted/30 mb-5">
+            <AlertCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground">
+              Estes links são os <strong className="text-foreground">defaults globais</strong> para novos produtos.
+              Cada produto pode sobrescrever individualmente seus próprios links na tela de edição.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field
+              label="Plataforma de pagamento"
+              tooltip="Plataforma padrão usada para processar pagamentos."
+            >
+              <Select
+                value={form.paymentPlatform}
+                onValueChange={set("paymentPlatform") as (v: string) => void}
+                disabled={locked}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(PAYMENT_PLATFORM_LABELS).map(([v, l]) => (
+                    <SelectItem key={v} value={v} className="text-sm">
+                      {l}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field
+              label="Chave Pix global"
+              tooltip="Chave Pix padrão para recebimento. Pode ser CPF, CNPJ, e-mail, telefone ou chave aleatória."
+            >
+              <TextInput
+                value={form.pixKey}
+                onChange={set("pixKey") as any}
+                disabled={locked}
+                placeholder="Ex: contato@empresa.com"
+              />
+            </Field>
+
+            <Field
+              label="Link de pagamento Pix"
+              tooltip="URL do link de pagamento Pix gerado pela plataforma."
+              hint="Ex: https://mpago.la/..."
+            >
+              <TextInput
+                value={form.pixLink}
+                onChange={set("pixLink") as any}
+                disabled={locked}
+                placeholder="https://"
+              />
+            </Field>
+
+            <Field
+              label="Link de pagamento cartão"
+              tooltip="URL do link de pagamento via cartão gerado pela plataforma."
+              hint="Ex: https://mpago.la/..."
+            >
+              <TextInput
+                value={form.cardPaymentUrl}
+                onChange={set("cardPaymentUrl") as any}
+                disabled={locked}
+                placeholder="https://"
+              />
+            </Field>
+
+            <Field
+              label="Link de boleto"
+              tooltip="URL do link de boleto gerado pela plataforma."
+              hint="Ex: https://mpago.la/..."
+            >
+              <TextInput
+                value={form.boletoUrl}
+                onChange={set("boletoUrl") as any}
+                disabled={locked}
+                placeholder="https://"
+              />
+            </Field>
+          </div>
+        </SectionCard>
 
         {/* ── Resumo atual (view mode) ─────────────────────────────────── */}
         {locked && query.data && (
-          <div className="border border-[#1A1A17] p-5" style={{ backgroundColor: "#0D0D0C" }}>
-            <p
-              className="text-[7px] text-[#2E2E2A] uppercase mb-4 tracking-[0.4em]"
-              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600 }}
-            >
+          <div className="rounded-lg border border-border bg-muted/20 p-5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
               Resumo da configuração atual
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -685,20 +752,12 @@ export default function ConfiguracoesPagamento() {
                 { label: "Desconto Dinheiro", value: n(form.discountCash) > 0 ? `−${form.discountCash}%` : "—" },
                 { label: "Desconto Boleto", value: n(form.discountBoleto) > 0 ? `−${form.discountBoleto}%` : "—" },
                 { label: "Desconto Crédito", value: n(form.discountCredit) > 0 ? `−${form.discountCredit}%` : "—" },
+                { label: "Plataforma", value: PAYMENT_PLATFORM_LABELS[form.paymentPlatform] ?? form.paymentPlatform },
+                { label: "Chave Pix", value: form.pixKey || "—" },
               ].map((item) => (
                 <div key={item.label}>
-                  <p
-                    className="text-[#2E2E2A]"
-                    style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "7px", letterSpacing: "0.15em", textTransform: "uppercase" }}
-                  >
-                    {item.label}
-                  </p>
-                  <p
-                    className="text-[#7A7268] mt-0.5"
-                    style={{ fontFamily: "'Lato', sans-serif", fontWeight: 600, fontSize: "12px" }}
-                  >
-                    {item.value}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{item.label}</p>
+                  <p className="text-sm font-semibold text-foreground mt-0.5 truncate">{item.value}</p>
                 </div>
               ))}
             </div>
@@ -708,25 +767,20 @@ export default function ConfiguracoesPagamento() {
         {/* Botão salvar sticky bottom (modo edit) */}
         {editing && (
           <div className="flex justify-end gap-3 pt-2">
-            <button
-              onClick={handleCancelEdit}
-              className="px-5 py-2.5 border border-[#222220] text-[#5A5A52] hover:text-[#E8E3D8] transition-colors"
-              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "8px", letterSpacing: "0.22em" }}
-            >
-              CANCELAR
-            </button>
-            <button
+            <Button variant="outline" onClick={handleCancelEdit}>
+              Cancelar
+            </Button>
+            <Button
               onClick={handleSave}
               disabled={updateMutation.isPending}
-              className="flex items-center gap-2 px-6 py-2.5 bg-[#C8B99A] text-[#0A0A09] hover:bg-[#D9CEBA] transition-colors disabled:opacity-40"
-              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.25em" }}
+              className="gap-2"
             >
               {updateMutation.isPending
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <Save className="w-3.5 h-3.5" />
               }
-              SALVAR CONFIGURAÇÕES
-            </button>
+              Salvar Configurações
+            </Button>
           </div>
         )}
       </div>
