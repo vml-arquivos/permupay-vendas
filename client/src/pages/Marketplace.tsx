@@ -27,6 +27,7 @@ const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 const CAT: Record<string, string> = {
   CELULAR: "Celulares", ELETRONICO: "Eletrônicos",
   PERFUME: "Perfumes & Fragrâncias", OUTRO: "Outros",
+  BEBIDA: "Bebidas",
 };
 
 const pixPrice = (p: CatalogProduct) =>
@@ -86,8 +87,6 @@ function ProductCard({ product: p, index }: { product: CatalogProduct; index: nu
   const card  = cardPrice(p);
   const inst  = Math.max(1, Math.round(p.cardInstallments ?? 3));
 
-  // Cards alternados: alguns com proporção portrait, outros square
-  const isPortrait = index % 5 === 0 || index % 5 === 3;
 
   return (
     <Link href={`/vitrine/${p.id}`}>
@@ -97,8 +96,8 @@ function ProductCard({ product: p, index }: { product: CatalogProduct; index: nu
       >
         {/* ── Imagem ── */}
         <div
-          className="relative overflow-hidden bg-[#F8F8F6] mb-4 rounded-sm"
-          style={{ aspectRatio: isPortrait ? "3/4" : "1/1" }}
+          className="relative overflow-hidden bg-white mb-4 rounded-sm"
+          style={{ aspectRatio: "1/1" }}
         >
           {p.imageUrl ? (
             <img
@@ -406,12 +405,13 @@ export default function Marketplace() {
               <button
                 key={String(key)}
                 onClick={() => setCat(key)}
-                className="shrink-0 text-[9px] font-medium tracking-[0.28em] uppercase pb-px border-b transition-all duration-200"
-                style={{
-                  color: cat === key ? "#111" : "#aaa",
-                  borderColor: cat === key ? "#111" : "transparent",
-                  fontFamily: SANS,
-                }}
+                className={
+                  `shrink-0 px-3 py-2 text-sm font-semibold uppercase rounded-md transition-colors duration-200 ` +
+                  (cat === key
+                    ? 'text-neutral-900 bg-neutral-100 shadow-inner'
+                    : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-50')
+                }
+                style={{ fontFamily: SANS }}
               >
                 {label}
               </button>
