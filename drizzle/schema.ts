@@ -369,6 +369,14 @@ export const paymentSettings = pgTable("permupay_payment_settings", {
   // ── Legado (mantido para compatibilidade até migração total) ──────────────
   cashDiscountPercent: real("cash_discount_percent").notNull().default(0),
 
+  // ── Links e plataforma globais (defaults para novos produtos) ─────────────
+  // Produtos podem sobrescrever individualmente; se vazio, usa o global.
+  paymentPlatform: text("payment_platform").default("MERCADO_PAGO"),
+  pixKey: text("pix_key"),
+  pixLink: text("pix_link"),
+  cardPaymentUrl: text("card_payment_url"),
+  boletoUrl: text("boleto_url"),
+
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
