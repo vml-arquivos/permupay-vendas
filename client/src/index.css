@@ -1,3 +1,6 @@
+/* Importa fontes modernas: Poppins e Montserrat em diferentes pesos */
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap');
+/* Inter e JetBrains Mono podem continuar como fallback para outras páginas */
 @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..800;1,14..32,300..800&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -62,7 +65,8 @@
   --chart-4: var(--color-blue-700);
   --chart-5: var(--color-blue-800);
   --radius: 0.65rem;
-  --font-sans: 'Inter', system-ui, sans-serif;
+  /* Define a família tipográfica padrão para textos: Poppins/Montserrat para aparência moderna e legível */
+  --font-sans: 'Poppins', 'Montserrat', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   --background: oklch(0.985 0.003 240);
   --foreground: oklch(0.235 0.015 65);
