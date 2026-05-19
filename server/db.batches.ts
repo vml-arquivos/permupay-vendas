@@ -4,7 +4,7 @@
  * Acrescente este arquivo em server/ e importe as funções em server/routers.ts
  */
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   batchItems,
   pricingBatches,
@@ -280,7 +280,7 @@ export async function getPublishedProducts() {
     })
     .from(products)
     .where(and(eq(products.published, true), eq(products.active, true)))
-    .orderBy(desc(products.createdAt));
+    .orderBy(asc(products.displayOrder), desc(products.createdAt));
 }
 
 export async function getPublishedProductsByCategory(category?: string) {
