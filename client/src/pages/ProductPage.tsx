@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { BuyModal } from "@/components/BuyModal";
+import logo from "@/assets/logo.png";
 
 function fmt(v: number | null | undefined): string {
   if (v == null || v === 0) return "";
@@ -40,7 +41,6 @@ const CATEGORY_META: Record<string, string> = {
   CELULAR: "Celulares",
   ELETRONICO: "Eletrônicos",
   PERFUME: "Perfumes",
-  BEBIDA: "Bebidas",
   OUTRO: "Outros",
 };
 
@@ -256,26 +256,7 @@ export default function ProductPage() {
           </Link>
           <Link href="/vitrine">
             <div className="flex items-center gap-2 cursor-pointer select-none group">
-              <svg
-                width="26"
-                height="26"
-                viewBox="0 0 34 34"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <rect width="34" height="34" rx="9" fill="#1c1917" />
-                <path
-                  d="M8 12.5C8 10.567 9.567 9 11.5 9H22.5C24.433 9 26 10.567 26 12.5V12.5C26 14.433 24.433 16 22.5 16H11.5C9.567 16 8 14.433 8 12.5V12.5Z"
-                  fill="#f5f0e8"
-                />
-                <path
-                  d="M8 21.5C8 19.567 9.567 18 11.5 18H18.5C20.433 18 22 19.567 22 21.5V21.5C22 23.433 20.433 25 18.5 25H11.5C9.567 25 8 23.433 8 21.5V21.5Z"
-                  fill="#a8a29e"
-                />
-              </svg>
-              <span className="font-black text-stone-900 tracking-widest text-sm group-hover:text-stone-700 transition-colors">
-                PERMAPAY
-              </span>
+              <img src={logo} alt="Shop PermuPay" className="h-8 w-auto object-contain" />
             </div>
           </Link>
           <button
@@ -294,7 +275,7 @@ export default function ProductPage() {
           {/* IMAGEM */}
           <div className="relative">
             <div
-              className="rounded-3xl overflow-hidden bg-white"
+              className="rounded-3xl overflow-hidden bg-stone-50"
               style={{ aspectRatio: "1 / 1" }}
             >
               {p.imageUrl ? (
