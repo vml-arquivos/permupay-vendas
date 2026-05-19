@@ -1,14 +1,14 @@
 /**
- * ProductForm.tsx — Cadastro e Edição de Produto (v2 — Formulário Enxuto)
+ * ProductForm.tsx — Cadastro e Edição de Produto (v3 — Design System Unificado)
  *
- * MUDANÇAS v2:
- * - Seções "Configuração Fiscal", "Boleto" e "Cartão" REMOVIDAS da UI.
- * - Todas as taxas vêm exclusivamente de `trpc.paymentSettings.get` (fonte única).
- * - handleCalculate usa globalSettings em vez de estado local de taxas.
- * - taxCash (PIX) é sempre forçado como 0 no motor (regra de negócio).
- * - FormState agora contém APENAS: Identidade, Custo, Margem, Estoque, Links.
- *
- * LÓGICA DE NEGÓCIO INTACTA: hooks, queries, mutations, rotas inalteradas.
+ * MUDANÇAS v3:
+ * - Visual unificado com ConfiguracoesPagamento.tsx:
+ *   tokens semânticos (bg-card, border-border, text-foreground, text-muted-foreground)
+ *   em vez de cores hardcoded (#0F0F0E, #C8B99A etc.)
+ * - SectionBlock → SectionCard + SectionHeader (mesmos componentes de Configurações)
+ * - Inputs usam classes padrão do sistema (h-9 text-sm border-input bg-background)
+ * - Botões primários: variant padrão do Button; secundários: variant="outline"
+ * - Lógica de negócio 100% intacta.
  */
 
 import { useEffect, useMemo, useState, useCallback, type ChangeEvent } from "react";
@@ -17,7 +17,6 @@ import { trpc } from "@/lib/trpc";
 import {
   calculatePricing,
   isPricingError,
-  PAYMENT_METHOD_LABELS,
   formatCurrency,
   formatPercent,
   type PricingInput,
@@ -48,6 +47,7 @@ import {
   AlertCircle, AlertTriangle, CheckCircle2, XCircle, Info, Calculator,
   DollarSign, CreditCard, Banknote, Sparkles, Tag, Eye, Save,
   ArrowLeft, TrendingUp, TrendingDown, RefreshCcw, Settings2,
+  Package, Layers, BarChart2, StickyNote,
 } from "lucide-react";
 import ImageGallery from "@/components/ImageGallery";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -57,9 +57,7 @@ import { toast } from "sonner";
 
 type MarginMode = "PERCENT" | "VALUE";
 
-/** FormState enxuto: sem campos de fiscal, boleto ou cartão */
 interface FormState {
-  // Identidade
   name: string;
   shortDescription: string;
   description: string;
@@ -70,7 +68,6 @@ interface FormState {
   published: boolean;
   active: boolean;
   notes: string;
-  // Moeda / custo
   costCurrency: "BRL" | "USD";
   costPrice: string;
   costPriceUsd: string;
@@ -78,14 +75,11 @@ interface FormState {
   packagingCost: string;
   inboundShippingCost: string;
   operationalCost: string;
-  // Estoque
   stockQuantity: string;
   minimumStock: string;
-  // Margem
   marginMode: MarginMode;
   desiredMarginRate: string;
   desiredMarginValue: string;
-
 }
 
 const defaultForm: FormState = {
@@ -111,7 +105,6 @@ const defaultForm: FormState = {
   marginMode: "PERCENT",
   desiredMarginRate: "30",
   desiredMarginValue: "",
-
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -124,12 +117,12 @@ function n(val: string): number {
 
 function diagnosticConfig(status: string) {
   switch (status) {
-    case "EXCELENTE":  return { color: "text-emerald-400", icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
-    case "SAUDAVEL":   return { color: "text-green-400",   icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
-    case "ATENCAO":    return { color: "text-amber-400",   icon: <AlertCircle className="w-3.5 h-3.5" /> };
-    case "RISCO":      return { color: "text-orange-400",  icon: <AlertTriangle className="w-3.5 h-3.5" /> };
-    case "PREJUIZO":   return { color: "text-red-400",     icon: <XCircle className="w-3.5 h-3.5" /> };
-    default:           return { color: "text-[#5A5A52]",   icon: null };
+    case "EXCELENTE":  return { color: "text-emerald-500", icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
+    case "SAUDAVEL":   return { color: "text-green-500",   icon: <CheckCircle2 className="w-3.5 h-3.5" /> };
+    case "ATENCAO":    return { color: "text-amber-500",   icon: <AlertCircle className="w-3.5 h-3.5" /> };
+    case "RISCO":      return { color: "text-orange-500",  icon: <AlertTriangle className="w-3.5 h-3.5" /> };
+    case "PREJUIZO":   return { color: "text-red-500",     icon: <XCircle className="w-3.5 h-3.5" /> };
+    default:           return { color: "text-muted-foreground", icon: null };
   }
 }
 
@@ -143,29 +136,30 @@ function methodIcon(method: PaymentMethod) {
   }
 }
 
-// ── Sub-componentes ───────────────────────────────────────────────────────────
+// ── Sub-componentes (mesma estrutura de ConfiguracoesPagamento) ───────────────
 
-function Field({ label, tooltip, required, children }: {
-  label: string; tooltip?: string; required?: boolean; children: React.ReactNode;
+function Field({ label, tooltip, required, hint, children }: {
+  label: string; tooltip?: string; required?: boolean; hint?: string; children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
-        <Label className="text-[10px] font-semibold text-[#5A5A52] tracking-[0.12em] uppercase">
+        <Label className="text-[10px] font-semibold text-muted-foreground tracking-[0.12em] uppercase">
           {label}{required && <span className="text-rose-500 ml-0.5">*</span>}
         </Label>
         {tooltip && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Info className="w-3 h-3 text-[#3A3A34] cursor-help" />
+              <Info className="w-3 h-3 text-muted-foreground cursor-help" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-[11px] border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#0F0F0E", color: "#C8B99A" }}>
+            <TooltipContent className="max-w-xs text-[11px]">
               {tooltip}
             </TooltipContent>
           </Tooltip>
         )}
       </div>
       {children}
+      {hint && <p className="text-[9px] text-muted-foreground leading-relaxed font-light">{hint}</p>}
     </div>
   );
 }
@@ -176,87 +170,103 @@ function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
 }) {
   return (
     <div className="relative flex items-center">
-      {prefix && <span className="absolute left-3 text-[10px] text-[#4A4A44] pointer-events-none font-mono">{prefix}</span>}
+      {prefix && (
+        <span className="absolute left-3 text-[10px] text-muted-foreground pointer-events-none font-mono">
+          {prefix}
+        </span>
+      )}
       <Input
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder ?? "0"}
-        step="any" min={0}
+        step="any"
+        min={0}
         disabled={disabled}
-        className={`h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
+        className={`h-9 text-sm ${prefix ? "pl-8" : ""} ${suffix ? "pr-8" : ""} ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
       />
-      {suffix && <span className="absolute right-3 text-[10px] text-[#4A4A44] pointer-events-none font-mono">{suffix}</span>}
-    </div>
-  );
-}
-
-function SectionBlock({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="border border-[#1E1E1B] overflow-hidden mb-0" style={{ backgroundColor: "#111110" }}>
-      <div className="px-4 py-3 border-b border-[#1A1A17]" style={{ backgroundColor: "#0F0F0E" }}>
-        <span className="text-[8px] font-bold tracking-[0.25em] uppercase text-[#5A5A52]"
-          style={{ fontFamily: "'Montserrat', sans-serif" }}>
-          {title}
+      {suffix && (
+        <span className="absolute right-3 text-[10px] text-muted-foreground pointer-events-none font-mono">
+          {suffix}
         </span>
-      </div>
-      <div className="p-4 space-y-4">{children}</div>
+      )}
     </div>
   );
 }
 
-function DarkResultCard({ result, isBest }: { result: PaymentResult; isBest: boolean }) {
+/** Card de seção — idêntico ao de ConfiguracoesPagamento */
+function SectionCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-5">
+      {children}
+    </div>
+  );
+}
+
+/** Header de seção — idêntico ao de ConfiguracoesPagamento */
+function SectionHeader({
+  icon, title, subtitle,
+}: {
+  icon: React.ReactNode; title: string; subtitle: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 pb-4 border-b border-border mb-5">
+      <div className="w-9 h-9 rounded-md border border-border bg-muted flex items-center justify-center text-muted-foreground shrink-0">
+        {icon}
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Card de resultado de pagamento — usa tokens semânticos */
+function ResultCard({ result, isBest }: { result: PaymentResult; isBest: boolean }) {
   const diag = diagnosticConfig(result.diagnostic);
   return (
-    <div className={`p-3.5 border transition-all ${isBest ? "border-[#C8B99A]/20 bg-[#C8B99A]/5" : "border-[#1E1E1B] bg-[#111110]"}`}>
+    <div className={`p-3.5 rounded-md border transition-all ${isBest ? "border-primary/30 bg-primary/5" : "border-border bg-muted/20"}`}>
       {isBest && (
-        <span className="inline-flex items-center gap-1 text-[7px] font-bold tracking-[0.25em] uppercase text-[#C8B99A] mb-2"
-          style={{ fontFamily: "'Montserrat', sans-serif" }}>
-          <TrendingUp className="w-2.5 h-2.5" /> Melhor opção
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary mb-2">
+          <TrendingUp className="w-3 h-3" /> Melhor opção
         </span>
       )}
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-[#C8B99A]">{methodIcon(result.method)}</span>
+          <span className="text-muted-foreground">{methodIcon(result.method)}</span>
           <div>
-            <p className="text-[10px] font-semibold text-[#7A7268] tracking-wider uppercase"
-              style={{ fontFamily: "'Montserrat', sans-serif" }}>
-              {result.methodLabel}
-            </p>
+            <p className="text-xs font-semibold text-foreground">{result.methodLabel}</p>
             {result.installments > 1 && (
-              <p className="text-[9px] text-[#3A3A34] font-light">
+              <p className="text-[10px] text-muted-foreground">
                 {result.installments}× {formatCurrency(result.installmentValue)}
               </p>
             )}
           </div>
         </div>
-        <span className={`text-[8px] font-bold tracking-wide ${diag.color}`}
-          style={{ fontFamily: "'Montserrat', sans-serif" }}>
-          {result.diagnostic}
-        </span>
+        <span className={`text-[10px] font-bold ${diag.color}`}>{result.diagnostic}</span>
       </div>
-      <p className="text-xl font-bold text-[#E8E3D8] tracking-tight mb-2.5"
-        style={{ fontFamily: "'Lato', sans-serif" }}>
+      <p className="text-xl font-bold text-foreground tracking-tight mb-2.5">
         {formatCurrency(result.suggestedPrice)}
       </p>
-      <div className="space-y-1 text-[9px] border-t border-[#1A1A17] pt-2.5">
+      <div className="space-y-1 text-[10px] border-t border-border pt-2.5">
         <div className="flex justify-between">
-          <span className="text-[#3A3A34] font-light">Impostos:</span>
-          <span className="text-[#5A5A52]">{formatCurrency(result.totalTax)}</span>
+          <span className="text-muted-foreground">Impostos:</span>
+          <span className="text-muted-foreground">{formatCurrency(result.totalTax)}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-[#3A3A34] font-light">Taxas/Juros:</span>
-          <span className="text-[#5A5A52]">{formatCurrency(result.totalFees + result.totalInterest)}</span>
+          <span className="text-muted-foreground">Taxas/Juros:</span>
+          <span className="text-muted-foreground">{formatCurrency(result.totalFees + result.totalInterest)}</span>
         </div>
-        <div className="flex justify-between border-t border-[#1A1A17] pt-1">
-          <span className="text-[#3A3A34] font-light">Lucro líquido:</span>
-          <span className={`font-semibold ${result.netProfit >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+        <div className="flex justify-between border-t border-border pt-1">
+          <span className="text-muted-foreground">Lucro líquido:</span>
+          <span className={`font-semibold ${result.netProfit >= 0 ? "text-emerald-500" : "text-red-500"}`}>
             {formatCurrency(result.netProfit)} ({formatPercent(result.realMarginRate)})
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-[#2E2E2A] font-light">Preço psicológico:</span>
-          <span className="text-[#3A3A34]">{formatCurrency(result.psychologicalPrice)}</span>
+          <span className="text-muted-foreground">Preço psicológico:</span>
+          <span className="text-muted-foreground">{formatCurrency(result.psychologicalPrice)}</span>
         </div>
       </div>
     </div>
@@ -278,7 +288,6 @@ export default function ProductForm() {
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
 
-  // ── Queries ───────────────────────────────────────────────────────────────
   const productQuery = trpc.products.byId.useQuery(
     { id: productId! },
     { enabled: isEditing }
@@ -286,16 +295,9 @@ export default function ProductForm() {
   const utils = trpc.useUtils();
   const addImageMutation = trpc.products.addImage.useMutation();
 
-  /**
-   * FONTE ÚNICA DE TAXAS E LINKS GLOBAIS: configurações globais de pagamento.
-   * O ProductForm NÃO tem mais estados locais de fiscal, boleto ou cartão.
-   * Para links: produto novo usa defaults globais; produto antigo preserva seus valores.
-   */
   const globalSettings = trpc.paymentSettings.get.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
   });
-
-  // Flag para controlar se os defaults globais de links já foram aplicados
 
   const createProduct = trpc.products.create.useMutation({
     onSuccess: async (newProduct) => {
@@ -339,7 +341,6 @@ export default function ProductForm() {
     onError: (e) => { toast.error(e.message); setIsSaving(false); },
   });
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const handlePendingImageSelect = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).slice(0, 4);
     setPendingImages(files);
@@ -357,8 +358,6 @@ export default function ProductForm() {
     []
   );
 
-
-  // Preencher formulário ao editar
   useEffect(() => {
     if (productQuery.data) {
       const p = productQuery.data;
@@ -386,12 +385,10 @@ export default function ProductForm() {
         marginMode: ((p as any).marginMode as MarginMode) || "PERCENT",
         desiredMarginRate: p.desiredMarginRate ? String(p.desiredMarginRate) : "30",
         desiredMarginValue: p.desiredMarginValue ? String(p.desiredMarginValue) : "",
-
       }));
     }
   }, [productQuery.data]);
 
-  // ── Derivados ─────────────────────────────────────────────────────────────
   const costPriceBrl = useMemo(() => {
     if (form.costCurrency === "USD") return n(form.costPriceUsd) * n(form.usdExchangeRate);
     return n(form.costPrice);
@@ -410,7 +407,6 @@ export default function ProductForm() {
     return n(form.desiredMarginRate);
   }, [form.marginMode, form.desiredMarginRate, form.desiredMarginValue, finalUnitCost]);
 
-  // ── Calcular — usa EXCLUSIVAMENTE globalSettings ──────────────────────────
   const handleCalculate = useCallback(() => {
     setCalcError(null);
     if (!form.name.trim()) { setCalcError("Informe o nome do produto."); return; }
@@ -418,7 +414,6 @@ export default function ProductForm() {
     if (!globalSettings.data) { setCalcError("Aguardando configurações globais de pagamento..."); return; }
 
     const gs = globalSettings.data;
-
     const input: PricingInput = {
       productName: form.name.trim(),
       category: form.category,
@@ -428,10 +423,9 @@ export default function ProductForm() {
       inboundShippingCost: n(form.inboundShippingCost),
       operationalCost: n(form.operationalCost),
       desiredMarginRate: effectiveMarginRate,
-      // Regime fiscal da configuração global
       taxRegime: (gs.taxRegime as TaxRegime) ?? "SIMPLES_NACIONAL",
       taxRates: {
-        cash: 0,                                          // PIX: sempre isento
+        cash: 0,
         boleto: gs.taxBoleto ?? 6,
         debit: gs.taxDebit ?? 6,
         creditCash: gs.taxCreditCash ?? 6,
@@ -460,7 +454,6 @@ export default function ProductForm() {
     setPricingResult(calc);
   }, [form, costPriceBrl, effectiveMarginRate, globalSettings.data]);
 
-  // ── Salvar ────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!form.name.trim()) { toast.error("Informe o nome do produto."); return; }
     setIsSaving(true);
@@ -494,21 +487,18 @@ export default function ProductForm() {
       desiredMarginRate: effectiveMarginRate,
       desiredMarginValue: n(form.desiredMarginValue),
       marginMode: form.marginMode,
-      // Fiscal — espelha as configurações globais no snapshot do produto
       taxRegime: (gs?.taxRegime as TaxRegime) ?? "SIMPLES_NACIONAL",
-      estimatedTaxRate: 0, // PIX isento — referência global
-      taxCash: 0,          // PIX sempre zero
+      estimatedTaxRate: 0,
+      taxCash: 0,
       taxBoleto: gs?.taxBoleto ?? 6,
       taxDebit: gs?.taxDebit ?? 6,
       taxCreditCash: gs?.taxCreditCash ?? 6,
       taxCreditInstallment: gs?.taxCreditInstallment ?? 6,
-      // Boleto — espelha configurações globais
       boletoMonths: gs?.boletoMonths ?? 3,
       boletoMonthlyRate: gs?.boletoMonthlyRate ?? 1.99,
       boletoFixedFee: gs?.boletoFixedFee ?? 3.5,
       boletoDefaultRisk: gs?.boletoDefaultRisk ?? 2,
       boletoCustomerPaysInterest: gs?.boletoCustomerPaysInterest ?? false,
-      // Cartão — espelha configurações globais
       cardDebitFee: gs?.cardDebitFee ?? 1.5,
       cardCreditCashFee: gs?.cardCreditCashFee ?? 2.5,
       cardCreditInstallmentFee: gs?.cardCreditInstallmentFee ?? 3.5,
@@ -516,13 +506,10 @@ export default function ProductForm() {
       cardAnticipationRate: gs?.cardAnticipationRate ?? 1.5,
       cardMonthlyRate: gs?.cardMonthlyRate ?? 1.99,
       cardCustomerPaysInterest: gs?.cardCustomerPaysInterest ?? false,
-      // Preços calculados
       suggestedPrice: bestResult?.suggestedPrice ?? 0,
       suggestedPricePix: pixResult?.suggestedPrice ?? 0,
       suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
       suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
-      // Links de pagamento
-
     };
 
     if (isEditing) {
@@ -532,124 +519,115 @@ export default function ProductForm() {
     }
   }, [form, costPriceBrl, effectiveMarginRate, pricingResult, globalSettings.data, isEditing, productId, createProduct, updateProduct]);
 
-  // ── Loading ───────────────────────────────────────────────────────────────
   if (isEditing && productQuery.isLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <div className="text-center space-y-4">
-            <div className="w-5 h-5 border-2 border-[#2E2E2A] border-t-[#C8B99A] rounded-full animate-spin mx-auto" />
-            <p className="text-xs text-[#4A4A44] tracking-widest uppercase font-light">Carregando produto...</p>
+          <div className="text-center space-y-3">
+            <div className="w-5 h-5 border-2 border-border border-t-foreground rounded-full animate-spin mx-auto" />
+            <p className="text-xs text-muted-foreground tracking-widest uppercase">Carregando produto...</p>
           </div>
         </div>
       </DashboardLayout>
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
-      <div
-        className="max-w-[1200px] mx-auto"
-        style={{ fontFamily: "'Lato', 'Montserrat', sans-serif" }}
-      >
+      <div className="space-y-6 max-w-[1200px]">
 
-        {/* ── Topbar da página ──────────────────────────────────────────── */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        {/* ── Cabeçalho — mesmo padrão de ConfiguracoesPagamento ──────── */}
+        <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setLocation("/produtos")}
-              className="flex items-center gap-1.5 text-[#3A3A34] hover:text-[#7A7268] transition-colors"
-              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 600, fontSize: "9px", letterSpacing: "0.18em" }}
+              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors text-sm"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> VOLTAR
+              <ArrowLeft className="w-4 h-4" /> Voltar
             </button>
-            <div className="pl-4 border-l border-[#1E1E1B]">
-              <h1
-                className="text-[#E8E3D8]"
-                style={{ fontFamily: "'Lato', sans-serif", fontWeight: 300, fontSize: "1.1rem", letterSpacing: "-0.005em" }}
-              >
+            <div className="pl-4 border-l border-border">
+              <h1 className="text-2xl font-bold text-foreground">
                 {isEditing ? "Editar Produto" : "Novo Produto"}
               </h1>
-              <p className="text-[#3A3A34] mt-0.5 font-light"
-                style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px" }}>
+              <p className="text-sm text-muted-foreground mt-1">
                 Cadastro, precificação e publicação na vitrine
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {isEditing && (
-              <a
-                href={`/vitrine/${productId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-2 border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A] transition-all"
-                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.18em" }}
-              >
-                <Eye className="w-3 h-3" /> VER NA VITRINE
-              </a>
+              <Button variant="outline" size="sm" asChild>
+                <a href={`/vitrine/${productId}`} target="_blank" rel="noopener noreferrer" className="gap-2">
+                  <Eye className="w-3.5 h-3.5" /> Ver na Vitrine
+                </a>
+              </Button>
             )}
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleCalculate}
               disabled={!form.name.trim() || costPriceBrl <= 0 || globalSettings.isLoading}
-              className="flex items-center gap-1.5 px-3 py-2 border border-[#2A2A26] text-[#5A5A52] hover:border-[#C8B99A]/30 hover:text-[#C8B99A] transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.18em" }}
+              className="gap-2"
             >
-              <Calculator className="w-3 h-3" /> CALCULAR PREÇOS
-            </button>
-            <button
+              <Calculator className="w-3.5 h-3.5" /> Calcular Preços
+            </Button>
+            <Button
+              size="sm"
               onClick={handleSave}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#C8B99A] text-[#0F0F0E] hover:bg-[#D9CEBA] transition-colors disabled:opacity-40"
-              style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "8px", letterSpacing: "0.18em" }}
+              className="gap-2"
             >
-              <Save className="w-3 h-3" />
-              {isSaving ? "SALVANDO..." : isEditing ? "SALVAR ALTERAÇÕES" : "CRIAR PRODUTO"}
-            </button>
+              <Save className="w-3.5 h-3.5" />
+              {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
+            </Button>
           </div>
         </div>
 
-        {/* Alerta: configurações globais não carregadas */}
+        {/* Alerta configurações globais */}
         {globalSettings.isError && (
-          <div
-            className="flex items-center gap-2.5 p-3 border border-amber-900/30 mb-5"
-            style={{ backgroundColor: "rgba(120,53,15,0.1)" }}
-          >
-            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <p className="text-amber-400/80 text-[10px] font-light">
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20">
+            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-700 dark:text-amber-400">
               Não foi possível carregar as configurações globais de pagamento. Os preços calculados podem estar incorretos.
             </p>
           </div>
         )}
 
-        {/* Grid: formulário + simulador ────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-0 items-start">
+        {/* ── Grid: formulário + simulador ─────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
 
           {/* ── FORMULÁRIO ─────────────────────────────────────────────── */}
-          <div className="space-y-3 border border-[#1E1E1B]" style={{ backgroundColor: "#111110" }}>
+          <div className="space-y-6">
 
             {/* 1. IDENTIDADE DO PRODUTO */}
-            <SectionBlock title="Identidade do Produto">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <SectionCard>
+              <SectionHeader
+                icon={<Package className="w-4 h-4" />}
+                title="Identidade do Produto"
+                subtitle="Nome, categoria, descrição e visibilidade na vitrine"
+              />
 
-                <Field label="Nome do produto" required>
-                  <Input
-                    value={form.name}
-                    onChange={(e) => set("name")(e.target.value)}
-                    placeholder="Ex: Sauvage Eau de Parfum 100ml"
-                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm sm:col-span-2"
-                  />
-                </Field>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div className="sm:col-span-2">
+                  <Field label="Nome do produto" required>
+                    <Input
+                      value={form.name}
+                      onChange={(e) => set("name")(e.target.value)}
+                      placeholder="Ex: Sauvage Eau de Parfum 100ml"
+                      className="h-9 text-sm"
+                    />
+                  </Field>
+                </div>
 
                 <Field label="Categoria" required>
                   <Select value={form.category} onValueChange={(v) => set("category")(v)}>
-                    <SelectTrigger className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] focus:ring-0 rounded-sm">
+                    <SelectTrigger className="h-9 text-sm">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="border-[#2A2A26] rounded-sm" style={{ backgroundColor: "#111110" }}>
+                    <SelectContent>
                       {(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"] as ProductCategory[]).map((c) => (
-                        <SelectItem key={c} value={c} className="text-sm text-[#E8E3D8] focus:bg-[#1A1A17] focus:text-[#C8B99A]">{c}</SelectItem>
+                        <SelectItem key={c} value={c} className="text-sm">{c}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -660,7 +638,7 @@ export default function ProductForm() {
                     value={form.categoryLabel}
                     onChange={(e) => set("categoryLabel")(e.target.value)}
                     placeholder="Ex: Perfumes Importados"
-                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                    className="h-9 text-sm"
                   />
                 </Field>
 
@@ -669,7 +647,7 @@ export default function ProductForm() {
                     value={form.ncm}
                     onChange={(e) => set("ncm")(e.target.value)}
                     placeholder="Ex: 3303.00.10"
-                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                    className="h-9 text-sm"
                   />
                 </Field>
 
@@ -678,104 +656,93 @@ export default function ProductForm() {
                     value={form.promoTag}
                     onChange={(e) => set("promoTag")(e.target.value)}
                     placeholder="Ex: OFERTA"
-                    className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                    className="h-9 text-sm"
                   />
                 </Field>
               </div>
 
-              <Field label="Descrição curta" tooltip="Aparece nos cards da vitrine (máx. 120 caracteres)">
-                <Input
-                  value={form.shortDescription}
-                  onChange={(e) => set("shortDescription")(e.target.value)}
-                  placeholder="Breve descrição atrativa"
-                  className="h-9 text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
-                  maxLength={120}
-                />
-              </Field>
+              <div className="space-y-4">
+                <Field label="Descrição curta" tooltip="Aparece nos cards da vitrine (máx. 120 caracteres)">
+                  <Input
+                    value={form.shortDescription}
+                    onChange={(e) => set("shortDescription")(e.target.value)}
+                    placeholder="Breve descrição atrativa"
+                    className="h-9 text-sm"
+                    maxLength={120}
+                  />
+                </Field>
 
-              <Field label="Descrição completa">
-                <Textarea
-                  value={form.description}
-                  onChange={(e) => set("description")(e.target.value)}
-                  placeholder="Descrição detalhada do produto..."
-                  rows={5}
-                  className="text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] resize-none focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
-                />
-              </Field>
+                <Field label="Descrição completa">
+                  <Textarea
+                    value={form.description}
+                    onChange={(e) => set("description")(e.target.value)}
+                    placeholder="Descrição detalhada do produto..."
+                    rows={5}
+                    className="text-sm resize-none"
+                  />
+                </Field>
+              </div>
 
-              <div
-                className="flex items-center justify-between p-3.5 border border-[#1A1A17]"
-                style={{ backgroundColor: "#161614" }}
-              >
+              <div className="flex items-center justify-between p-3.5 rounded-md border border-border bg-muted/20 mt-4">
                 <div>
-                  <p className="text-[11px] font-medium text-[#E8E3D8] tracking-wide">Publicado na vitrine</p>
-                  <p className="text-[9px] text-[#3A3A34] mt-0.5 font-light">Produto visível ao público</p>
+                  <p className="text-sm font-medium text-foreground">Publicado na vitrine</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Produto visível ao público</p>
                 </div>
                 <Switch
                   checked={form.published}
                   onCheckedChange={(v) => set("published")(v)}
-                  className="data-[state=checked]:bg-[#C8B99A]"
                 />
               </div>
 
-              {isEditing && productId ? (
-                <div>
-                  <p className="text-[8px] text-[#3A3A34] uppercase mb-2 tracking-[0.25em] font-semibold"
-                    style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                    Galeria de imagens
-                  </p>
+              {/* Galeria */}
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  {isEditing ? "Galeria de imagens" : "Imagens pré-seleção (após criar)"}
+                </p>
+                {isEditing && productId ? (
                   <ImageGallery productId={productId} />
-                </div>
-              ) : (
-                <div>
-                  <p className="text-[8px] text-[#3A3A34] uppercase mb-2 tracking-[0.25em] font-semibold"
-                    style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                    Imagens pré-seleção (após criar)
-                  </p>
-                  {pendingPreviews.length > 0 ? (
-                    <div className="flex gap-2 flex-wrap">
-                      {pendingPreviews.map((src, i) => (
-                        <img key={i} src={src} alt="" className="w-16 h-16 object-cover border border-[#222220]" />
-                      ))}
-                    </div>
-                  ) : (
-                    <label className="flex items-center justify-center border border-dashed border-[#1E1E1B] h-20 cursor-pointer hover:border-[#C8B99A]/20 transition-colors"
-                      style={{ backgroundColor: "#0F0F0E" }}>
-                      <span className="text-[9px] text-[#2E2E2A] font-light">Clique para selecionar imagens</span>
-                      <input type="file" accept="image/*" multiple className="hidden" onChange={handlePendingImageSelect} />
-                    </label>
-                  )}
-                </div>
-              )}
-            </SectionBlock>
+                ) : pendingPreviews.length > 0 ? (
+                  <div className="flex gap-2 flex-wrap">
+                    {pendingPreviews.map((src, i) => (
+                      <img key={i} src={src} alt="" className="w-16 h-16 object-cover rounded-md border border-border" />
+                    ))}
+                  </div>
+                ) : (
+                  <label className="flex items-center justify-center border border-dashed border-border rounded-md h-20 cursor-pointer hover:border-primary/40 transition-colors bg-muted/10">
+                    <span className="text-xs text-muted-foreground">Clique para selecionar imagens</span>
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={handlePendingImageSelect} />
+                  </label>
+                )}
+              </div>
+            </SectionCard>
 
             {/* 2. CUSTOS & ESTOQUE */}
-            <SectionBlock title="Custos & Estoque">
+            <SectionCard>
+              <SectionHeader
+                icon={<DollarSign className="w-4 h-4" />}
+                title="Custos & Estoque"
+                subtitle="Preço de custo, despesas adicionais e controle de estoque"
+              />
+
               {/* Seletor de moeda */}
-              <div className="flex items-center gap-3 p-3 border border-[#1A1A17]" style={{ backgroundColor: "#161614" }}>
-                <span className="text-[9px] font-semibold text-[#4A4A44] tracking-[0.2em] uppercase"
-                  style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                  Moeda:
-                </span>
+              <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-muted/20 mb-4">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Moeda:</span>
                 <div className="flex gap-1.5">
                   {(["BRL", "USD"] as const).map((c) => (
-                    <button
+                    <Button
                       key={c}
+                      variant={form.costCurrency === c ? "default" : "outline"}
+                      size="sm"
                       onClick={() => set("costCurrency")(c)}
-                      className={`px-3 py-1 text-[9px] font-bold tracking-wider uppercase transition-colors ${
-                        form.costCurrency === c
-                          ? "bg-[#C8B99A] text-[#0F0F0E]"
-                          : "border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A]"
-                      }`}
-                      style={{ fontFamily: "'Montserrat', sans-serif" }}
+                      className="h-7 px-3 text-xs"
                     >
                       {c}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                 {form.costCurrency === "BRL" ? (
                   <Field label="Preço de custo (R$)" required>
                     <NI value={form.costPrice} onChange={set("costPrice") as any} prefix="R$" placeholder="0,00" />
@@ -805,31 +772,19 @@ export default function ProductForm() {
               </div>
 
               {finalUnitCost > 0 && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 border border-[#1A1A17]" style={{ backgroundColor: "#161614" }}>
-                    <p className="text-[8px] font-bold tracking-[0.22em] uppercase text-[#4A4A44] mb-1"
-                      style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                      Custo em BRL
-                    </p>
-                    <p className="text-base font-semibold text-[#E8E3D8]"
-                      style={{ fontFamily: "'Lato', sans-serif" }}>
-                      {formatCurrency(costPriceBrl)}
-                    </p>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="p-3 rounded-md border border-border bg-muted/20">
+                    <p className="text-xs text-muted-foreground mb-1">Custo em BRL</p>
+                    <p className="text-base font-semibold text-foreground">{formatCurrency(costPriceBrl)}</p>
                   </div>
-                  <div className="p-3 border border-[#C8B99A]/15" style={{ backgroundColor: "#1A160E" }}>
-                    <p className="text-[8px] font-bold tracking-[0.22em] uppercase text-[#C8B99A]/60 mb-1"
-                      style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                      Custo Final Unitário
-                    </p>
-                    <p className="text-base font-semibold text-[#C8B99A]"
-                      style={{ fontFamily: "'Lato', sans-serif" }}>
-                      {formatCurrency(finalUnitCost)}
-                    </p>
+                  <div className="p-3 rounded-md border border-primary/20 bg-primary/5">
+                    <p className="text-xs text-muted-foreground mb-1">Custo Final Unitário</p>
+                    <p className="text-base font-semibold text-primary">{formatCurrency(finalUnitCost)}</p>
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-[#1A1A17]">
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
                 <Field label="Estoque atual">
                   <NI value={form.stockQuantity} onChange={set("stockQuantity") as any} placeholder="0" />
                 </Field>
@@ -837,27 +792,31 @@ export default function ProductForm() {
                   <NI value={form.minimumStock} onChange={set("minimumStock") as any} placeholder="0" />
                 </Field>
               </div>
-            </SectionBlock>
+            </SectionCard>
 
             {/* 3. MARGEM DE LUCRO */}
-            <SectionBlock title="Margem de Lucro Desejada">
+            <SectionCard>
+              <SectionHeader
+                icon={<BarChart2 className="w-4 h-4" />}
+                title="Margem de Lucro Desejada"
+                subtitle="Percentual ou valor absoluto de margem sobre o custo unitário"
+              />
+
               <div className="flex gap-1.5 mb-4">
                 {(["PERCENT", "VALUE"] as const).map((m) => (
-                  <button
+                  <Button
                     key={m}
+                    variant={form.marginMode === m ? "default" : "outline"}
+                    size="sm"
                     onClick={() => set("marginMode")(m)}
-                    className={`px-4 py-1.5 text-[9px] font-bold tracking-wider uppercase transition-colors ${
-                      form.marginMode === m
-                        ? "bg-[#C8B99A] text-[#0F0F0E]"
-                        : "border border-[#2A2A26] text-[#4A4A44] hover:border-[#C8B99A]/30 hover:text-[#C8B99A]"
-                    }`}
-                    style={{ fontFamily: "'Montserrat', sans-serif" }}
+                    className="h-8 text-xs"
                   >
                     {m === "PERCENT" ? "Porcentagem (%)" : "Valor (R$)"}
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
                 {form.marginMode === "PERCENT" ? (
                   <Field label="Margem desejada (%)" required>
                     <NI value={form.desiredMarginRate} onChange={set("desiredMarginRate") as any} suffix="%" placeholder="30" />
@@ -872,113 +831,80 @@ export default function ProductForm() {
                 </Field>
               </div>
 
-              {/* Aviso: taxas vêm das configurações globais */}
-              <div
-                className="flex items-start gap-2.5 p-3 border border-[#1A1A17]"
-                style={{ backgroundColor: "#0D0D0C" }}
-              >
-                <Settings2 className="w-3.5 h-3.5 text-[#C8B99A]/60 shrink-0 mt-0.5" />
+              {/* Aviso fonte única de taxas */}
+              <div className="flex items-start gap-2.5 p-3 rounded-md border border-border bg-muted/30">
+                <Settings2 className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
                 <div>
-                  <p
-                    className="text-[#7A7268]"
-                    style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "7px", letterSpacing: "0.22em" }}
-                  >
-                    TAXAS & IMPOSTOS — CONFIGURAÇÕES GLOBAIS
-                  </p>
-                  <p className="text-[#3A3A34] mt-0.5 font-light" style={{ fontSize: "9px" }}>
+                  <p className="text-xs font-semibold text-foreground">Taxas & Impostos — Configurações Globais</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Fiscal, Boleto e Cartão são gerenciados em{" "}
-                    <a
-                      href="/configuracoes-pagamento"
-                      className="text-[#C8B99A]/70 hover:text-[#C8B99A] underline transition-colors"
-                    >
+                    <a href="/configuracoes-pagamento" className="text-primary hover:underline transition-colors">
                       Configurações → Pagamento
                     </a>
                     {globalSettings.data && (
-                      <span className="text-[#2E2E2A] ml-1">
+                      <span className="text-muted-foreground ml-1">
                         · Regime atual: {globalSettings.data.taxRegime ?? "SIMPLES_NACIONAL"}
                       </span>
                     )}
                   </p>
                 </div>
               </div>
-            </SectionBlock>
+            </SectionCard>
 
             {/* 4. OBSERVAÇÕES INTERNAS */}
-            <SectionBlock title="Observações Internas">
+            <SectionCard>
+              <SectionHeader
+                icon={<StickyNote className="w-4 h-4" />}
+                title="Observações Internas"
+                subtitle="Notas privadas — não aparecem na vitrine"
+              />
               <Textarea
                 value={form.notes}
                 onChange={(e) => set("notes")(e.target.value)}
                 placeholder="Notas internas (não aparecem na vitrine)..."
                 rows={3}
-                className="text-sm border-[#222220] bg-[#1A1A17] text-[#E8E3D8] placeholder-[#3A3A34] resize-none focus:border-[#C8B99A]/40 focus:ring-0 focus-visible:ring-0 rounded-sm"
+                className="text-sm resize-none"
               />
-            </SectionBlock>
+            </SectionCard>
           </div>
 
           {/* ── PAINEL DO SIMULADOR (coluna direita) ─────────────────────── */}
-          <div
-            className="lg:sticky lg:top-[60px] flex flex-col min-h-[400px] border-t lg:border-t-0 border-[#1E1E1B]"
-            style={{ backgroundColor: "#0A0A09" }}
-          >
-            <div className="px-5 py-4 border-b border-[#1A1A17]">
-              <p className="text-[7px] font-bold tracking-[0.35em] uppercase text-[#3A3A34] mb-1"
-                style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                Simulador de Lucro
-              </p>
-              <h2 className="text-sm font-light text-[#E8E3D8] tracking-wide"
-                style={{ fontFamily: "'Lato', sans-serif" }}>
-                Painel de Precificação
-              </h2>
+          <div className="lg:sticky lg:top-[60px] rounded-lg border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">Simulador de Lucro</p>
+              <h2 className="text-sm font-semibold text-foreground">Painel de Precificação</h2>
             </div>
 
-            <div className="flex-1 px-5 py-4 space-y-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
+            <div className="px-5 py-4 space-y-4 overflow-y-auto" style={{ maxHeight: "calc(100vh - 120px)" }}>
 
               {/* Resumo de custo */}
               {finalUnitCost > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="p-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
-                      <p className="text-[8px] text-[#3A3A34] tracking-wider uppercase mb-1 font-semibold"
-                        style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                        Custo BRL
-                      </p>
-                      <p className="text-sm font-semibold text-[#E8E3D8]"
-                        style={{ fontFamily: "'Lato', sans-serif" }}>
-                        {formatCurrency(costPriceBrl)}
-                      </p>
+                    <div className="p-3 rounded-md border border-border bg-muted/20">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Custo BRL</p>
+                      <p className="text-sm font-semibold text-foreground">{formatCurrency(costPriceBrl)}</p>
                     </div>
-                    <div className="p-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
-                      <p className="text-[8px] text-[#3A3A34] tracking-wider uppercase mb-1 font-semibold"
-                        style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                        Custo Final
-                      </p>
-                      <p className="text-sm font-semibold text-[#C8B99A]"
-                        style={{ fontFamily: "'Lato', sans-serif" }}>
-                        {formatCurrency(finalUnitCost)}
-                      </p>
+                    <div className="p-3 rounded-md border border-primary/20 bg-primary/5">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Custo Final</p>
+                      <p className="text-sm font-semibold text-primary">{formatCurrency(finalUnitCost)}</p>
                     </div>
                   </div>
 
-                  {/* Margem inline do simulador */}
-                  <div className="p-3 space-y-3 border border-[#1A1A17]" style={{ backgroundColor: "#111110" }}>
-                    <p className="text-[8px] text-[#3A3A34] tracking-[0.25em] uppercase font-semibold"
-                      style={{ fontFamily: "'Montserrat', sans-serif" }}>
-                      Margem Desejada
-                    </p>
+                  {/* Margem no simulador */}
+                  <div className="p-3 space-y-3 rounded-md border border-border bg-muted/10">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Margem Desejada</p>
                     <div className="flex gap-1.5">
                       {(["PERCENT", "VALUE"] as const).map((m) => (
-                        <button
+                        <Button
                           key={m}
+                          variant={form.marginMode === m ? "default" : "outline"}
+                          size="sm"
                           onClick={() => set("marginMode")(m)}
-                          className={`flex-1 py-1.5 text-[9px] font-bold tracking-wide transition-colors ${
-                            form.marginMode === m
-                              ? "bg-[#C8B99A] text-[#0F0F0E]"
-                              : "bg-[#1A1A17] text-[#4A4A44] hover:text-[#C8B99A]"
-                          }`}
-                          style={{ fontFamily: "'Montserrat', sans-serif" }}
+                          className="flex-1 h-7 text-xs"
                         >
                           {m === "PERCENT" ? "%" : "R$"}
-                        </button>
+                        </Button>
                       ))}
                     </div>
                     {form.marginMode === "PERCENT" ? (
@@ -987,7 +913,7 @@ export default function ProductForm() {
                       <NI value={form.desiredMarginValue} onChange={set("desiredMarginValue") as any} prefix="R$" placeholder="0,00" />
                     )}
                     {effectiveMarginRate > 0 && (
-                      <p className="text-[9px] text-[#3A3A34] font-light">
+                      <p className="text-xs text-muted-foreground">
                         Margem efetiva:{" "}
                         <span className="text-emerald-500 font-semibold">{effectiveMarginRate.toFixed(1)}%</span>
                       </p>
@@ -996,8 +922,8 @@ export default function ProductForm() {
                 </div>
               ) : (
                 <div className="text-center py-8 space-y-3">
-                  <Calculator className="w-7 h-7 text-[#1E1E1B] mx-auto" />
-                  <p className="text-[10px] text-[#2A2A26] font-light tracking-wide">
+                  <Calculator className="w-8 h-8 text-muted-foreground/30 mx-auto" />
+                  <p className="text-xs text-muted-foreground">
                     Informe o custo do produto para ativar o simulador
                   </p>
                 </div>
@@ -1005,42 +931,41 @@ export default function ProductForm() {
 
               {/* Erro de cálculo */}
               {calcError && (
-                <div className="flex items-start gap-2 p-3 border border-rose-900/30" style={{ backgroundColor: "#1A0808" }}>
-                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 mt-0.5 shrink-0" />
-                  <p className="text-[10px] text-rose-500 font-light">{calcError}</p>
+                <div className="flex items-start gap-2 p-3 rounded-md border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+                  <p className="text-xs text-red-600 dark:text-red-400">{calcError}</p>
                 </div>
               )}
 
               {/* Botão calcular */}
               {finalUnitCost > 0 && (
-                <button
+                <Button
                   onClick={handleCalculate}
                   disabled={globalSettings.isLoading}
-                  className="w-full py-2.5 bg-[#C8B99A] text-[#0F0F0E] hover:bg-[#D9CEBA] transition-colors flex items-center justify-center gap-2 disabled:opacity-40"
-                  style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "9px", letterSpacing: "0.2em" }}
+                  className="w-full gap-2"
+                  size="sm"
                 >
-                  <RefreshCcw className="w-3 h-3" /> CALCULAR PREÇOS
-                </button>
+                  <RefreshCcw className="w-3.5 h-3.5" /> Calcular Preços
+                </Button>
               )}
 
               {/* Resultados */}
               {pricingResult && (
                 <div className="space-y-2.5">
-                  <div className="border-t border-[#1A1A17] pt-3">
-                    <p className="text-[8px] font-bold tracking-[0.3em] uppercase text-[#3A3A34] mb-3"
-                      style={{ fontFamily: "'Montserrat', sans-serif" }}>
+                  <div className="border-t border-border pt-3">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                       Preços Sugeridos
                     </p>
                   </div>
                   {pricingResult.results.map((r) => (
-                    <DarkResultCard
+                    <ResultCard
                       key={r.method}
                       result={r}
                       isBest={r.method === pricingResult.bestMethod}
                     />
                   ))}
-                  <div className="pt-2 border-t border-[#1A1A17]">
-                    <p className="text-[9px] text-[#2E2E2A] font-light">
+                  <div className="pt-2 border-t border-border">
+                    <p className="text-xs text-muted-foreground">
                       Margem real (PIX):{" "}
                       <span className="text-emerald-500 font-semibold">
                         {formatPercent(pricingResult.results.find((r) => r.method === "PIX")?.realMarginRate ?? 0)}
@@ -1052,30 +977,25 @@ export default function ProductForm() {
             </div>
 
             {/* Footer: publicar */}
-            <div className="px-5 py-4 border-t border-[#1A1A17] space-y-3">
+            <div className="px-5 py-4 border-t border-border space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[11px] font-medium text-[#E8E3D8] tracking-wide"
-                    style={{ fontFamily: "'Lato', sans-serif" }}>
-                    Publicar na Vitrine
-                  </p>
-                  <p className="text-[8px] text-[#3A3A34] mt-0.5 font-light">Visível ao público</p>
+                  <p className="text-sm font-medium text-foreground">Publicar na Vitrine</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Visível ao público</p>
                 </div>
                 <Switch
                   checked={form.published}
                   onCheckedChange={(v) => set("published")(v)}
-                  className="data-[state=checked]:bg-[#C8B99A]"
                 />
               </div>
-              <button
+              <Button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="w-full py-3 bg-[#C8B99A] text-[#0F0F0E] hover:bg-[#D9CEBA] transition-colors disabled:opacity-30 flex items-center justify-center gap-2"
-                style={{ fontFamily: "'Montserrat', sans-serif", fontWeight: 700, fontSize: "9px", letterSpacing: "0.22em" }}
+                className="w-full gap-2"
               >
-                <Save className="w-3.5 h-3.5" />
-                {isSaving ? "SALVANDO..." : isEditing ? "SALVAR ALTERAÇÕES" : "CRIAR & PUBLICAR"}
-              </button>
+                <Save className="w-4 h-4" />
+                {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar & Publicar"}
+              </Button>
             </div>
           </div>
         </div>
