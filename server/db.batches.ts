@@ -317,9 +317,7 @@ export async function getPublishedProductsByCategory(category?: string) {
         ? and(eq(products.published, true), eq(products.active, true), eq(products.category, category as any))
         : and(eq(products.published, true), eq(products.active, true))
     )
-    .orderBy(desc(products.createdAt));
-
-  return baseQuery;
+    .orderBy(asc(products.displayOrder), desc(products.createdAt));
 }
 
 export async function getPublishedProductById(id: number) {
