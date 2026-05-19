@@ -146,6 +146,9 @@ export const products = pgTable("permupay_products", {
   // Label customizável de categoria para filtro
   categoryLabel: text("category_label"),
 
+  // Ordenação manual na vitrine (0 = posição não definida, menor = aparece primeiro)
+  displayOrder: integer("display_order").notNull().default(0),
+
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
