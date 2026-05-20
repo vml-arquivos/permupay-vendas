@@ -350,6 +350,51 @@ export const appRouter = router({
           input.commitToStock
         )
       ),
+
+    // ── FIFO: processar lote com fila de espera ──────────────────────────
+    processFIFO: protectedProcedure
+      .input(
+        z.object({
+          batchId: z.number(),
+          items: z.array(batchItemSchema).min(1),
+          totalOperationalCost: z.number().min(0),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbBatches.processBatchFIFO(
+          input.batchId,
+          ctx.user.id,
+          input.items,
+          input.totalOperationalCost
+        )
+      ),
+
+    // ── FIFO: registrar venda e disparar gatilho de virada ───────────────
+    registerSale: protectedProcedure
+      .input(
+        z.object({
+          productId: z.number(),
+          qtySold: z.number().min(0.001),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbBatches.triggerStockTransition(input.productId, input.qtySold, ctx.user.id)
+      ),
+
+    // ── FIFO: consultar fila de um produto ───────────────────────────────
+    getQueue: protectedProcedure
+      .input(z.object({ productId: z.number() }))
+      .query(({ input }) => dbBatches.getStockQueue(input.productId)),
+
+    // ── FIFO: listar toda a fila (admin) ─────────────────────────────────
+    allQueues: protectedProcedure
+      .input(z.object({ status: z.string().optional() }))
+      .query(({ input }) => dbBatches.getAllQueues(input.status)),
+
+    // ── FIFO: cancelar entrada na fila ───────────────────────────────────
+    cancelQueue: protectedProcedure
+      .input(z.object({ queueId: z.number() }))
+      .mutation(({ input }) => dbBatches.cancelQueueEntry(input.queueId)),
   }),
 
   // ── Marketplace / Vitrine pública ──────────────────────────────────────────
