@@ -47,6 +47,14 @@ export const batchStatusEnum = pgEnum("permupay_batch_status", [
   "CLOSED",
 ]);
 
+// Enum para status da fila FIFO de estoque
+export const queueStatusEnum = pgEnum("permupay_queue_status", [
+  "EM_ESPERA",   // aguardando — produto ativo ainda tem saldo
+  "ATIVO",       // sendo vendido agora
+  "ESGOTADO",    // todas as unidades deste lote vendidas
+  "CANCELADO",   // cancelado manualmente
+]);
+
 // ─── Tabela: users ────────────────────────────────────────────────────────────
 
 export const users = pgTable("permupay_users", {
@@ -167,6 +175,8 @@ export const pricingBatches = pgTable("permupay_pricing_batches", {
   totalOperationalCost: real("total_operational_cost").notNull().default(0),
   totalCostOfGoods: real("total_cost_of_goods").notNull().default(0),
   status: batchStatusEnum("status").notNull().default("OPEN"),
+  // Modo FIFO: true = novos itens entram na fila se produto já tem estoque ativo
+  fifoMode: boolean("fifo_mode").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -191,7 +201,55 @@ export const batchItems = pgTable("permupay_batch_items", {
   finalUnitCost: real("final_unit_cost").notNull().default(0),
   desiredMarginRate: real("desired_margin_rate").notNull().default(0),
   suggestedPrice: real("suggested_price").notNull().default(0),
+  // Rastreia se este item foi para fila FIFO ou entrou direto no estoque
+  queueStatus: queueStatusEnum("queue_status").default("EM_ESPERA"),
+  queueId: integer("queue_id"), // referência lazy para evitar circular
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── Tabela: stock_queue (Fila FIFO de estoque por lote) ──────────────────────
+//
+// REGRAS:
+//  - status = EM_ESPERA : produto tem estoque ativo; este lote aguarda
+//  - status = ATIVO     : este é o lote corrente sendo vendido
+//  - status = ESGOTADO  : quantity_remaining chegou a 0; próximo lote foi promovido
+//  - Apenas 1 entrada ATIVA por produto ao mesmo tempo (garantido por trigger)
+//  - Promoção (EM_ESPERA → ATIVO) ordena por position ASC, created_at ASC (FIFO puro)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const stockQueue = pgTable("permupay_stock_queue", {
+  id: serial("id").primaryKey(),
+
+  productId: integer("product_id")
+    .notNull()
+    .references(() => products.id, { onDelete: "cascade" }),
+  batchId: integer("batch_id")
+    .references(() => pricingBatches.id, { onDelete: "set null" }),
+  batchItemId: integer("batch_item_id"), // lazy ref para batch_items
+  userId: integer("user_id")
+    .references(() => users.id, { onDelete: "set null" }),
+
+  // Quantidades
+  quantity: real("quantity").notNull().default(0),
+  quantityRemaining: real("quantity_remaining").notNull().default(0),
+
+  // Preços deste lote
+  unitCost: real("unit_cost").notNull().default(0),
+  suggestedPricePix: real("suggested_price_pix").notNull().default(0),
+  suggestedPriceCard: real("suggested_price_card").notNull().default(0),
+  suggestedPriceBoleto: real("suggested_price_boleto").notNull().default(0),
+  desiredMarginRate: real("desired_margin_rate").notNull().default(0),
+  estimatedTaxRate: real("estimated_tax_rate").notNull().default(0),
+
+  // Controle FIFO
+  status: queueStatusEnum("status").notNull().default("EM_ESPERA"),
+  position: integer("position").notNull().default(0), // menor = primeiro a ser promovido
+  activatedAt: timestamp("activated_at"),
+  exhaustedAt: timestamp("exhausted_at"),
+
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // ─── Tabela: stock_entries ────────────────────────────────────────────────────
@@ -255,6 +313,9 @@ export type InsertBatchItem = typeof batchItems.$inferInsert;
 
 export type StockEntry = typeof stockEntries.$inferSelect;
 export type InsertStockEntry = typeof stockEntries.$inferInsert;
+
+export type StockQueue = typeof stockQueue.$inferSelect;
+export type InsertStockQueue = typeof stockQueue.$inferInsert;
 
 export type PricingSimulation = typeof pricingSimulations.$inferSelect;
 
