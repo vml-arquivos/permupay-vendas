@@ -69,6 +69,12 @@ export default function WishlistAdmin() {
     { refetchInterval: 30_000 }
   );
 
+  // Produtos do catálogo para resolver nomes a partir dos productIds
+  const { data: catalogProducts = [] } = trpc.marketplace.products.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+  });
+  const productMap = new Map((catalogProducts as any[]).map((p: any) => [p.id, p]));
+
   const updateStatus = trpc.wishlist.updateStatus.useMutation({
     onSuccess: (updated) => {
       utils.wishlist.list.invalidate();
@@ -322,7 +328,11 @@ export default function WishlistAdmin() {
                         </span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1">
-                        {req.description}
+                        {(req as any).notesPublic || req.description || (() => {
+                          const ids: number[] = (req as any).productIds ?? [];
+                          const names = ids.map((id: number) => productMap.get(id)?.name).filter(Boolean);
+                          return names.length > 0 ? names.join(", ") : `${ids.length} produto(s)`;
+                        })()}
                       </p>
                       <div className="flex flex-wrap gap-2 mt-1.5">
                         {req.category && (
@@ -370,13 +380,54 @@ export default function WishlistAdmin() {
                   {/* Painel expandido */}
                   {isExpanded && (
                     <div className="border-t px-4 py-4 space-y-4 bg-muted/20">
-                      {/* Descrição completa */}
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-1">
-                          Descrição completa
-                        </p>
-                        <p className="text-sm">{req.description}</p>
-                      </div>
+
+                      {/* Produtos selecionados */}
+                      {(() => {
+                        const ids: number[] = (req as any).productIds ?? [];
+                        const resolved = ids.map((id: number) => productMap.get(id)).filter(Boolean);
+                        if (resolved.length > 0) return (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1.5">Produtos solicitados</p>
+                            <div className="space-y-1.5">
+                              {resolved.map((p: any) => (
+                                <div key={p.id} className="flex items-center gap-2 text-sm">
+                                  {p.imageUrl
+                                    ? <img src={p.imageUrl} alt={p.name} className="w-8 h-8 rounded object-contain bg-muted border shrink-0" />
+                                    : <div className="w-8 h-8 rounded bg-muted border shrink-0 flex items-center justify-center text-muted-foreground text-xs">📦</div>
+                                  }
+                                  <span className="font-medium">{p.name}</span>
+                                  {p.suggestedPricePix > 0 && (
+                                    <span className="text-xs text-muted-foreground ml-auto">{formatBRL(p.suggestedPricePix)} Pix</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                        if (ids.length > 0) return (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Produtos solicitados</p>
+                            <p className="text-sm text-muted-foreground">{ids.length} produto(s) — não encontrados no catálogo atual</p>
+                          </div>
+                        );
+                        return null;
+                      })()}
+
+                      {/* Desejo livre / observação pública */}
+                      {(req as any).notesPublic && (
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Observação do cliente</p>
+                          <p className="text-sm bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">{(req as any).notesPublic}</p>
+                        </div>
+                      )}
+
+                      {/* Descrição legada (pedidos antigos) */}
+                      {req.description && (
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Descrição completa</p>
+                          <p className="text-sm">{req.description}</p>
+                        </div>
+                      )}
 
                       {/* Notas admin */}
                       <div className="space-y-1.5">
