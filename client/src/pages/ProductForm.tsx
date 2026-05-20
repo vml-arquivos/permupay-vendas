@@ -28,6 +28,7 @@ import {
 } from "../../../shared/pricingCalculator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/CurrencyInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -166,9 +167,23 @@ function Field({ label, tooltip, required, hint, children }: {
 }
 
 function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
-  value: string; onChange: (v: string) => void;
+  value: string | number; onChange: (v: string) => void;
   placeholder?: string; prefix?: string; suffix?: string; disabled?: boolean;
 }) {
+  // Campos monetários (R$ ou US$) usam máscara automática
+  const isCurrency = prefix === "R$" || prefix === "US$";
+  if (isCurrency) {
+    const numVal = typeof value === "string" ? parseFloat(value.replace(",", ".")) || 0 : (value ?? 0);
+    return (
+      <CurrencyInput
+        value={numVal}
+        onValueChange={(n) => onChange(String(n))}
+        placeholder={placeholder ?? "0,00"}
+        disabled={disabled}
+      />
+    );
+  }
+  // Campos não-monetários (cotação, percentuais, etc.) mantêm input normal
   return (
     <div className="relative flex items-center">
       {prefix && (
@@ -547,9 +562,20 @@ export default function ProductForm() {
               <ArrowLeft className="w-4 h-4" /> Voltar
             </button>
             <div className="pl-4 border-l border-border">
-              <h1 className="text-2xl font-bold text-foreground">
-                {isEditing ? "Editar Produto" : "Novo Produto"}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-foreground">
+                  {isEditing ? "Editar Produto" : "Novo Produto"}
+                </h1>
+                {isEditing && productId && (
+                  <span
+                    className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold bg-muted text-muted-foreground border border-border cursor-pointer"
+                    title="ID do produto — clique para copiar"
+                    onClick={() => { navigator.clipboard.writeText(String(productId)); }}
+                  >
+                    #{productId}
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-muted-foreground mt-1">
                 Cadastro, precificação e publicação na vitrine
               </p>

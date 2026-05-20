@@ -34,6 +34,7 @@ import {
   calculateBatchPricing, formatCurrency, formatPercent,
   isBatchPricingError, type BatchItemInput, type BatchPricingResult,
 } from "@shared/pricing.batch";
+import { CurrencyInput } from "@/components/CurrencyInput";
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
 
@@ -247,11 +248,10 @@ export default function BatchPricing() {
           </div>
           <div className="space-y-1.5">
             <Label>Custo Operacional Total (R$) *</Label>
-            <Input
-              type="number" min={0} step={0.01}
+            <CurrencyInput
               value={totalOperationalCost}
-              onChange={(e) => setTotalOperationalCost(Number(e.target.value))}
-              placeholder="Ex: 1000.00"
+              onValueChange={setTotalOperationalCost}
+              placeholder="0,00"
             />
             <p className="text-xs text-muted-foreground">
               Frete, despachante, armazenagem, taxas aduaneiras — tudo para trazer o lote.
@@ -385,11 +385,12 @@ export default function BatchPricing() {
                     />
                   </TableCell>
                   <TableCell>
-                    <Input
-                      type="number" min={0} step={0.01}
+                    <CurrencyInput
                       value={item.unitCostBrl}
-                      onChange={(e) => updateItem(item._id, "unitCostBrl", e.target.value)}
-                      className="h-8 text-sm"
+                      onValueChange={(v) => updateItem(item._id, "unitCostBrl", v)}
+                      noPrefix
+                      placeholder="0,00"
+                      size="sm"
                     />
                   </TableCell>
                   <TableCell>
@@ -580,11 +581,14 @@ function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
           <TableHeader>
             <TableRow>
               <TableHead>Produto</TableHead>
-              <TableHead className="text-right">Custo Total</TableHead>
+              <TableHead className="text-right">Custo Unit.</TableHead>
+              <TableHead className="text-right">Qtd</TableHead>
+              <TableHead className="text-right">Custo Total Item</TableHead>
               <TableHead className="text-right">Proporção</TableHead>
               <TableHead className="text-right">Custo Op. Rateado</TableHead>
               <TableHead className="text-right">Custo Final Unit.</TableHead>
-              <TableHead className="text-right">Preço Sugerido</TableHead>
+              <TableHead className="text-right">Preço Sugerido Unit.</TableHead>
+              <TableHead className="text-right">Preço Total (Qtd)</TableHead>
               <TableHead className="text-right">Margem Unit.</TableHead>
             </TableRow>
           </TableHeader>
@@ -592,15 +596,20 @@ function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
             {preview.items.map((item, i) => (
               <TableRow key={i}>
                 <TableCell className="font-medium">
-                  {item.productName}
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    × {item.quantity}
-                  </span>
-                  {item.productId && (
-                    <Badge variant="outline" className="ml-2 text-[9px]">
-                      ID #{item.productId}
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    {item.productId && (
+                      <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-mono font-bold bg-muted text-muted-foreground border border-border shrink-0">
+                        #{item.productId}
+                      </span>
+                    )}
+                    {item.productName}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right text-sm font-mono">
+                  {formatCurrency(item.unitCostBrl)}
+                </TableCell>
+                <TableCell className="text-right text-sm font-mono">
+                  {item.quantity}
                 </TableCell>
                 <TableCell className="text-right text-sm">
                   {formatCurrency(item.totalItemCost)}
@@ -618,6 +627,9 @@ function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
                 </TableCell>
                 <TableCell className="text-right font-bold text-primary">
                   {formatCurrency(item.suggestedPrice)}
+                </TableCell>
+                <TableCell className="text-right font-bold text-emerald-600">
+                  {formatCurrency(item.suggestedPrice * item.quantity)}
                 </TableCell>
                 <TableCell className="text-right text-sm text-green-600">
                   {formatCurrency(item.contributionMargin)}

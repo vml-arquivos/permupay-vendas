@@ -437,6 +437,13 @@ export default function Products() {
                           )}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-muted text-muted-foreground border border-border cursor-pointer select-all shrink-0"
+                                title="ID do produto — use este número no campo ID ao criar lotes"
+                                onClick={() => { navigator.clipboard.writeText(String(product.id)); }}
+                              >
+                                #{product.id}
+                              </span>
                               <h3 className="font-semibold text-foreground truncate">{product.name}</h3>
                               {product.published ? (
                                 <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0 text-xs">

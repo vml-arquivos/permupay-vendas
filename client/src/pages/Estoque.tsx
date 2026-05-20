@@ -117,7 +117,12 @@ export default function Estoque() {
                       className="grid grid-cols-5 gap-4 px-3 py-3 rounded-lg border hover:bg-accent/50 cursor-pointer transition-colors items-center"
                     >
                       <div className="col-span-2">
-                        <p className="font-medium text-sm">{p.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-mono font-bold bg-muted text-muted-foreground border border-border shrink-0">
+                            #{p.id}
+                          </span>
+                          <p className="font-medium text-sm truncate">{p.name}</p>
+                        </div>
                         <p className="text-xs text-muted-foreground">{p.category}</p>
                       </div>
                       <div className="text-center">
