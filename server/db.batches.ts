@@ -321,6 +321,8 @@ export async function getPublishedProductsByCategory(category?: string) {
         : and(eq(products.published, true), eq(products.active, true))
     )
     .orderBy(asc(products.displayOrder), desc(products.createdAt));
+
+  return await baseQuery;
 }
 
 export async function getPublishedProductById(id: number) {

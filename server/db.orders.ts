@@ -160,7 +160,21 @@ export async function confirmOrder(
       .where(eq(orders.id, orderId))
       .returning();
 
-    // 8. Gatilho FIFO reservado para implementação futura
+    // 8. Gatilho FIFO: se o estoque zerou, promover o próximo lote
+    if (newStock === 0) {
+      // Import dinâmico para evitar dependência circular se houver
+      const { triggerStockTransition } = await import("./db.batches");
+      await triggerStockTransition(existing.productId, existing.quantity, adminUserId);
+    } else {
+      // Se não zerou, precisamos pelo menos decrementar o quantity_remaining do lote ATIVO
+      await tx.execute(
+        sql`UPDATE permupay_stock_queue
+            SET quantity_remaining = GREATEST(0, quantity_remaining - ${existing.quantity}),
+                updated_at = NOW()
+            WHERE product_id = ${existing.productId}
+              AND status = 'ATIVO'`
+      );
+    }
 
     return updated;
   });
