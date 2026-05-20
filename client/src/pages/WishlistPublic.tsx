@@ -175,6 +175,8 @@ export default function WishlistPublic() {
   const [phone, setPhone] = useState("");
   const [entries, setEntries] = useState<WishlistEntry[]>([{ id: uid(), productId: null }]);
   const [notesPublic, setNotesPublic] = useState("");
+  const [customWish, setCustomWish] = useState(false);
+  const [customWishText, setCustomWishText] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Estados de UI
@@ -258,8 +260,10 @@ export default function WishlistPublic() {
     if (digits.length < 10)
       errs.phone = "Informe um telefone válido com DDD (mín. 10 dígitos)";
     const validEntries = entries.filter((e) => e.productId !== null);
-    if (validEntries.length === 0)
-      errs.products = "Selecione ao menos 1 produto";
+    if (validEntries.length === 0 && (!customWish || !customWishText.trim()))
+      errs.products = "Selecione ao menos 1 produto ou descreva o que deseja";
+    if (customWish && !customWishText.trim())
+      errs.products = "Descreva o que você está procurando";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -272,12 +276,17 @@ export default function WishlistPublic() {
       .map((e) => e.productId)
       .filter(Boolean) as number[];
 
+    const notesComposed = [
+      customWish && customWishText.trim() ? `Desejo livre: ${customWishText.trim()}` : "",
+      notesPublic.trim(),
+    ].filter(Boolean).join(" | ");
+
     createMutation.mutate({
       visitorName: name.trim(),
       contact: phone.trim(),
       contactType: "WHATSAPP",
       productIds: validProductIds,
-      notesPublic: notesPublic.trim() || undefined,
+      notesPublic: notesComposed || undefined,
     });
   };
 
@@ -584,6 +593,35 @@ export default function WishlistPublic() {
                     <Plus className="w-4 h-4" /> Adicionar outro produto
                   </button>
                 )}
+
+                {/* Opção de desejo livre */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => { setCustomWish((v) => !v); setErrors((e) => ({ ...e, products: "" })); }}
+                    className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${customWish ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                      {customWish && <span className="text-white text-[10px] font-bold">✓</span>}
+                    </span>
+                    Não encontrei o que procuro — quero descrever meu desejo
+                  </button>
+
+                  {customWish && (
+                    <div className="mt-2 space-y-1">
+                      <textarea
+                        autoFocus
+                        value={customWishText}
+                        onChange={(e) => { setCustomWishText(e.target.value); setErrors((err) => ({ ...err, products: "" })); }}
+                        placeholder="Ex: Quero um iPhone 14 Pro Max 256GB cor preta, pode ser seminovo..."
+                        maxLength={500}
+                        rows={3}
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                      />
+                      <p className="text-xs text-muted-foreground text-right">{customWishText.length}/500</p>
+                    </div>
+                  )}
+                </div>
 
                 {errors.products && (
                   <p className="text-xs text-destructive">{errors.products}</p>
