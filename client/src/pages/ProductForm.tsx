@@ -337,6 +337,11 @@ export default function ProductForm() {
     { id: productId! },
     { enabled: isEditing }
   );
+  // Pré-visualização do próximo ID ao criar um novo produto
+  const nextIdQuery = trpc.products.nextId.useQuery(undefined, {
+    enabled: !isEditing,
+    staleTime: 0,
+  });
   const productsQuery = trpc.products.list.useQuery(undefined, {
     enabled: !isEditing,
     staleTime: 60_000,
@@ -662,15 +667,23 @@ export default function ProductForm() {
                 <h1 className="text-2xl font-bold text-foreground">
                   {isEditing ? "Editar Produto" : "Novo Produto"}
                 </h1>
-                {isEditing && productId && (
+                {isEditing && productId ? (
                   <span
                     className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold bg-muted text-muted-foreground border border-border cursor-pointer"
                     title="ID do produto — clique para copiar"
-                    onClick={() => { navigator.clipboard.writeText(String(productId)); }}
+                    onClick={() => { navigator.clipboard.writeText(String(productId)); toast.success("ID copiado!"); }}
                   >
                     #{productId}
                   </span>
-                )}
+                ) : !isEditing && nextIdQuery.data ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono font-bold bg-primary/10 text-primary border border-primary/30"
+                    title="ID que será atribuído automaticamente ao salvar este produto"
+                  >
+                    <span className="text-[9px] font-sans font-normal text-primary/60 uppercase tracking-wide">próximo ID</span>
+                    #{nextIdQuery.data}
+                  </span>
+                ) : null}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 Cadastro, precificação e publicação na vitrine

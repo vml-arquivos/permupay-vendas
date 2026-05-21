@@ -584,6 +584,32 @@ export async function getDashboardData(_userId?: number) {
   }
 }
 
+// ─── Próximo ID de Produto ────────────────────────────────────────────────────
+
+export async function getNextProductId(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  try {
+    // Consulta o próximo valor da sequência do Postgres sem consumi-lo
+    const result = await db.execute(
+      "SELECT last_value + 1 AS next_id FROM permupay_products_id_seq" as any
+    );
+    const rows = (result as any).rows ?? result;
+    const row = rows?.[0];
+    const nextId = Number(row?.next_id ?? 0);
+    if (nextId > 0) return nextId;
+    throw new Error("sequence not found");
+  } catch {
+    // Fallback: busca o maior ID atual + 1
+    try {
+      const last = await db.select({ id: products.id }).from(products).orderBy(desc(products.id)).limit(1);
+      return (last[0]?.id ?? 0) + 1;
+    } catch {
+      return 0;
+    }
+  }
+}
+
 // ─── Reordenação de Produtos ──────────────────────────────────────────────────
 
 export async function reorderProducts(orderedIds: number[]) {

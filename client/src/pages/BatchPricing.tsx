@@ -7,6 +7,7 @@
  */
 
 import { useMemo, useState, useCallback, type ReactNode } from "react";
+import { CurrencyInput } from "@/components/CurrencyInput";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -1048,24 +1049,24 @@ export default function BatchPricing() {
               label="Custo operacional total"
               hint="Frete, despachante, armazenamento."
             >
-              <TextNumberInput
-                value={totalOperationalCost}
-                onChange={setTotalOperationalCost}
-                placeholder="Ex: 4500,00"
+              <CurrencyInput
+                value={toMoney(totalOperationalCost)}
+                onValueChange={(v) => setTotalOperationalCost(String(v))}
+                placeholder="4.500,00"
               />
             </Field>
             <Field label="Impostos / taxas da entrada">
-              <TextNumberInput
-                value={totalTaxCost}
-                onChange={setTotalTaxCost}
-                placeholder="Ex: 1200,00"
+              <CurrencyInput
+                value={toMoney(totalTaxCost)}
+                onValueChange={(v) => setTotalTaxCost(String(v))}
+                placeholder="1.200,00"
               />
             </Field>
             <Field label="Outros custos da entrada">
-              <TextNumberInput
-                value={totalOtherCost}
-                onChange={setTotalOtherCost}
-                placeholder="Ex: 300,00"
+              <CurrencyInput
+                value={toMoney(totalOtherCost)}
+                onValueChange={(v) => setTotalOtherCost(String(v))}
+                placeholder="300,00"
               />
             </Field>
           </div>
@@ -1344,14 +1345,13 @@ export default function BatchPricing() {
                       </Field>
 
                       <Field label="Custo orig." required>
-                        <TextNumberInput
-                          value={item.unitCostOriginal}
-                          onChange={(value) =>
-                            updateItem(item._id, "unitCostOriginal", value)
+                        <CurrencyInput
+                          value={toMoney(item.unitCostOriginal)}
+                          onValueChange={(v) =>
+                            updateItem(item._id, "unitCostOriginal", String(v))
                           }
-                          placeholder={
-                            item.currency === "USD" ? "Ex: 20,00" : "Ex: 110,00"
-                          }
+                          placeholder={item.currency === "USD" ? "20,00" : "110,00"}
+                          noPrefix={item.currency === "USD"}
                         />
                       </Field>
 
@@ -1962,7 +1962,8 @@ function BatchDetailsContent({ batch }: { batch: any }) {
               const profitUnit = price > 0 ? price - finalUnit : 0;
               const profitTotal = price > 0 ? profitUnit * qty : 0;
               const allocated = Number(item.allocatedOperationalCost ?? 0) + Number(item.allocatedTaxCost ?? 0) + Number(item.allocatedOtherCost ?? 0);
-
+              const allocatedUnit = qty > 0 ? allocated / qty : 0;
+              const operUnit = Number(item.operationalCostPerUnit ?? (qty > 0 ? Number(item.allocatedOperationalCost ?? 0) / qty : 0));
               return (
                 <div key={item.id ?? `${item.productName}-${index}`} className="rounded-lg border border-border bg-background p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1984,6 +1985,27 @@ function BatchDetailsContent({ batch }: { batch: any }) {
                     <MiniInfoBox label="Preço final" value={price > 0 ? formatCurrency(price) : 'Sem preço'} />
                   </div>
 
+                  {/* Custo operacional: total do produto e por unidade */}
+                  {allocated > 0 && (
+                    <div className="mt-2 rounded-md border border-amber-200/60 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/10 px-3 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-1">Custo operacional rateado</span>
+                      <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <span className="text-muted-foreground">
+                          <strong className="text-foreground">{qty} un</strong> → {formatCurrency(allocated)}
+                        </span>
+                        <span className="text-muted-foreground/60">|</span>
+                        <span className="text-muted-foreground">
+                          <strong className="text-amber-700 dark:text-amber-400">1 un = {formatCurrency(allocatedUnit)}</strong>
+                        </span>
+                        {operUnit > 0 && operUnit !== allocatedUnit && (
+                          <>
+                            <span className="text-muted-foreground/60">·</span>
+                            <span className="text-[10px] text-muted-foreground">op: {formatCurrency(operUnit)}/un</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <div className="rounded-md bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
                       <span className="block text-[10px] uppercase tracking-wide">Lucro unitário</span>

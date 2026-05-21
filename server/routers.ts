@@ -202,6 +202,8 @@ export const appRouter = router({
 
     list: protectedProcedure.query(() => db.listProducts()),
 
+    nextId: protectedProcedure.query(() => db.getNextProductId()),
+
     pendingToPublish: protectedProcedure.query(() => db.listProductsToPublish()),
 
     byId: protectedProcedure
