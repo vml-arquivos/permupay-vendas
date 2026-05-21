@@ -71,7 +71,11 @@ function Router() {
         {(params: any) => <PL><SimulationDetail id={Number(params.id)} /></PL>}
       </Route>
 
-      {/* ── LOTES ─────────────────────────────────────────────────────── */}
+      {/* ── ENTRADA DE PRODUTOS ─────────────────────────────────────── */}
+      <Route path="/entrada-produtos">{() => <PL><BatchPricing /></PL>}</Route>
+      <Route path="/entrada-produtos/novo">{() => <PL><BatchPricing /></PL>}</Route>
+
+      {/* Rotas antigas mantidas por compatibilidade */}
       <Route path="/lotes">{() => <PL><BatchPricing /></PL>}</Route>
       <Route path="/lotes/novo">{() => <PL><BatchPricing /></PL>}</Route>
 
