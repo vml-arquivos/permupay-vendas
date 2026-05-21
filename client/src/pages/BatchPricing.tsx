@@ -280,10 +280,10 @@ function SummaryBox({
 }) {
   return (
     <div className="rounded-lg border border-border bg-card p-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-tight">
         {label}
       </p>
-      <p className="mt-0.5 text-lg font-bold text-foreground">{value}</p>
+      <p className="mt-1 text-base font-bold text-foreground leading-tight break-words">{value}</p>
       {hint && <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
@@ -1738,7 +1738,7 @@ export default function BatchPricing() {
                     </div>
                   </div>
 
-                  <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-7">
+                  <div className="mt-2 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                     <div className="rounded-md bg-muted/25 px-2 py-1.5">
                       <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Produtos</span>
                       <strong className="text-xs">{productsCount}</strong>
@@ -1759,8 +1759,8 @@ export default function BatchPricing() {
                       <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Imp./Outros</span>
                       <strong className="text-xs">{formatCurrency(taxTotal + otherTotal)}</strong>
                     </div>
-                    <div className="rounded-md bg-primary/5 px-2 py-1.5 sm:col-span-2 lg:col-span-2">
-                      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Total lote</span>
+                    <div className="rounded-md bg-primary/5 border border-primary/20 px-2 py-1.5">
+                      <span className="block text-[9px] uppercase tracking-wide text-primary/70">Total lote</span>
                       <strong className="text-xs text-primary">{formatCurrency(totalCost)}</strong>
                     </div>
                   </div>
@@ -1927,14 +1927,19 @@ function BatchDetailsContent({ batch }: { batch: any }) {
 
   return (
     <div className="space-y-5 overflow-x-hidden">
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+      {/* Resumo geral — 2 colunas no mobile, 3 no tablet, nunca ultrapassa o modal */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <SummaryBox label="Status" value={statusLabel(batch.status)} />
         <SummaryBox label="Data" value={formatBatchDate(batch.createdAt)} />
         <SummaryBox label="Produtos" value={String(items.length)} />
         <SummaryBox label="Unidades" value={String(totalQuantity || "—")} />
         <SummaryBox label="Mercadorias" value={formatCurrency(goodsTotal)} />
         <SummaryBox label="Custos adicionais" value={formatCurrency(operationalTotal + taxTotal + otherTotal)} />
-        <SummaryBox label="Total entrada" value={formatCurrency(grandTotal)} />
+      </div>
+      {/* Total em destaque */}
+      <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 flex items-center justify-between gap-4">
+        <span className="text-xs font-semibold uppercase tracking-wide text-primary/70">Total da entrada</span>
+        <span className="text-2xl font-bold text-primary">{formatCurrency(grandTotal)}</span>
       </div>
 
       <div className="rounded-xl border border-border bg-card p-4">
@@ -1976,12 +1981,12 @@ function BatchDetailsContent({ batch }: { batch: any }) {
                     <Badge variant="secondary">Qtd {qty || '—'}</Badge>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-                    <MiniInfoBox label="Custo BRL" value={formatCurrency(unitBrl)} />
-                    <MiniInfoBox label="Base" value={formatCurrency(baseTotal)} />
-                    <MiniInfoBox label="Rateio" value={formatCurrency(allocated)} />
-                    <MiniInfoBox label="Custo real" value={formatCurrency(finalUnit)} highlight />
-                    <MiniInfoBox label="Total real" value={formatCurrency(realTotal)} />
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <MiniInfoBox label="Custo unit. BRL" value={formatCurrency(unitBrl)} />
+                    <MiniInfoBox label="Base total" value={formatCurrency(baseTotal)} />
+                    <MiniInfoBox label="Rateio total" value={formatCurrency(allocated)} />
+                    <MiniInfoBox label="Custo real unit." value={formatCurrency(finalUnit)} highlight />
+                    <MiniInfoBox label="Custo real total" value={formatCurrency(realTotal)} />
                     <MiniInfoBox label="Preço final" value={price > 0 ? formatCurrency(price) : 'Sem preço'} />
                   </div>
 
@@ -2041,9 +2046,13 @@ function BatchDetailsContent({ batch }: { batch: any }) {
 
 function MiniInfoBox({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className={`rounded-md px-3 py-2 text-xs ${highlight ? "bg-primary/5" : "bg-muted/25"}`}>
-      <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <strong className={highlight ? "text-primary" : "text-foreground"}>{value}</strong>
+    <div className={`rounded-md border px-3 py-2.5 ${
+      highlight
+        ? "border-primary/30 bg-primary/5"
+        : "border-border bg-muted/20"
+    }`}>
+      <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">{label}</span>
+      <strong className={`block text-sm font-bold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</strong>
     </div>
   );
 }
