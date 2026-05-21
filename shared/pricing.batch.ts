@@ -1,34 +1,41 @@
 /**
- * pricing.batch.ts — Motor de Rateio Proporcional por Lote
+ * pricing.batch.ts — Motor de Rateio Proporcional por Entrada/Lote
  *
- * REGRA DE NEGÓCIO CENTRAL:
- *   Quando um lote de mercadorias chega, o Custo Operacional total
- *   (frete de importação, despachante, armazenagem, etc.) é rateado
- *   proporcionalmente ao valor (custo) de cada item no lote.
+ * REGRA CENTRAL:
+ *   Os custos da entrada (operacional, imposto e outros custos) pertencem à
+ *   compra inteira. Eles são rateados proporcionalmente pelo peso financeiro
+ *   de cada produto dentro da entrada.
  *
- * FÓRMULA DO RATEIO:
- *   custo_operacional_item = (custo_total_item / custo_total_do_lote) * custo_operacional_total
- *
- * FÓRMULA DO CUSTO UNITÁRIO FINAL (após rateio):
- *   custo_final_unitario = custo_unitario_brl + (custo_operacional_item / quantidade)
- *
- * FÓRMULA DO PREÇO SUGERIDO SIMPLIFICADO (markup):
- *   preco_sugerido = custo_final_unitario / (1 - margem_desejada/100 - aliquota_imposto/100)
- *
- * ATENÇÃO — BUG DE TIPO CORRIGIDO:
- *   Todos os campos numéricos são coercidos com Number() antes de qualquer
- *   operação aritmética. Isso evita que strings vindas do formulário React
- *   causem concatenação em vez de soma (ex: "1250" + 50 = "125050").
+ * Compatibilidade:
+ * - Mantém `totalOperationalCost` e os campos antigos.
+ * - Novos campos são opcionais para não quebrar chamadas antigas.
  */
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
+
+export type AcquisitionCurrency = "BRL" | "USD";
+export type AcquisitionPaymentMethod =
+  | "DINHEIRO"
+  | "PIX"
+  | "BOLETO"
+  | "CARTAO"
+  | "DOLAR"
+  | "OUTRO";
 
 export interface BatchItemInput {
   /** ID do produto vinculado (opcional — pode ser um produto novo ainda não salvo) */
   productId?: number;
   productName: string;
-  /** Custo unitário em BRL (já convertido se USD) */
+
+  /** Custo unitário já convertido para BRL. Continua sendo o campo principal usado no cálculo. */
   unitCostBrl: number;
+
+  /** Campos de aquisição — opcionais para compatibilidade com produtos/entradas antigas. */
+  unitCostOriginal?: number;
+  costCurrency?: AcquisitionCurrency;
+  exchangeRate?: number;
+  acquisitionPaymentMethod?: AcquisitionPaymentMethod;
+
   quantity: number;
   /** Margem desejada em % (ex: 30 = 30%) */
   desiredMarginRate: number;
@@ -37,14 +44,30 @@ export interface BatchItemInput {
 }
 
 export interface BatchItemResult extends BatchItemInput {
-  /** custo_unitario_brl * quantidade */
+  /** unitCostBrl * quantity */
   totalItemCost: number;
-  /** Proporção deste item no custo total do lote (0..1) */
+  /** Alias semântico para relatórios: custo base total do produto */
+  baseTotalCost: number;
+  /** Proporção deste item no custo total da entrada (0..1) */
   costProportion: number;
+
   /** Custo operacional absorvido por este item = proporção * custo_operacional_total */
   allocatedOperationalCost: number;
-  /** custo_unitario_brl + (allocatedOperationalCost / quantity) */
+  operationalCostPerUnit: number;
+
+  /** Imposto/custo fiscal alocado ao item, quando informado no cabeçalho da entrada */
+  allocatedTaxCost: number;
+  taxCostPerUnit: number;
+
+  /** Outros custos alocados ao item, quando informado no cabeçalho da entrada */
+  allocatedOtherCost: number;
+  otherCostPerUnit: number;
+
+  /** unitCostBrl + custos proporcionais por unidade */
   finalUnitCost: number;
+  /** Custo real total do item = finalUnitCost * quantity */
+  realTotalCost: number;
+
   /** Preço sugerido com margem e imposto (cálculo reverso) */
   suggestedPrice: number;
   /** Margem de contribuição unitária = preço_sugerido - finalUnitCost */
@@ -53,8 +76,12 @@ export interface BatchItemResult extends BatchItemInput {
 
 export interface BatchPricingInput {
   items: BatchItemInput[];
-  /** Custo operacional TOTAL do lote (frete, despachante, armazenagem, etc.) */
+  /** Custo operacional TOTAL da entrada (frete, despachante, armazenagem etc.) */
   totalOperationalCost: number;
+  /** Imposto/taxa total da entrada, se houver. Opcional para compatibilidade. */
+  totalTaxCost?: number;
+  /** Outros custos totais da entrada, se houver. Opcional para compatibilidade. */
+  totalOtherCost?: number;
 }
 
 export interface BatchPricingResult {
@@ -62,10 +89,14 @@ export interface BatchPricingResult {
   /** Custo total das mercadorias (soma de unitCostBrl * quantity) */
   totalCostOfGoods: number;
   totalOperationalCost: number;
-  /** Custo total do lote = totalCostOfGoods + totalOperationalCost */
+  totalTaxCost: number;
+  totalOtherCost: number;
+  /** Custo total da entrada = mercadorias + operacional + imposto + outros */
   grandTotal: number;
-  /** Verificação de integridade: soma dos allocatedOperationalCost deve ≈ totalOperationalCost */
+  /** Verificação: soma dos allocatedOperationalCost deve ≈ totalOperationalCost */
   allocationCheck: number;
+  taxAllocationCheck: number;
+  otherAllocationCheck: number;
 }
 
 export interface BatchPricingError {
@@ -76,24 +107,21 @@ export interface BatchPricingError {
 
 // ─── Coerção Segura de Tipos ───────────────────────────────────────────────────
 
-/**
- * Converte qualquer valor para número de forma segura.
- * Strings de formulário como "1.250,00" ou "1250.50" são normalizadas.
- * Retorna 0 para valores inválidos (NaN, null, undefined).
- */
 function toNumber(value: unknown): number {
   if (typeof value === "number") return isNaN(value) ? 0 : value;
   if (typeof value === "string") {
-    // Remove caracteres não numéricos exceto ponto e vírgula decimal
-    // Suporta formato brasileiro "1.250,50" e americano "1250.50"
     const cleaned = value
-      .replace(/[R$\s]/g, "")   // remove símbolo de moeda e espaços
-      .replace(/\./g, "")        // remove separadores de milhar (ponto BR)
-      .replace(",", ".");        // converte vírgula decimal para ponto
+      .replace(/[R$US$\s]/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".");
     const n = parseFloat(cleaned);
     return isNaN(n) ? 0 : n;
   }
   return 0;
+}
+
+function roundMoney(value: number): number {
+  return Number(value.toFixed(4));
 }
 
 // ─── Validação ─────────────────────────────────────────────────────────────────
@@ -102,14 +130,17 @@ export function validateBatchInput(
   input: BatchPricingInput
 ): BatchPricingError | null {
   if (!input.items || input.items.length === 0) {
-    return { code: "EMPTY_BATCH", message: "O lote deve ter pelo menos 1 item." };
+    return { code: "EMPTY_BATCH", message: "A entrada deve ter pelo menos 1 item." };
   }
 
   const opCost = toNumber(input.totalOperationalCost);
-  if (opCost < 0) {
+  const taxCost = toNumber(input.totalTaxCost ?? 0);
+  const otherCost = toNumber(input.totalOtherCost ?? 0);
+
+  if (opCost < 0 || taxCost < 0 || otherCost < 0) {
     return {
       code: "NEGATIVE_COST",
-      message: "O custo operacional total não pode ser negativo.",
+      message: "Custos totais da entrada não podem ser negativos.",
     };
   }
 
@@ -157,108 +188,108 @@ export function validateBatchInput(
 
 // ─── Motor Principal de Rateio ────────────────────────────────────────────────
 
-/**
- * Calcula o rateio proporcional do custo operacional para cada item do lote.
- *
- * ALGORITMO:
- *  1. Coerce todos os campos numéricos para Number (evita bug de concatenação de strings)
- *  2. Soma o custo total das mercadorias do lote (base do rateio)
- *  3. Para cada item, calcula a proporção = custo_total_item / custo_total_lote
- *  4. Aloca o custo operacional = proporção * custo_operacional_total
- *  5. Calcula o custo final unitário = custo_unit + custo_operacional_alocado / qtd
- *  6. Calcula o preço sugerido via cálculo reverso de margem + imposto
- *
- * Se totalCostOfGoods = 0 (todos os itens custam R$ 0), distribui igualmente.
- */
 export function calculateBatchPricing(
   input: BatchPricingInput
 ): BatchPricingResult | BatchPricingError {
   const validationError = validateBatchInput(input);
   if (validationError) return validationError;
 
-  // ── PASSO 0: Coerção explícita de tipos — CRÍTICO ─────────────────────────
-  // Campos vindos de inputs HTML chegam como string mesmo com type="number".
-  // Sem isso, "1250" + 50 = "125050" (concatenação) em vez de 1300 (soma).
   const totalOperationalCost = toNumber(input.totalOperationalCost);
+  const totalTaxCost = toNumber(input.totalTaxCost ?? 0);
+  const totalOtherCost = toNumber(input.totalOtherCost ?? 0);
 
   const items = input.items.map((item) => ({
     ...item,
-    unitCostBrl:       toNumber(item.unitCostBrl),
-    quantity:          toNumber(item.quantity),
+    unitCostBrl: toNumber(item.unitCostBrl),
+    unitCostOriginal: toNumber(item.unitCostOriginal ?? item.unitCostBrl),
+    exchangeRate: toNumber(item.exchangeRate ?? 0),
+    costCurrency: (item.costCurrency ?? "BRL") as AcquisitionCurrency,
+    acquisitionPaymentMethod: (item.acquisitionPaymentMethod ?? "OUTRO") as AcquisitionPaymentMethod,
+    quantity: toNumber(item.quantity),
     desiredMarginRate: toNumber(item.desiredMarginRate),
-    estimatedTaxRate:  toNumber(item.estimatedTaxRate ?? 0),
+    estimatedTaxRate: toNumber(item.estimatedTaxRate ?? 0),
   }));
 
-  // ── PASSO 1: Custo total das mercadorias ──────────────────────────────────
   const itemsWithTotalCost = items.map((item) => ({
     ...item,
-    totalItemCost: item.unitCostBrl * item.quantity,
+    totalItemCost: roundMoney(item.unitCostBrl * item.quantity),
   }));
 
-  const totalCostOfGoods = itemsWithTotalCost.reduce(
-    (sum, item) => sum + item.totalItemCost,
-    0
+  const totalCostOfGoods = roundMoney(
+    itemsWithTotalCost.reduce((sum, item) => sum + item.totalItemCost, 0)
   );
 
-  const grandTotal = totalCostOfGoods + totalOperationalCost;
+  const grandTotal = roundMoney(
+    totalCostOfGoods + totalOperationalCost + totalTaxCost + totalOtherCost
+  );
 
-  // ── PASSO 2 e 3: Proporção e rateio ──────────────────────────────────────
   const resultItems: BatchItemResult[] = itemsWithTotalCost.map((item) => {
-    // Proporção deste item no custo total do lote
-    // Se todos os itens custam 0, distribui igualmente
     const costProportion =
       totalCostOfGoods > 0
         ? item.totalItemCost / totalCostOfGoods
         : 1 / items.length;
 
-    // Custo operacional rateado para este item (em R$)
-    const allocatedOperationalCost = costProportion * totalOperationalCost;
+    const allocatedOperationalCost = roundMoney(costProportion * totalOperationalCost);
+    const allocatedTaxCost = roundMoney(costProportion * totalTaxCost);
+    const allocatedOtherCost = roundMoney(costProportion * totalOtherCost);
 
-    // ── PASSO 4: Custo unitário final ────────────────────────────────────
-    // Ambos os operandos já são Number — sem risco de concatenação
-    const finalUnitCost =
-      item.unitCostBrl + allocatedOperationalCost / item.quantity;
+    const operationalCostPerUnit = roundMoney(allocatedOperationalCost / item.quantity);
+    const taxCostPerUnit = roundMoney(allocatedTaxCost / item.quantity);
+    const otherCostPerUnit = roundMoney(allocatedOtherCost / item.quantity);
 
-    // ── PASSO 5: Preço sugerido — cálculo reverso ────────────────────────
-    // Fórmula: preco = custo_final / (1 - margem% - imposto%)
-    const taxRate    = item.estimatedTaxRate / 100;
+    const finalUnitCost = roundMoney(
+      item.unitCostBrl + operationalCostPerUnit + taxCostPerUnit + otherCostPerUnit
+    );
+
+    const realTotalCost = roundMoney(finalUnitCost * item.quantity);
+
+    const taxRate = item.estimatedTaxRate / 100;
     const marginRate = item.desiredMarginRate / 100;
-    const divisor    = 1 - marginRate - taxRate;
-
-    // Proteção: se divisor <= 0 (margem + imposto >= 100%), usa o custo como piso
-    const suggestedPrice = divisor > 0.001 ? finalUnitCost / divisor : finalUnitCost;
-
-    const contributionMargin = suggestedPrice - finalUnitCost;
+    const divisor = 1 - marginRate - taxRate;
+    const suggestedPrice = roundMoney(divisor > 0.001 ? finalUnitCost / divisor : finalUnitCost);
+    const contributionMargin = roundMoney(suggestedPrice - finalUnitCost);
 
     return {
       ...item,
       totalItemCost: item.totalItemCost,
+      baseTotalCost: item.totalItemCost,
       costProportion,
       allocatedOperationalCost,
+      operationalCostPerUnit,
+      allocatedTaxCost,
+      taxCostPerUnit,
+      allocatedOtherCost,
+      otherCostPerUnit,
       finalUnitCost,
+      realTotalCost,
       suggestedPrice,
       contributionMargin,
     };
   });
 
-  // ── Verificação de integridade ─────────────────────────────────────────
-  const allocationCheck = resultItems.reduce(
-    (sum, item) => sum + item.allocatedOperationalCost,
-    0
+  const allocationCheck = roundMoney(
+    resultItems.reduce((sum, item) => sum + item.allocatedOperationalCost, 0)
+  );
+  const taxAllocationCheck = roundMoney(
+    resultItems.reduce((sum, item) => sum + item.allocatedTaxCost, 0)
+  );
+  const otherAllocationCheck = roundMoney(
+    resultItems.reduce((sum, item) => sum + item.allocatedOtherCost, 0)
   );
 
   return {
     items: resultItems,
     totalCostOfGoods,
     totalOperationalCost,
+    totalTaxCost,
+    totalOtherCost,
     grandTotal,
     allocationCheck,
+    taxAllocationCheck,
+    otherAllocationCheck,
   };
 }
 
-/**
- * Type guard para verificar se o resultado é um erro
- */
 export function isBatchPricingError(
   result: BatchPricingResult | BatchPricingError
 ): result is BatchPricingError {
