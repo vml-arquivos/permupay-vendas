@@ -1,5 +1,5 @@
 /**
- * BatchPricing.tsx — Criação de Lote com Rateio Proporcional + FIFO
+ * BatchPricing.tsx — Entrada de Produtos com Rateio Proporcional + FIFO
  *
  * NOVO: Toggle "Modo FIFO" — quando ativado, produtos com estoque ativo
  * entram na fila de espera e só são ativados quando o estoque atual zera.
@@ -88,8 +88,8 @@ export default function BatchPricing() {
     onSuccess: () => {
       utils.batches.list.invalidate();
       utils.products.list.invalidate();
-      toast.success("Lote processado! Estoque atualizado.");
-      setLocation("/lotes");
+      toast.success("Entrada processada! Estoque atualizado.");
+      setLocation("/entrada-produtos");
     },
     onError: (err) => toast.error(err.message),
   });
@@ -100,7 +100,7 @@ export default function BatchPricing() {
       utils.products.list.invalidate();
       setFifoResult(data);
       toast.success(
-        `Lote FIFO processado! ${data.activatedCount} ativado(s), ${data.queuedCount} na fila de espera.`
+        `Entrada FIFO processada! ${data.activatedCount} ativado(s), ${data.queuedCount} na fila de espera.`
       );
     },
     onError: (err) => toast.error(err.message),
@@ -146,7 +146,7 @@ export default function BatchPricing() {
   // ── Salvar + Processar ──────────────────────────────────────────────────────
 
   const handleSaveAndProcess = async (commitToStock: boolean) => {
-    if (!batchName.trim()) { toast.error("Informe o nome do lote."); return; }
+    if (!batchName.trim()) { toast.error("Informe o nome da entrada."); return; }
 
     const validItems = items.filter((i) => i.productName.trim());
     if (validItems.length === 0) { toast.error("Adicione pelo menos 1 item."); return; }
@@ -179,7 +179,7 @@ export default function BatchPricing() {
         });
       }
     } catch (err: any) {
-      toast.error(err.message ?? "Erro ao processar lote.");
+      toast.error(err.message ?? "Erro ao processar entrada.");
     }
   };
 
@@ -192,11 +192,11 @@ export default function BatchPricing() {
 
       {/* Cabeçalho */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/lotes")}>
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/entrada-produtos")}>
           <ChevronLeft className="w-4 h-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">Novo Lote de Precificação</h1>
+          <h1 className="text-2xl font-bold">Nova Entrada de Produtos</h1>
           <p className="text-sm text-muted-foreground">
             O custo operacional é rateado proporcionalmente ao valor de cada item.
           </p>
@@ -211,7 +211,7 @@ export default function BatchPricing() {
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 <span className="font-semibold text-emerald-800 dark:text-emerald-300">
-                  Lote FIFO processado com sucesso
+                  Entrada FIFO processada com sucesso
                 </span>
               </div>
               <div className="flex gap-4 text-sm">
@@ -224,22 +224,22 @@ export default function BatchPricing() {
                   <strong>{fifoResult.queuedCount}</strong> na fila de espera (FIFO)
                 </span>
               </div>
-              <Button size="sm" onClick={() => setLocation("/lotes")} className="ml-auto">
-                Ver lotes →
+              <Button size="sm" onClick={() => setLocation("/entrada-produtos")} className="ml-auto">
+                Ver entradas →
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Dados do Lote */}
+      {/* Dados da Entrada */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Dados do Lote</CardTitle>
+          <CardTitle className="text-base">Dados da Entrada</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label>Nome do lote *</Label>
+            <Label>Nome da entrada *</Label>
             <Input
               value={batchName}
               onChange={(e) => setBatchName(e.target.value)}
@@ -254,7 +254,7 @@ export default function BatchPricing() {
               placeholder="0,00"
             />
             <p className="text-xs text-muted-foreground">
-              Frete, despachante, armazenagem, taxas aduaneiras — tudo para trazer o lote.
+              Frete, despachante, armazenagem, taxas aduaneiras — tudo para trazer a entrada.
             </p>
           </div>
           <div className="md:col-span-2 space-y-1.5">
@@ -262,7 +262,7 @@ export default function BatchPricing() {
             <Textarea
               value={batchDescription}
               onChange={(e) => setBatchDescription(e.target.value)}
-              placeholder="Detalhes do lote…"
+              placeholder="Detalhes da entrada…"
               rows={2}
             />
           </div>
@@ -277,7 +277,7 @@ export default function BatchPricing() {
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4 text-primary" />
                     <Label className="text-sm font-semibold cursor-pointer" htmlFor="fifo-toggle">
-                      Modo FIFO — Fila de Estoque por Lote
+                      Modo FIFO — Fila de Estoque por Entrada
                     </Label>
                     <Badge variant="secondary" className="text-[9px] tracking-wide uppercase">
                       Recomendado
@@ -286,7 +286,7 @@ export default function BatchPricing() {
                   <p className="text-xs text-muted-foreground leading-relaxed max-w-xl">
                     Quando ativado, produtos que já possuem estoque ativo ficam em
                     <strong> fila de espera</strong>. O sistema promove automaticamente
-                    o lote mais antigo quando o estoque atual zera, atualizando custo
+                    a entrada mais antiga quando o estoque atual zera, atualizando custo
                     e preços de venda sem intervenção manual.
                   </p>
 
@@ -294,15 +294,15 @@ export default function BatchPricing() {
                   {fifoMode && (
                     <div className="mt-3 flex items-center gap-2 text-xs flex-wrap">
                       <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium border border-emerald-200">
-                        Lote A — ATIVO
+                        Entrada A — ATIVA
                       </span>
                       <span className="text-muted-foreground">→ vende até zerar →</span>
                       <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-medium border border-amber-200">
-                        Lote B — EM ESPERA
+                        Entrada B — EM ESPERA
                       </span>
                       <span className="text-muted-foreground">→ promovido automaticamente →</span>
                       <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium border border-emerald-200">
-                        Lote B — ATIVO ✓
+                        Entrada B — ATIVA ✓
                       </span>
                     </div>
                   )}
@@ -319,7 +319,7 @@ export default function BatchPricing() {
                 <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40">
                   <Info className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
                   <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-                    No modo FIFO, o lote é sempre fechado automaticamente após processamento.
+                    No modo FIFO, a entrada é sempre fechada automaticamente após processamento.
                     Produtos <strong>sem estoque</strong> ativo são ativados imediatamente.
                     Produtos <strong>com estoque</strong> entram na fila — o gatilho de virada
                     é disparado a cada venda registrada no sistema.
@@ -335,10 +335,9 @@ export default function BatchPricing() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base">Itens do Lote</CardTitle>
+            <CardTitle className="text-base">Produtos da Entrada</CardTitle>
             <CardDescription>
-              Preencha o custo unitário em BRL (converta antes se USD).
-              Vincule ao <strong>ID do produto</strong> para ativar o FIFO.
+              Preencha os produtos comprados nesta entrada. Por enquanto, informe o custo unitário em BRL; se a compra foi em USD, converta antes. Vincule ao <strong>ID do produto</strong> para ativar o FIFO.
             </CardDescription>
           </div>
           <Button size="sm" variant="outline" onClick={addItem}>
@@ -480,7 +479,7 @@ export default function BatchPricing() {
             className="gap-2"
           >
             <Clock className="w-4 h-4" />
-            Processar Lote com Fila FIFO
+            Processar Entrada com Fila FIFO
           </Button>
         ) : (
           /* Modo padrão: dois botões */
@@ -490,7 +489,7 @@ export default function BatchPricing() {
               onClick={() => handleSaveAndProcess(false)}
               disabled={isLoading}
             >
-              Salvar Lote (sem entrada no estoque)
+              Salvar Entrada (sem atualizar estoque)
             </Button>
             <Button
               onClick={() => setShowCommitDialog(true)}
@@ -516,7 +515,7 @@ export default function BatchPricing() {
                 {fifoMode ? (
                   <>
                     <p>
-                      O lote será processado com a <strong>Fila FIFO</strong>.
+                      A entrada será processada com a <strong>Fila FIFO</strong>.
                       O sistema irá verificar o estoque atual de cada produto:
                     </p>
                     <ul className="space-y-1.5 pl-4 list-disc">
@@ -526,19 +525,19 @@ export default function BatchPricing() {
                       </li>
                       <li>
                         <strong>Estoque = 0</strong> → produto é ativado imediatamente com
-                        os novos preços e custo deste lote.
+                        os novos preços e custo desta entrada.
                       </li>
                     </ul>
                     <p className="text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                      O lote será fechado e não poderá ser editado após esta ação.
+                      A entrada será fechada e não poderá ser editada após esta ação.
                     </p>
                   </>
                 ) : (
                   <p>
                     Isso irá atualizar o estoque de cada produto vinculado com as
                     quantidades informadas e calcular o custo médio ponderado.
-                    Esta ação fechará o lote e não poderá ser desfeita.
+                    Esta ação fechará a entrada e não poderá ser desfeita.
                   </p>
                 )}
               </div>
@@ -644,7 +643,7 @@ function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
           {[
             { label: "Custo das Mercadorias", value: formatCurrency(preview.totalCostOfGoods) },
             { label: "Custo Operacional",     value: formatCurrency(preview.totalOperationalCost) },
-            { label: "Total do Lote",         value: formatCurrency(preview.grandTotal) },
+            { label: "Total da Entrada",         value: formatCurrency(preview.grandTotal) },
             {
               label: "Verificação (rateio)",
               value: formatCurrency(preview.allocationCheck),
