@@ -35,7 +35,7 @@ import {
 } from "../../../shared/pricingCalculator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CurrencyInput } from "@/components/CurrencyInput";
+import { CurrencyInput, parseCurrencyValue } from "@/components/CurrencyInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -119,10 +119,8 @@ const defaultForm: FormState = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function n(val: string): number {
-  if (!val) return 0;
-  const v = parseFloat(val.replace(",", "."));
-  return isNaN(v) ? 0 : v;
+function n(val: string | number | null | undefined): number {
+  return parseCurrencyValue(val ?? "");
 }
 
 function diagnosticConfig(status: string) {
@@ -152,6 +150,32 @@ interface ManualPricingSummary {
   profitPercentOnSale: number;
   markupPercentOnCost: number;
   isLoss: boolean;
+}
+
+interface ProductCostContext {
+  source: "ACTIVE_QUEUE" | "LATEST_ENTRY" | "LEGACY";
+  productId: number;
+  batchId: number | null;
+  batchItemId: number | null;
+  queueId: number | null;
+  quantityAvailable: number;
+  unitCostOriginal: number;
+  costCurrency: "BRL" | "USD";
+  exchangeRate: number;
+  unitCostBrl: number;
+  operationalCostPerUnit: number;
+  taxCostPerUnit: number;
+  otherCostPerUnit: number;
+  realUnitCost: number;
+  realTotalCost: number;
+  suggestedPrice: number;
+  warning?: string;
+}
+
+function costSourceLabel(source?: ProductCostContext["source"]): string {
+  if (source === "ACTIVE_QUEUE") return "Custo da entrada ativa";
+  if (source === "LATEST_ENTRY") return "Custo da última entrada";
+  return "Custo legado";
 }
 
 function calculateManualPricing(realUnitCost: number, manualSalePrice: number): ManualPricingSummary | null {
@@ -202,7 +226,7 @@ function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
   // Campos monetários (R$ ou US$) usam máscara automática
   const isCurrency = prefix === "R$" || prefix === "US$";
   if (isCurrency) {
-    const numVal = typeof value === "string" ? parseFloat(value.replace(",", ".")) || 0 : (value ?? 0);
+    const numVal = n(value as any);
     return (
       <CurrencyInput
         value={numVal}
@@ -347,6 +371,16 @@ export default function ProductForm() {
     staleTime: 60_000,
   });
   const [selectedExistingProductId, setSelectedExistingProductId] = useState<string>("");
+  const costContextProductId = isEditing
+    ? productId
+    : selectedExistingProductId
+      ? Number(selectedExistingProductId)
+      : undefined;
+  const productCostContextQuery = trpc.products.costContext.useQuery(
+    { id: costContextProductId! },
+    { enabled: !!costContextProductId && !Number.isNaN(costContextProductId) },
+  );
+  const costContext = productCostContextQuery.data as ProductCostContext | null | undefined;
   const utils = trpc.useUtils();
   const addImageMutation = trpc.products.addImage.useMutation();
 
@@ -449,13 +483,49 @@ export default function ProductForm() {
     }
   }, [productQuery.data]);
 
+  useEffect(() => {
+    if (!costContext) return;
+
+    const additionalCostPerUnit =
+      n(costContext.operationalCostPerUnit) +
+      n(costContext.taxCostPerUnit) +
+      n(costContext.otherCostPerUnit);
+
+    setForm((prev) => ({
+      ...prev,
+      costCurrency: "BRL",
+      costPrice: costContext.unitCostBrl > 0
+        ? String(costContext.unitCostBrl)
+        : costContext.realUnitCost > 0
+          ? String(costContext.realUnitCost)
+          : prev.costPrice,
+      costPriceUsd: costContext.costCurrency === "USD" && costContext.unitCostOriginal > 0
+        ? String(costContext.unitCostOriginal)
+        : prev.costPriceUsd,
+      usdExchangeRate: costContext.exchangeRate > 0
+        ? String(costContext.exchangeRate)
+        : prev.usdExchangeRate,
+      operationalCost: additionalCostPerUnit > 0
+        ? String(additionalCostPerUnit)
+        : costContext.source === "LEGACY" && costContext.operationalCostPerUnit > 0
+          ? String(costContext.operationalCostPerUnit)
+          : "",
+      stockQuantity: costContext.quantityAvailable > 0
+        ? String(Math.trunc(costContext.quantityAvailable))
+        : prev.stockQuantity,
+      manualSalePrice: costContext.suggestedPrice > 0
+        ? String(costContext.suggestedPrice)
+        : prev.manualSalePrice,
+    }));
+  }, [costContext]);
+
   const applyExistingProductToForm = useCallback((rawProductId: string) => {
     setSelectedExistingProductId(rawProductId);
     const selectedId = rawProductId ? Number(rawProductId) : undefined;
     const selected = productsQuery.data?.find((p: any) => p.id === selectedId) as any;
     if (!selected) return;
 
-    const cost = Number(selected.finalUnitCostBrl ?? selected.averageCostBrl ?? selected.costPrice ?? 0);
+    const cost = Number(selected.finalUnitCostBrl ?? selected.averageCostBrl ?? selected.costPriceBrl ?? selected.costPrice ?? 0);
 
     setForm((prev) => ({
       ...prev,
@@ -915,6 +985,44 @@ export default function ProductForm() {
                   </p>
                 </div>
               </div>
+
+              {costContext && (
+                <div className="mb-4 rounded-md border border-primary/20 bg-primary/5 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                        {costSourceLabel(costContext.source)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {costContext.source === "LEGACY"
+                          ? "Produto ainda sem entrada/lote vinculado. Use a regularização inicial para gerar custo real detalhado."
+                          : `Entrada #${costContext.batchId ?? "—"} · item #${costContext.batchItemId ?? "—"}`}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-background px-3 py-1 text-xs font-semibold text-primary border border-primary/20">
+                      Custo real: {formatCurrency(costContext.realUnitCost)}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                    <div className="rounded bg-background/70 p-2">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Base BRL</p>
+                      <p className="text-sm font-semibold">{formatCurrency(costContext.unitCostBrl)}</p>
+                    </div>
+                    <div className="rounded bg-background/70 p-2">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Operacional un.</p>
+                      <p className="text-sm font-semibold">{formatCurrency(costContext.operationalCostPerUnit)}</p>
+                    </div>
+                    <div className="rounded bg-background/70 p-2">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Imp./outros un.</p>
+                      <p className="text-sm font-semibold">{formatCurrency(costContext.taxCostPerUnit + costContext.otherCostPerUnit)}</p>
+                    </div>
+                    <div className="rounded bg-background/70 p-2">
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Qtd disponível</p>
+                      <p className="text-sm font-semibold">{Math.trunc(costContext.quantityAvailable || 0)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Seletor de moeda */}
               <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-muted/20 mb-4">
