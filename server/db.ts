@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
@@ -174,6 +174,193 @@ export async function getProductById(id: number, _userId?: number) {
     console.error("[DB] Erro ao buscar produto:", error);
     return undefined;
   }
+}
+
+export type ProductCostContext = {
+  source: "ACTIVE_QUEUE" | "LATEST_ENTRY" | "LEGACY";
+  productId: number;
+  batchId: number | null;
+  batchItemId: number | null;
+  queueId: number | null;
+  quantityAvailable: number;
+  unitCostOriginal: number;
+  costCurrency: "BRL" | "USD";
+  exchangeRate: number;
+  unitCostBrl: number;
+  operationalCostPerUnit: number;
+  taxCostPerUnit: number;
+  otherCostPerUnit: number;
+  realUnitCost: number;
+  realTotalCost: number;
+  suggestedPrice: number;
+  warning?: string;
+};
+
+function asNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeCostCurrency(value: unknown): "BRL" | "USD" {
+  return String(value ?? "BRL").toUpperCase() === "USD" ? "USD" : "BRL";
+}
+
+export async function getProductCostContext(
+  productId: number,
+  _userId?: number,
+): Promise<ProductCostContext | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const productResult = (await db.execute(sql`
+    SELECT
+      id,
+      cost_price,
+      cost_price_brl,
+      cost_price_usd,
+      usd_exchange_rate,
+      cost_currency,
+      operational_cost,
+      stock_quantity,
+      average_cost_brl,
+      final_unit_cost_brl,
+      suggested_price,
+      suggested_price_pix
+    FROM permupay_products
+    WHERE id = ${productId}
+    LIMIT 1
+  `)) as any;
+
+  const product = productResult?.rows?.[0];
+  if (!product) return null;
+
+  const activeResult = (await db.execute(sql`
+    SELECT
+      q.id AS queue_id,
+      q.batch_id,
+      q.quantity_remaining,
+      bi.id AS batch_item_id,
+      bi.unit_cost_original,
+      bi.cost_currency,
+      bi.exchange_rate,
+      bi.unit_cost_brl,
+      bi.quantity,
+      bi.operational_cost_per_unit,
+      bi.tax_cost_per_unit,
+      bi.other_cost_per_unit,
+      bi.real_total_cost,
+      bi.final_unit_cost,
+      bi.suggested_price
+    FROM permupay_stock_queue q
+    LEFT JOIN permupay_batch_items bi
+      ON bi.queue_id = q.id
+      OR (bi.batch_id = q.batch_id AND bi.product_id = q.product_id)
+    WHERE q.product_id = ${productId}
+      AND q.status = 'ATIVO'
+      AND q.quantity_remaining > 0
+    ORDER BY q.activated_at DESC NULLS LAST, q.created_at DESC, bi.id DESC
+    LIMIT 1
+  `)) as any;
+
+  const active = activeResult?.rows?.[0];
+  if (active?.batch_item_id) {
+    const realUnitCost = asNumber(active.final_unit_cost);
+    const quantityAvailable = asNumber(active.quantity_remaining);
+    return {
+      source: "ACTIVE_QUEUE",
+      productId,
+      batchId: active.batch_id != null ? Number(active.batch_id) : null,
+      batchItemId: active.batch_item_id != null ? Number(active.batch_item_id) : null,
+      queueId: active.queue_id != null ? Number(active.queue_id) : null,
+      quantityAvailable,
+      unitCostOriginal: asNumber(active.unit_cost_original),
+      costCurrency: normalizeCostCurrency(active.cost_currency),
+      exchangeRate: asNumber(active.exchange_rate),
+      unitCostBrl: asNumber(active.unit_cost_brl),
+      operationalCostPerUnit: asNumber(active.operational_cost_per_unit),
+      taxCostPerUnit: asNumber(active.tax_cost_per_unit),
+      otherCostPerUnit: asNumber(active.other_cost_per_unit),
+      realUnitCost,
+      realTotalCost: asNumber(active.real_total_cost) || realUnitCost * quantityAvailable,
+      suggestedPrice: asNumber(active.suggested_price) || asNumber(product.suggested_price_pix) || asNumber(product.suggested_price),
+    };
+  }
+
+  const latestResult = (await db.execute(sql`
+    SELECT
+      bi.id AS batch_item_id,
+      bi.batch_id,
+      bi.queue_id,
+      bi.unit_cost_original,
+      bi.cost_currency,
+      bi.exchange_rate,
+      bi.unit_cost_brl,
+      bi.quantity,
+      bi.operational_cost_per_unit,
+      bi.tax_cost_per_unit,
+      bi.other_cost_per_unit,
+      bi.real_total_cost,
+      bi.final_unit_cost,
+      bi.suggested_price
+    FROM permupay_batch_items bi
+    LEFT JOIN permupay_pricing_batches b ON b.id = bi.batch_id
+    WHERE bi.product_id = ${productId}
+    ORDER BY bi.created_at DESC, bi.id DESC
+    LIMIT 1
+  `)) as any;
+
+  const latest = latestResult?.rows?.[0];
+  if (latest?.batch_item_id) {
+    const realUnitCost = asNumber(latest.final_unit_cost);
+    const quantity = asNumber(latest.quantity);
+    return {
+      source: "LATEST_ENTRY",
+      productId,
+      batchId: latest.batch_id != null ? Number(latest.batch_id) : null,
+      batchItemId: latest.batch_item_id != null ? Number(latest.batch_item_id) : null,
+      queueId: latest.queue_id != null ? Number(latest.queue_id) : null,
+      quantityAvailable: asNumber(product.stock_quantity) || quantity,
+      unitCostOriginal: asNumber(latest.unit_cost_original),
+      costCurrency: normalizeCostCurrency(latest.cost_currency),
+      exchangeRate: asNumber(latest.exchange_rate),
+      unitCostBrl: asNumber(latest.unit_cost_brl),
+      operationalCostPerUnit: asNumber(latest.operational_cost_per_unit),
+      taxCostPerUnit: asNumber(latest.tax_cost_per_unit),
+      otherCostPerUnit: asNumber(latest.other_cost_per_unit),
+      realUnitCost,
+      realTotalCost: asNumber(latest.real_total_cost) || realUnitCost * quantity,
+      suggestedPrice: asNumber(latest.suggested_price) || asNumber(product.suggested_price_pix) || asNumber(product.suggested_price),
+    };
+  }
+
+  const legacyBase =
+    asNumber(product.final_unit_cost_brl) ||
+    asNumber(product.average_cost_brl) ||
+    asNumber(product.cost_price_brl) ||
+    asNumber(product.cost_price);
+  const legacyOperational = asNumber(product.operational_cost);
+  const realUnitCost = legacyBase + legacyOperational;
+  const quantityAvailable = asNumber(product.stock_quantity);
+
+  return {
+    source: "LEGACY",
+    productId,
+    batchId: null,
+    batchItemId: null,
+    queueId: null,
+    quantityAvailable,
+    unitCostOriginal: asNumber(product.cost_price_usd) || legacyBase,
+    costCurrency: normalizeCostCurrency(product.cost_currency),
+    exchangeRate: asNumber(product.usd_exchange_rate),
+    unitCostBrl: legacyBase,
+    operationalCostPerUnit: legacyOperational,
+    taxCostPerUnit: 0,
+    otherCostPerUnit: 0,
+    realUnitCost,
+    realTotalCost: realUnitCost * quantityAvailable,
+    suggestedPrice: asNumber(product.suggested_price_pix) || asNumber(product.suggested_price),
+    warning: "Produto legado sem entrada/lote vinculado. O custo exibido vem do cadastro antigo.",
+  };
 }
 
 export async function createProduct(data: any) {
