@@ -580,7 +580,7 @@ export const appRouter = router({
           buyerName: z.string().min(2, "Informe seu nome"),
           buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
           buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
-          paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO"]),
+          paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]),
         })
       )
       .mutation(({ input }) => dbOrders.createOrder(input)),
