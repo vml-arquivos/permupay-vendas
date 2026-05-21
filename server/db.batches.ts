@@ -378,6 +378,191 @@ export async function adjustStock(
     .where(eq(products.id, productId));
 }
 
+
+// ─── Regularização inicial de produtos legados ──────────────────────────────
+
+export async function listInitialRegularizationCandidates(_userId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const result = await db.execute(sql`
+    SELECT
+      p.*,
+      COALESCE(p.final_unit_cost_brl, 0) AS "finalUnitCostBrl",
+      COALESCE(p.average_cost_brl, 0) AS "averageCostBrl",
+      COALESCE(p.cost_price_brl, 0) AS "costPriceBrl"
+    FROM permupay_products p
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM permupay_batch_items bi
+      WHERE bi.product_id = p.id
+    )
+    ORDER BY p.id ASC
+  `) as any;
+
+  return result?.rows ?? [];
+}
+
+export async function processInitialRegularizationBatch(
+  batchId: number,
+  userId: number,
+  items: BatchItemInput[],
+  totalOperationalCost: number,
+  totalTaxCost = 0,
+  totalOtherCost = 0
+): Promise<BatchPricingResult & { regularizedCount: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [batch] = await db
+    .select()
+    .from(pricingBatches)
+    .where(eq(pricingBatches.id, batchId))
+    .limit(1);
+
+  if (!batch) throw new Error("Entrada de regularização não encontrada");
+  if (batch.status === "CLOSED") throw new Error("Esta entrada já está fechada");
+
+  if (items.some((item) => !item.productId)) {
+    throw new Error("Regularização inicial só pode usar produtos já cadastrados.");
+  }
+
+  const result = calculateBatchPricing({
+    items,
+    totalOperationalCost,
+    totalTaxCost,
+    totalOtherCost,
+  });
+  if (isBatchPricingError(result)) throw new Error(result.message);
+
+  let regularizedCount = 0;
+
+  await db.transaction(async (tx) => {
+    await tx.delete(batchItems).where(eq(batchItems.batchId, batchId));
+    await tx.execute(sql`DELETE FROM permupay_stock_queue WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_stock_entries WHERE batch_id = ${batchId}`);
+
+    for (const item of result.items) {
+      if (!item.productId) continue;
+
+      const productResult = await tx.execute(sql`
+        SELECT id, stock_quantity
+        FROM permupay_products
+        WHERE id = ${item.productId}
+        FOR UPDATE
+      `) as any;
+      const product = productResult?.rows?.[0];
+      if (!product) throw new Error(`Produto #${item.productId} não encontrado.`);
+
+      const activeQueueResult = await tx.execute(sql`
+        SELECT id
+        FROM permupay_stock_queue
+        WHERE product_id = ${item.productId}
+          AND status = 'ATIVO'
+          AND batch_id <> ${batchId}
+        LIMIT 1
+      `) as any;
+      if ((activeQueueResult?.rows ?? []).length > 0) {
+        throw new Error(
+          `Produto #${item.productId} já possui lote ativo. Use entrada normal ou revise antes de regularizar.`
+        );
+      }
+
+      const taxRate = (item.estimatedTaxRate ?? 6) / 100;
+      const marginRate = item.desiredMarginRate / 100;
+      const divisor = Math.max(0.01, 1 - marginRate - taxRate);
+      const pricePix = parseFloat((item.finalUnitCost / divisor).toFixed(2));
+      const priceCard = parseFloat((pricePix * 1.05).toFixed(2));
+      const priceBoleto = parseFloat((pricePix * 1.06).toFixed(2));
+
+      const [queueEntry] = await tx
+        .insert(stockQueue)
+        .values({
+          productId: item.productId,
+          batchId,
+          userId,
+          quantity: item.quantity,
+          quantityRemaining: item.quantity,
+          unitCost: item.finalUnitCost,
+          suggestedPricePix: pricePix,
+          suggestedPriceCard: priceCard,
+          suggestedPriceBoleto: priceBoleto,
+          desiredMarginRate: item.desiredMarginRate,
+          estimatedTaxRate: item.estimatedTaxRate ?? 6,
+          status: "ATIVO",
+          position: 0,
+          activatedAt: new Date(),
+          notes: `[REGULARIZAÇÃO INICIAL] Entrada #${batchId} — produto legado vinculado sem duplicar cadastro.`,
+        } as InsertStockQueue)
+        .returning({ id: stockQueue.id });
+
+      await tx.insert(batchItems).values({
+        batchId,
+        productId: item.productId,
+        productName: item.productName,
+        unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+        costCurrency: item.costCurrency ?? "BRL",
+        exchangeRate: item.exchangeRate ?? 0,
+        acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
+        unitCostBrl: item.unitCostBrl,
+        quantity: item.quantity,
+        totalItemCost: item.totalItemCost,
+        allocatedOperationalCost: item.allocatedOperationalCost,
+        operationalCostPerUnit: item.operationalCostPerUnit,
+        allocatedTaxCost: item.allocatedTaxCost,
+        taxCostPerUnit: item.taxCostPerUnit,
+        allocatedOtherCost: item.allocatedOtherCost,
+        otherCostPerUnit: item.otherCostPerUnit,
+        realTotalCost: item.realTotalCost,
+        finalUnitCost: item.finalUnitCost,
+        desiredMarginRate: item.desiredMarginRate,
+        suggestedPrice: item.suggestedPrice,
+        queueStatus: "ATIVO",
+        queueId: queueEntry?.id ?? null,
+      } as any);
+
+      await tx.insert(stockEntries).values({
+        productId: item.productId,
+        batchId,
+        userId,
+        quantity: item.quantity,
+        unitCost: item.finalUnitCost,
+        notes: `[REGULARIZAÇÃO INICIAL] Entrada #${batchId} — vínculo inicial do produto existente.`,
+      });
+
+      await tx.execute(sql`
+        UPDATE permupay_products
+        SET stock_quantity = ${item.quantity},
+            average_cost_brl = ${item.finalUnitCost},
+            final_unit_cost_brl = ${item.finalUnitCost},
+            cost_price_brl = ${item.unitCostBrl},
+            updated_at = NOW()
+        WHERE id = ${item.productId}
+      `);
+
+      regularizedCount++;
+    }
+
+    await tx
+      .update(pricingBatches)
+      .set({
+        description: batch.description
+          ? `${batch.description}\n[REGULARIZACAO_INICIAL]`
+          : "[REGULARIZACAO_INICIAL] Primeiro lote criado a partir de produtos já cadastrados.",
+        totalCostOfGoods: result.totalCostOfGoods,
+        totalOperationalCost: result.totalOperationalCost,
+        totalTaxCost: result.totalTaxCost,
+        totalOtherCost: result.totalOtherCost,
+        fifoMode: true,
+        status: "CLOSED",
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(pricingBatches.id, batchId));
+  });
+
+  return { ...result, regularizedCount };
+}
+
 // ─── Marketplace / Vitrine ────────────────────────────────────────────────────
 
 export async function getPublishedProducts() {
