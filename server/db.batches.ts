@@ -9,6 +9,7 @@ import {
   batchItems,
   pricingBatches,
   products,
+  productImages,
   stockEntries,
   stockQueue,
   type BatchItem,
@@ -342,6 +343,7 @@ export async function getPublishedProductsByCategory(category?: string) {
 export async function getPublishedProductById(id: number) {
   const db = await getDb();
   if (!db) return null;
+
   const result = await db
     .select({
       id: products.id,
@@ -369,7 +371,24 @@ export async function getPublishedProductById(id: number) {
     .from(products)
     .where(and(eq(products.id, id), eq(products.published, true), eq(products.active, true)))
     .limit(1);
-  return result[0] ?? null;
+
+  const product = result[0] ?? null;
+  if (!product) return null;
+
+  const images = await db
+    .select({
+      id: productImages.id,
+      url: productImages.url,
+      storageKey: productImages.storageKey,
+      isThumbnail: productImages.isThumbnail,
+      sortOrder: productImages.sortOrder,
+      altText: productImages.altText,
+    })
+    .from(productImages)
+    .where(eq(productImages.productId, id))
+    .orderBy(asc(productImages.sortOrder), asc(productImages.id));
+
+  return { ...product, images };
 }
 
 export async function togglePublished(
