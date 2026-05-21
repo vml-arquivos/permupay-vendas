@@ -1,27 +1,43 @@
 /**
- * ProductPage.tsx — Página de Produto Premium (v5 — Visual Refinado)
+ * ProductPage.tsx — Página pública do produto
  *
- * MELHORIAS APLICADAS:
- * ─ Imagem: container com aspect-ratio 1/1 + object-cover (não contain)
- *   → imagem preenche o espaço inteiramente, sem bordas cinzas
- * ─ Layout: padding mínimo no header, conteúdo respira melhor
- * ─ Hierarquia de preços: PIX em destaque primário, cartão/boleto secundários
- * ─ Botão PIX: ao clicar abre modal com QR Code + copia e cola
- * ─ Botões de pagamento com hover states suaves e consistentes
- * ─ Sticky image: imagem fica fixa no scroll em desktop
- * ─ Typography: Montserrat/Poppins consistente com o Marketplace
- * ─ Toda a lógica de negócio e BuyModal 100% intactos
+ * Correção desta fase:
+ * - Galeria pública com imagem principal + miniaturas.
+ * - Compatibilidade com produto antigo que usa apenas imageUrl.
+ * - Pagamento em dinheiro exibido sem inventar taxa.
+ * - Uma ação principal: Ir para pagamento.
+ * - Métodos de pagamento compactos e selecionáveis.
+ * - Checkout preservado via BuyModal.
  */
-import { useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams, Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
-  ArrowLeft, Zap, CreditCard, FileText, MessageCircle,
-  Heart, Copy, CheckCheck, Share2, X, QrCode, ShoppingBag, ChevronRight,
+  ArrowLeft,
+  Zap,
+  CreditCard,
+  FileText,
+  MessageCircle,
+  Heart,
+  Share2,
+  ShoppingBag,
+  ChevronRight,
+  Banknote,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BuyModal } from "@/components/BuyModal";
 import logo from "@/assets/logo.png";
+
+type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
+
+interface NormalizedImage {
+  id: string;
+  url: string;
+  alt: string;
+  isThumbnail?: boolean;
+  sortOrder?: number;
+}
 
 const fmt = (v: number | null | undefined): string => {
   if (v == null || v === 0) return "";
@@ -29,124 +45,78 @@ const fmt = (v: number | null | undefined): string => {
 };
 
 const CATEGORY_META: Record<string, string> = {
-  CELULAR: "Celulares", ELETRONICO: "Eletrônicos",
-  PERFUME: "Perfumes & Fragrâncias", OUTRO: "Outros",
+  CELULAR: "Celulares",
+  ELETRONICO: "Eletrônicos",
+  PERFUME: "Perfumes & Fragrâncias",
+  OUTRO: "Outros",
 };
 
 const FONT_LINK = "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700&display=swap";
 if (typeof document !== "undefined" && !document.getElementById("pp-fonts")) {
   const link = document.createElement("link");
-  link.id = "pp-fonts"; link.rel = "stylesheet"; link.href = FONT_LINK;
+  link.id = "pp-fonts";
+  link.rel = "stylesheet";
+  link.href = FONT_LINK;
   document.head.appendChild(link);
 }
 const SERIF = "'Montserrat', 'Poppins', sans-serif";
-const SANS  = "'Poppins', 'Montserrat', sans-serif";
+const SANS = "'Poppins', 'Montserrat', sans-serif";
 
-// ── Modal PIX com QR Code + copia e cola ─────────────────────────────────────
-function PixModal({
-  pixKey, pixLink, price, productName, onClose,
-}: {
-  pixKey: string | null; pixLink: string | null;
-  price: number | null; productName: string; onClose: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const text = pixKey ?? pixLink ?? "";
-  const qrUrl = text
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(text)}&bgcolor=ffffff&color=111111&margin=12`
-    : null;
+function normalizeProductImages(product: any): NormalizedImage[] {
+  const seen = new Set<string>();
+  const result: NormalizedImage[] = [];
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      toast.success("Chave PIX copiada!");
-      setTimeout(() => setCopied(false), 3000);
+  const push = (url: unknown, data: Partial<NormalizedImage> = {}) => {
+    if (typeof url !== "string") return;
+    const clean = url.trim();
+    if (!clean || seen.has(clean)) return;
+    seen.add(clean);
+    result.push({
+      id: data.id ?? clean,
+      url: clean,
+      alt: data.alt ?? product?.name ?? "Produto",
+      isThumbnail: data.isThumbnail,
+      sortOrder: data.sortOrder,
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div
-        className="relative bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden"
-        style={{ fontFamily: SANS }}
-      >
-        {/* Header do modal */}
-        <div className="flex items-center justify-between p-6 pb-4 border-b border-neutral-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-emerald-500" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-neutral-900">Pagar com PIX</h3>
-              {price && (
-                <p className="text-xl font-black text-neutral-900" style={{ letterSpacing: "-0.02em" }}>
-                  {fmt(price)}
-                </p>
-              )}
-            </div>
-          </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-neutral-100 transition-colors text-neutral-400 hover:text-neutral-700">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+  const arrays = [
+    product?.images,
+    product?.productImages,
+    product?.galleryImages,
+    product?.gallery,
+    product?.photos,
+  ];
 
-        <div className="p-6 space-y-5">
-          {/* Nome do produto */}
-          <p className="text-xs text-neutral-400 line-clamp-2 font-light">{productName}</p>
+  for (const list of arrays) {
+    if (!Array.isArray(list)) continue;
+    for (const img of list) {
+      if (typeof img === "string") {
+        push(img);
+      } else if (img && typeof img === "object") {
+        push(img.url ?? img.imageUrl ?? img.src, {
+          id: img.id != null ? String(img.id) : undefined,
+          alt: img.altText ?? img.alt ?? product?.name,
+          isThumbnail: img.isThumbnail,
+          sortOrder: img.sortOrder,
+        });
+      }
+    }
+  }
 
-          {/* QR Code */}
-          {qrUrl && (
-            <div className="flex justify-center">
-              <div className="p-4 border border-neutral-100 rounded-2xl bg-neutral-50 inline-block">
-                <img src={qrUrl} alt="QR Code PIX" width={200} height={200} className="rounded-lg block" />
-              </div>
-            </div>
-          )}
+  // imageUrl é fallback e também garante compatibilidade com produto antigo.
+  push(product?.imageUrl ?? product?.image ?? product?.image_url, {
+    id: "main-image",
+    alt: product?.name,
+    isThumbnail: true,
+    sortOrder: -1,
+  });
 
-          {/* Copia e cola */}
-          {text && (
-            <div>
-              <p className="text-[10px] font-medium tracking-[0.2em] uppercase text-neutral-400 mb-2">
-                PIX Copia e Cola
-              </p>
-              <div className="flex items-center gap-2 bg-neutral-50 border border-neutral-200 rounded-xl px-3 py-3">
-                <code className="text-xs text-neutral-700 flex-1 truncate font-mono text-left select-all">
-                  {text}
-                </code>
-                <button
-                  onClick={handleCopy}
-                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-neutral-200 transition-colors"
-                >
-                  {copied
-                    ? <CheckCheck className="w-4 h-4 text-emerald-500" />
-                    : <Copy className="w-4 h-4 text-neutral-400" />}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Link externo */}
-          {pixLink && (
-            <a
-              href={pixLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-white text-sm font-semibold transition-colors"
-              style={{ backgroundColor: "#111" }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "#333"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "#111"; }}
-            >
-              Abrir link de pagamento <ChevronRight className="w-4 h-4" />
-            </a>
-          )}
-
-          <p className="text-xs text-neutral-400 leading-relaxed text-center">
-            Abra o app do seu banco, escaneie o QR Code ou use o PIX Copia e Cola.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+  return result.sort((a, b) => {
+    if (a.isThumbnail && !b.isThumbnail) return -1;
+    if (!a.isThumbnail && b.isThumbnail) return 1;
+    return (a.sortOrder ?? 999) - (b.sortOrder ?? 999);
+  });
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -154,7 +124,7 @@ function Skeleton() {
   return (
     <div className="min-h-screen bg-white">
       <div className="h-14 border-b border-neutral-100" />
-      <div className="max-w-5xl mx-auto px-6 py-12 grid grid-cols-1 md:grid-cols-2 gap-16">
+      <div className="max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 md:grid-cols-2 gap-12">
         <div className="bg-neutral-100 rounded-2xl animate-pulse" style={{ aspectRatio: "1/1" }} />
         <div className="space-y-5 pt-2">
           <div className="h-3 bg-neutral-100 rounded w-24 animate-pulse" />
@@ -168,17 +138,75 @@ function Skeleton() {
   );
 }
 
+function PaymentOption({
+  active,
+  icon,
+  label,
+  detail,
+  price,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  detail: string;
+  price: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left rounded-2xl border px-4 py-3 transition-all ${
+        active
+          ? "border-neutral-900 bg-neutral-950 text-white shadow-sm"
+          : "border-neutral-200 bg-white hover:border-neutral-400 text-neutral-900"
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+          active ? "bg-white/10 text-white" : "bg-neutral-50 text-neutral-500"
+        }`}>
+          {icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-semibold ${active ? "text-white" : "text-neutral-900"}`}>{label}</p>
+          <p className={`text-xs mt-0.5 ${active ? "text-white/60" : "text-neutral-400"}`}>{detail}</p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className={`text-sm font-bold ${active ? "text-white" : "text-neutral-900"}`}>{price}</p>
+        </div>
+        {active && <Check className="w-4 h-4 text-white shrink-0" />}
+      </div>
+    </button>
+  );
+}
+
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function ProductPage() {
   const params = useParams<{ id?: string }>();
   const productId = params.id ? Number(params.id) : undefined;
-  const [showPixModal, setShowPixModal] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("PIX");
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
   const productQuery = trpc.marketplace.productById.useQuery(
     { id: productId! },
     { enabled: !!productId && !isNaN(productId!) }
   );
+
+  const normalizedImages = useMemo(
+    () => productQuery.data ? normalizeProductImages(productQuery.data) : [],
+    [productQuery.data]
+  );
+
+  useEffect(() => {
+    if (
+      normalizedImages.length > 0 &&
+      (!selectedImageUrl || !normalizedImages.some((img) => img.url === selectedImageUrl))
+    ) {
+      setSelectedImageUrl(normalizedImages[0].url);
+    }
+  }, [normalizedImages, selectedImageUrl]);
 
   const handleShare = () => {
     if (navigator.share) {
@@ -223,29 +251,75 @@ export default function ProductPage() {
     );
   }
 
-  const p = productQuery.data;
-  const catLabel    = p.categoryLabel || CATEGORY_META[p.category] || p.category;
-  const inStock     = (p.stockQuantity ?? 0) > 0;
-  const isLowStock  = inStock && (p.stockQuantity ?? 0) <= (p.minimumStock ?? 2);
+  const p: any = productQuery.data;
+  const images = normalizedImages;
+  const activeImage = selectedImageUrl && images.some((img) => img.url === selectedImageUrl)
+    ? selectedImageUrl
+    : images[0]?.url ?? null;
 
-  const pixPriceVal    = (p.suggestedPricePix    ?? 0) > 0 ? (p.suggestedPricePix    as number) : null;
-  const cardPriceVal   = (p.suggestedPriceCard   ?? 0) > 0 ? (p.suggestedPriceCard   as number) : null;
+  const catLabel = p.categoryLabel || CATEGORY_META[p.category] || p.category;
+  const inStock = (p.stockQuantity ?? 0) > 0;
+  const isLowStock = inStock && (p.stockQuantity ?? 0) <= (p.minimumStock ?? 2);
+
+  const pixPriceVal = (p.suggestedPricePix ?? 0) > 0 ? (p.suggestedPricePix as number) : null;
+  const fallbackPrice = (p.suggestedPrice ?? 0) > 0 ? (p.suggestedPrice as number) : null;
+  const cashPriceVal = pixPriceVal ?? fallbackPrice;
+  const cardPriceVal = (p.suggestedPriceCard ?? 0) > 0 ? (p.suggestedPriceCard as number) : null;
   const boletoPriceVal = (p.suggestedPriceBoleto ?? 0) > 0 ? (p.suggestedPriceBoleto as number) : null;
-  const cardInst       = Math.max(1, Math.round((p as any).cardInstallments ?? 1));
-  const boletoMon      = Math.max(1, Math.round((p as any).boletoMonths     ?? 1));
-  const hasPrice       = !!(pixPriceVal || cardPriceVal || boletoPriceVal);
-  const hasPixPayment  = !!(p.pixKey || p.pixLink);
+  const cardInst = Math.max(1, Math.round((p as any).cardInstallments ?? 1));
+  const boletoMon = Math.max(1, Math.round((p as any).boletoMonths ?? 1));
+  const hasPrice = !!(pixPriceVal || cashPriceVal || cardPriceVal || boletoPriceVal);
+
+  const paymentOptions = [
+    pixPriceVal && {
+      method: "PIX" as PaymentMethod,
+      label: "Pix",
+      detail: "À vista",
+      price: fmt(pixPriceVal),
+      icon: <Zap className="w-4 h-4" />,
+    },
+    cashPriceVal && {
+      method: "DINHEIRO" as PaymentMethod,
+      label: "Dinheiro",
+      detail: "Na retirada ou entrega",
+      price: fmt(cashPriceVal),
+      icon: <Banknote className="w-4 h-4" />,
+    },
+    cardPriceVal && {
+      method: "CARTAO" as PaymentMethod,
+      label: "Cartão",
+      detail: cardInst > 1 ? `${cardInst}x de ${fmt(cardPriceVal / cardInst)}` : "Cartão de crédito",
+      price: fmt(cardPriceVal),
+      icon: <CreditCard className="w-4 h-4" />,
+    },
+    boletoPriceVal && {
+      method: "BOLETO" as PaymentMethod,
+      label: "Boleto",
+      detail: boletoMon > 1 ? `${boletoMon}x de ${fmt(boletoPriceVal / boletoMon)}` : "Pagamento por boleto",
+      price: fmt(boletoPriceVal),
+      icon: <FileText className="w-4 h-4" />,
+    },
+  ].filter(Boolean) as Array<{
+    method: PaymentMethod;
+    label: string;
+    detail: string;
+    price: string;
+    icon: ReactNode;
+  }>;
+
+  const effectivePaymentMethod = paymentOptions.some((opt) => opt.method === selectedPaymentMethod)
+    ? selectedPaymentMethod
+    : paymentOptions[0]?.method ?? "PIX";
+  const selectedMethodLabel = paymentOptions.find((opt) => opt.method === effectivePaymentMethod)?.label ?? "pagamento";
 
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: SANS }}>
-
-      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      {/* Header */}
       <header
         className="sticky top-0 z-40 border-b border-neutral-100"
         style={{ backgroundColor: "rgba(255,255,255,0.96)", backdropFilter: "blur(12px)" }}
       >
-        <div className="max-w-6xl mx-auto px-6 h-24 flex items-center justify-between gap-6">
-          {/* Voltar */}
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 h-20 flex items-center justify-between gap-6">
           <Link href="/vitrine">
             <button
               className="flex items-center gap-1.5 text-neutral-400 hover:text-neutral-900 text-xs font-medium tracking-wide transition-colors group"
@@ -256,14 +330,12 @@ export default function ProductPage() {
             </button>
           </Link>
 
-          {/* Logo */}
           <Link href="/vitrine">
             <div className="cursor-pointer select-none">
-              <img src={logo} alt="Shop PermuPay" className="h-24 w-auto object-contain" />
+              <img src={logo} alt="Shop PermuPay" className="h-16 sm:h-20 w-auto object-contain" />
             </div>
           </Link>
 
-          {/* Compartilhar */}
           <button
             onClick={handleShare}
             className="flex items-center gap-1.5 text-neutral-400 hover:text-neutral-800 text-xs transition-colors"
@@ -274,42 +346,30 @@ export default function ProductPage() {
         </div>
       </header>
 
-      {/* ── CONTEÚDO PRINCIPAL ─────────────────────────────────────────────── */}
-      <main className="max-w-6xl mx-auto px-6 py-10 sm:py-16">
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-10 md:gap-20 items-start">
-
-          {/* ── COLUNA DA IMAGEM ── sticky no desktop ── */}
-          <div className="md:sticky md:top-20">
-            {/*
-             * Container BLINDADO:
-             * aspect-ratio 1/1 garante quadrado perfeito.
-             * object-cover preenche sem corte visível nem espaços em branco.
-             * Sem padding interno — a imagem ocupa 100% do espaço.
-             */}
+      {/* Conteúdo */}
+      <main className="max-w-6xl mx-auto px-5 sm:px-6 py-8 sm:py-12">
+        <div className="grid grid-cols-1 md:grid-cols-[1.05fr_0.95fr] gap-8 md:gap-14 items-start">
+          {/* Galeria */}
+          <div className="md:sticky md:top-24">
             <div
-              className="relative overflow-hidden rounded-2xl bg-neutral-50"
+              className="relative overflow-hidden rounded-3xl bg-neutral-50 border border-neutral-100"
               style={{ aspectRatio: "1 / 1" }}
             >
-              {p.imageUrl ? (
+              {activeImage ? (
                 <img
-                  src={p.imageUrl}
+                  src={activeImage}
                   alt={p.name}
-                  className="absolute inset-0 w-full h-full object-contain p-8"
-                  /* object-contain: imagem NUNCA é cortada, aparece inteira */
+                  className="absolute inset-0 w-full h-full object-contain p-7 sm:p-10"
                 />
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
                   <ShoppingBag className="w-14 h-14 text-neutral-200" />
-                  <span
-                    className="text-[9px] tracking-[0.3em] uppercase text-neutral-300"
-                    style={{ fontFamily: SANS }}
-                  >
+                  <span className="text-[9px] tracking-[0.3em] uppercase text-neutral-300" style={{ fontFamily: SANS }}>
                     Sem imagem
                   </span>
                 </div>
               )}
 
-              {/* Badge promoção */}
               {p.promoTag && inStock && (
                 <span
                   className="absolute top-4 left-4 text-[8px] font-bold tracking-[0.22em] uppercase px-3 py-1.5 z-10"
@@ -319,7 +379,6 @@ export default function ProductPage() {
                 </span>
               )}
 
-              {/* Overlay indisponível */}
               {!inStock && (
                 <div className="absolute inset-0 flex items-center justify-center z-10" style={{ backgroundColor: "rgba(255,255,255,0.75)" }}>
                   <span
@@ -331,10 +390,9 @@ export default function ProductPage() {
                 </div>
               )}
 
-              {/* Badge estoque baixo */}
               {isLowStock && inStock && (
                 <span
-                  className="absolute bottom-4 left-4 text-[9px] font-semibold tracking-[0.18em] uppercase px-3 py-1.5 z-10"
+                  className="absolute bottom-4 left-4 text-[9px] font-semibold tracking-[0.18em] uppercase px-3 py-1.5 z-10 rounded-full"
                   style={{ backgroundColor: "#fbbf24", color: "#78350f" }}
                 >
                   Últimas unidades
@@ -342,7 +400,24 @@ export default function ProductPage() {
               )}
             </div>
 
-            {/* Breadcrumb mobile */}
+            {images.length > 1 && (
+              <div className="mt-3 grid grid-cols-4 sm:grid-cols-5 gap-2">
+                {images.map((img) => (
+                  <button
+                    key={img.id}
+                    onClick={() => setSelectedImageUrl(img.url)}
+                    className={`relative rounded-xl border overflow-hidden bg-neutral-50 transition-all ${
+                      activeImage === img.url ? "border-neutral-900 ring-2 ring-neutral-900/10" : "border-neutral-200 hover:border-neutral-400"
+                    }`}
+                    style={{ aspectRatio: "1 / 1" }}
+                    aria-label={`Ver imagem ${img.alt}`}
+                  >
+                    <img src={img.url} alt={img.alt} className="absolute inset-0 w-full h-full object-contain p-2" />
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="mt-4 flex items-center gap-2 md:hidden" style={{ fontFamily: SANS }}>
               <Link href="/vitrine">
                 <span className="text-[9px] uppercase tracking-[0.2em] text-neutral-400 hover:text-neutral-700 cursor-pointer transition-colors">
@@ -356,22 +431,16 @@ export default function ProductPage() {
             </div>
           </div>
 
-          {/* ── COLUNA DE DETALHES ── */}
-          <div className="space-y-7">
-
-            {/* Categoria */}
+          {/* Detalhes */}
+          <div className="space-y-6">
             <div>
-              <p
-                className="text-[9px] font-medium tracking-[0.35em] uppercase text-neutral-400 mb-3"
-                style={{ fontFamily: SANS }}
-              >
+              <p className="text-[9px] font-medium tracking-[0.35em] uppercase text-neutral-400 mb-3" style={{ fontFamily: SANS }}>
                 {catLabel}
               </p>
-              {/* Nome do produto */}
               <h1
                 style={{
                   fontFamily: SERIF,
-                  fontSize: "clamp(1.4rem, 2.5vw, 2rem)",
+                  fontSize: "clamp(1.5rem, 2.6vw, 2.25rem)",
                   fontWeight: 700,
                   color: "#111",
                   lineHeight: 1.15,
@@ -382,176 +451,75 @@ export default function ProductPage() {
               </h1>
             </div>
 
-            {/* Descrição curta */}
             {p.shortDescription && (
-              <p
-                className="text-sm text-neutral-500 leading-relaxed font-light"
-                style={{ fontFamily: SANS }}
-              >
+              <p className="text-sm text-neutral-500 leading-relaxed font-light" style={{ fontFamily: SANS }}>
                 {p.shortDescription}
               </p>
             )}
 
-            {/* ── BLOCO DE PREÇOS ── */}
             {inStock && hasPrice && (
-              <div className="space-y-2 py-1">
-                {/* PIX — preço principal em destaque */}
-                {pixPriceVal && (
-                  <div className="flex items-baseline gap-3">
-                    <span
-                      className="text-neutral-900"
-                      style={{ fontFamily: SERIF, fontSize: "2.2rem", fontWeight: 700, letterSpacing: "-0.03em" }}
-                    >
-                      {fmt(pixPriceVal)}
+              <div className="rounded-3xl border border-neutral-100 bg-neutral-50/50 p-4 sm:p-5">
+                <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-400 mb-3">Opções de pagamento</p>
+
+                {cashPriceVal && (
+                  <div className="mb-4">
+                    <span className="text-neutral-900" style={{ fontFamily: SERIF, fontSize: "2rem", fontWeight: 700, letterSpacing: "-0.03em" }}>
+                      {fmt(cashPriceVal)}
                     </span>
-                    <span
-                      className="text-[8px] font-bold tracking-[0.25em] uppercase text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full"
-                      style={{ fontFamily: SANS }}
-                    >
-                      no PIX
+                    <span className="ml-2 text-[8px] font-bold tracking-[0.25em] uppercase text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
+                      à vista
                     </span>
                   </div>
                 )}
 
-                {/* Cartão */}
-                {cardPriceVal && (
-                  <p className="text-sm text-neutral-400 font-light" style={{ fontFamily: SANS }}>
-                    {pixPriceVal && "ou "}
-                    {cardInst > 1 ? (
-                      <>
-                        <span className="font-medium text-neutral-700">{cardInst}× de {fmt(cardPriceVal / cardInst)}</span>
-                        {" no cartão"}
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-medium text-neutral-700">{fmt(cardPriceVal)}</span>
-                        {" no cartão"}
-                      </>
-                    )}
-                  </p>
-                )}
-
-                {/* Boleto */}
-                {boletoPriceVal && (
-                  <p className="text-sm text-neutral-400 font-light" style={{ fontFamily: SANS }}>
-                    {(pixPriceVal || cardPriceVal) && "ou "}
-                    {boletoMon > 1 ? (
-                      <>
-                        <span className="font-medium text-neutral-600">{boletoMon}× de {fmt(boletoPriceVal / boletoMon)}</span>
-                        {" no boleto"}
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-medium text-neutral-600">{fmt(boletoPriceVal)}</span>
-                        {" no boleto"}
-                      </>
-                    )}
-                  </p>
-                )}
+                <div className="space-y-2">
+                  {paymentOptions.map((opt) => (
+                    <PaymentOption
+                      key={opt.method}
+                      active={effectivePaymentMethod === opt.method}
+                      icon={opt.icon}
+                      label={opt.label}
+                      detail={opt.detail}
+                      price={opt.price}
+                      onClick={() => setSelectedPaymentMethod(opt.method)}
+                    />
+                  ))}
+                </div>
               </div>
             )}
 
             {inStock && !hasPrice && (
-              <p className="text-sm text-neutral-400 italic" style={{ fontFamily: SANS }}>Consulte o preço</p>
+              <p className="text-sm text-neutral-400 italic" style={{ fontFamily: SANS }}>
+                Consulte o preço
+              </p>
             )}
 
-            {/* Divisor */}
             <div className="h-px bg-neutral-100" />
 
-            {/* ── BOTÕES DE PAGAMENTO ── */}
             {inStock ? (
               <div className="space-y-3">
-                {/* PIX — botão primário se houver chave/link */}
-                {hasPixPayment && (
+                {hasPrice && (
                   <button
-                    onClick={() => setShowPixModal(true)}
-                    className="w-full flex items-center justify-between gap-3 py-4 px-5 transition-all duration-200 group"
+                    onClick={() => setShowBuyModal(true)}
+                    className="w-full flex items-center justify-center gap-2.5 py-4 px-5 transition-all duration-200 rounded-2xl"
                     style={{ backgroundColor: "#111", color: "#fff" }}
                     onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "#333"; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "#111"; }}
                   >
-                    <span className="flex items-center gap-3" style={{ fontFamily: SANS }}>
-                      <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center">
-                        <QrCode className="w-4 h-4 text-emerald-400" />
-                      </div>
-                      <span className="text-sm font-semibold tracking-wide">Pagar com PIX</span>
-                    </span>
-                    {pixPriceVal && (
-                      <span className="text-sm font-bold shrink-0">{fmt(pixPriceVal)}</span>
-                    )}
-                  </button>
-                )}
-
-                {/* Cartão */}
-                {p.cardPaymentUrl && (
-                  <a
-                    href={p.cardPaymentUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-between gap-3 py-3.5 px-5 border border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50 transition-all duration-200 group"
-                  >
-                    <span className="flex items-center gap-3" style={{ fontFamily: SANS }}>
-                      <div className="w-7 h-7 rounded-lg bg-neutral-100 flex items-center justify-center group-hover:bg-neutral-200 transition-colors">
-                        <CreditCard className="w-4 h-4 text-neutral-500" />
-                      </div>
-                      <span className="text-sm font-medium text-neutral-800 tracking-wide">Pagar com Cartão</span>
-                    </span>
-                    {cardPriceVal && cardInst > 1 ? (
-                      <span className="text-xs text-neutral-400 shrink-0">{cardInst}× de {fmt(cardPriceVal / cardInst)}</span>
-                    ) : cardPriceVal ? (
-                      <span className="text-xs text-neutral-400 shrink-0">{fmt(cardPriceVal)}</span>
-                    ) : null}
-                  </a>
-                )}
-
-                {/* Boleto */}
-                {p.boletoUrl && (
-                  <a
-                    href={p.boletoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-between gap-3 py-3.5 px-5 border border-neutral-100 hover:border-neutral-300 hover:bg-neutral-50 transition-all duration-200 group"
-                  >
-                    <span className="flex items-center gap-3" style={{ fontFamily: SANS }}>
-                      <div className="w-7 h-7 rounded-lg bg-neutral-50 flex items-center justify-center group-hover:bg-neutral-100 transition-colors">
-                        <FileText className="w-4 h-4 text-neutral-400" />
-                      </div>
-                      <span className="text-sm font-medium text-neutral-600 tracking-wide">Gerar Boleto</span>
-                    </span>
-                    {boletoPriceVal && boletoMon > 1 ? (
-                      <span className="text-xs text-neutral-400 shrink-0">{boletoMon}× de {fmt(boletoPriceVal / boletoMon)}</span>
-                    ) : boletoPriceVal ? (
-                      <span className="text-xs text-neutral-400 shrink-0">{fmt(boletoPriceVal)}</span>
-                    ) : null}
-                  </a>
-                )}
-
-                {/* CTA principal: modal de pedido (BuyModal) */}
-                {hasPrice && (
-                  <button
-                    onClick={() => setShowBuyModal(true)}
-                    className="w-full flex items-center justify-center gap-2.5 py-4 px-5 transition-all duration-200 border border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50"
-                  >
-                    <ShoppingBag className="w-4 h-4 text-neutral-500" />
-                    <span
-                      className="text-xs font-semibold tracking-[0.2em] uppercase text-neutral-700"
-                      style={{ fontFamily: SANS }}
-                    >
-                      Ir para o pagamento
+                    <ShoppingBag className="w-4 h-4" />
+                    <span className="text-xs font-semibold tracking-[0.2em] uppercase" style={{ fontFamily: SANS }}>
+                      Ir para pagamento com {selectedMethodLabel}
                     </span>
                   </button>
                 )}
 
-                {/* Sem nenhum método — WhatsApp */}
-                {!hasPrice && !hasPixPayment && !p.cardPaymentUrl && !p.boletoUrl && (
+                {!hasPrice && (
                   <a
                     href="https://wa.me/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full flex items-center justify-center gap-2.5 py-4 px-5 transition-colors"
+                    className="w-full flex items-center justify-center gap-2.5 py-4 px-5 transition-colors rounded-2xl"
                     style={{ backgroundColor: "#22c55e", color: "#fff" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "#16a34a"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "#22c55e"; }}
                   >
                     <MessageCircle className="w-4 h-4" />
                     <span className="text-sm font-semibold" style={{ fontFamily: SANS }}>Consultar via WhatsApp</span>
@@ -559,114 +527,44 @@ export default function ProductPage() {
                 )}
               </div>
             ) : (
-              /* Indisponível */
-              <div className="space-y-3">
-                <p className="text-sm text-neutral-400 font-light" style={{ fontFamily: SANS }}>
-                  Este produto está temporariamente indisponível.
-                </p>
-                <Link href="/desejos">
-                  <button
-                    className="w-full flex items-center justify-center gap-2 py-3.5 px-5 border-2 border-dashed border-neutral-200 hover:border-neutral-400 hover:text-neutral-700 text-neutral-400 transition-all text-sm font-medium"
-                    style={{ fontFamily: SANS }}
-                  >
-                    <Heart className="w-4 h-4" />
-                    Avisar quando chegar
-                  </button>
-                </Link>
-              </div>
+              <Link href="/desejos">
+                <button
+                  className="w-full flex items-center justify-center gap-2.5 py-4 px-5 border border-neutral-200 hover:border-rose-200 hover:bg-rose-50 transition-all rounded-2xl"
+                >
+                  <Heart className="w-4 h-4 text-rose-400" />
+                  <span className="text-xs font-semibold tracking-[0.2em] uppercase text-neutral-700">
+                    Entrar na lista de desejos
+                  </span>
+                </button>
+              </Link>
             )}
 
-            {/* Estoque disponível */}
-            {inStock && (
-              <p className="text-[10px] text-neutral-300 tracking-wide" style={{ fontFamily: SANS }}>
-                {p.stockQuantity} {p.stockQuantity === 1 ? "unidade disponível" : "unidades disponíveis"}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* ── DESCRIÇÃO COMPLETA ── */}
-        {p.description && (
-          <div className="mt-20 max-w-2xl border-t border-neutral-100 pt-12">
-            <p
-              className="text-[9px] font-medium tracking-[0.35em] uppercase text-neutral-400 mb-5"
-              style={{ fontFamily: SANS }}
-            >
-              Sobre o produto
-            </p>
-            <div
-              className="text-sm text-neutral-500 leading-relaxed whitespace-pre-wrap font-light"
-              style={{ fontFamily: SANS }}
-            >
-              {p.description}
+            <div className="flex items-center justify-between text-xs text-neutral-400 pt-1">
+              <span>Quantidade disponível</span>
+              <span className={`font-semibold ${inStock ? "text-neutral-700" : "text-rose-500"}`}>
+                {inStock ? `${p.stockQuantity ?? 0} un.` : "Indisponível"}
+              </span>
             </div>
-          </div>
-        )}
 
-        {/* ── VOLTAR ── */}
-        <div className="mt-16 pt-10 border-t border-neutral-100">
-          <Link href="/vitrine">
-            <button
-              className="inline-flex items-center gap-2 text-[9px] font-medium tracking-[0.2em] uppercase text-neutral-400 hover:text-neutral-800 transition-colors group"
-              style={{ fontFamily: SANS }}
-            >
-              <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
-              Voltar ao catálogo
-            </button>
-          </Link>
+            {(p.description || p.shortDescription) && (
+              <section className="pt-6 border-t border-neutral-100">
+                <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-400 mb-3">Sobre o produto</p>
+                <div
+                  className="prose prose-neutral max-w-none text-sm text-neutral-500 leading-relaxed whitespace-pre-line"
+                  style={{ fontFamily: SANS }}
+                >
+                  {p.description || p.shortDescription}
+                </div>
+              </section>
+            )}
+          </div>
         </div>
       </main>
 
-      {/* ── FOOTER ── */}
-      <footer className="mt-8 border-t border-neutral-100 py-8 bg-white">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <nav className="flex items-center gap-6">
-            <Link href="/vitrine">
-              <span
-                className="text-[9px] tracking-[0.2em] uppercase text-neutral-400 hover:text-neutral-700 cursor-pointer transition-colors"
-                style={{ fontFamily: SANS }}
-              >
-                Catálogo
-              </span>
-            </Link>
-            <Link href="/desejos">
-              <span
-                className="text-[9px] tracking-[0.2em] uppercase text-neutral-400 hover:text-neutral-700 cursor-pointer transition-colors"
-                style={{ fontFamily: SANS }}
-              >
-                Lista de Desejos
-              </span>
-            </Link>
-          </nav>
-          <p className="text-[9px] text-neutral-300 tracking-wide" style={{ fontFamily: SANS }}>
-            © {new Date().getFullYear()} Permupay Vendas. Todos os direitos reservados.
-          </p>
-        </div>
-      </footer>
-
-      {/* ── MODAIS ── */}
-      {showPixModal && (
-        <PixModal
-          pixKey={p.pixKey ?? null}
-          pixLink={p.pixLink ?? null}
-          price={pixPriceVal}
-          productName={p.name}
-          onClose={() => setShowPixModal(false)}
-        />
-      )}
-
       {showBuyModal && (
         <BuyModal
-          product={{
-            id: p.id,
-            name: p.name,
-            suggestedPricePix:    p.suggestedPricePix    ?? 0,
-            suggestedPriceCard:   p.suggestedPriceCard   ?? 0,
-            suggestedPriceBoleto: p.suggestedPriceBoleto ?? 0,
-            suggestedPrice:       p.suggestedPrice       ?? 0,
-            cardInstallments:     (p as any).cardInstallments,
-            boletoMonths:         (p as any).boletoMonths,
-          }}
+          product={p}
+          initialPaymentMethod={effectivePaymentMethod}
           onClose={() => setShowBuyModal(false)}
         />
       )}
