@@ -397,14 +397,55 @@ export default function BatchPricing() {
     };
   }, [items, totalOperationalCost, totalTaxCost, totalOtherCost]);
 
+  const previewByItemId = useMemo(() => {
+    const map = new Map<string, BatchPricingResult["items"][number]>();
+    if (!preview) return map;
+
+    let previewIndex = 0;
+    for (const item of items) {
+      if (item.productName.trim() || item.productId) {
+        const calculated = preview.items[previewIndex];
+        if (calculated) map.set(item._id, calculated);
+        previewIndex += 1;
+      }
+    }
+
+    return map;
+  }, [items, preview]);
+
+  const calculatedGeneralTotals = useMemo(() => {
+    if (!preview) {
+      return {
+        totalSuggestedRevenue: 0,
+        totalProjectedProfit: 0,
+        allocationStatus: "—",
+      };
+    }
+
+    const totalSuggestedRevenue = preview.items.reduce(
+      (sum, item) => sum + item.suggestedPrice * item.quantity,
+      0,
+    );
+    const totalProjectedProfit = preview.items.reduce(
+      (sum, item) => sum + item.contributionMargin * item.quantity,
+      0,
+    );
+    const allocationOk =
+      Math.abs(preview.allocationCheck - preview.totalOperationalCost) < 0.01 &&
+      Math.abs(preview.taxAllocationCheck - preview.totalTaxCost) < 0.01 &&
+      Math.abs(preview.otherAllocationCheck - preview.totalOtherCost) < 0.01;
+
+    return {
+      totalSuggestedRevenue,
+      totalProjectedProfit,
+      allocationStatus: allocationOk ? "OK" : "Verificar",
+    };
+  }, [preview]);
+
   const addItem = () => {
     const newItem = emptyItem();
     setItems((prev) => [...prev, newItem]);
-    setCollapsedItemIds((prev) => {
-      const next = new Set(prev);
-      next.delete(newItem._id);
-      return next;
-    });
+    setCollapsedItemIds(() => new Set(items.map((item) => item._id)));
   };
 
   const removeItem = (id: string) => {
@@ -583,7 +624,7 @@ export default function BatchPricing() {
 
       setPreview(result);
       setPreviewError(null);
-      if (showToast) toast.success("Rateio atualizado.");
+      if (showToast) toast.success("Custos calculados.");
       return result;
     },
     [items, totalOperationalCost, totalTaxCost, totalOtherCost, batchName],
@@ -987,7 +1028,7 @@ export default function BatchPricing() {
             const selectedProduct = productsQuery.data?.find(
               (product: any) => product.id === item.productId,
             ) as any;
-            const previewItem = preview?.items[index];
+            const previewItem = previewByItemId.get(item._id);
             const realUnitCost =
               previewItem?.finalUnitCost ?? normalized.unitCostBrl;
             const realTotalCost = previewItem
@@ -1316,6 +1357,56 @@ export default function BatchPricing() {
                         tone="success"
                       />
                     </div>
+
+                    {previewItem && (
+                      <div className="rounded-lg border border-primary/20 bg-primary/5 p-2.5">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-primary">
+                            Custos calculados
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Resultado do cálculo deste produto
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+                          <MiniMetric
+                            label="Proporção"
+                            value={formatPercent(previewItem.costProportion * 100)}
+                          />
+                          <MiniMetric
+                            label="Operacional"
+                            value={formatCurrency(previewItem.allocatedOperationalCost)}
+                          />
+                          <MiniMetric
+                            label="Imposto"
+                            value={formatCurrency(previewItem.allocatedTaxCost)}
+                          />
+                          <MiniMetric
+                            label="Outros"
+                            value={formatCurrency(previewItem.allocatedOtherCost)}
+                          />
+                          <MiniMetric
+                            label="Unit. real"
+                            value={formatCurrency(previewItem.finalUnitCost)}
+                            tone="strong"
+                          />
+                          <MiniMetric
+                            label="Total real"
+                            value={formatCurrency(previewItem.realTotalCost)}
+                            tone="success"
+                          />
+                          <MiniMetric
+                            label="Preço sugerido"
+                            value={formatCurrency(previewItem.suggestedPrice)}
+                          />
+                          <MiniMetric
+                            label="Lucro proj."
+                            value={formatCurrency(previewItem.contributionMargin * previewItem.quantity)}
+                            tone={previewItem.contributionMargin >= 0 ? "success" : "warning"}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1336,38 +1427,66 @@ export default function BatchPricing() {
         </CardContent>
       </Card>
 
-      {/* Resumo financeiro */}
-      <Card>
-        <CardHeader>
+      {/* Cálculos gerais — sem duplicar produtos */}
+      <Card className={preview ? "border-primary/30" : undefined}>
+        <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <WalletCards className="h-4 w-4" />
-            Resumo Financeiro da Entrada
+            Cálculos atualizados de custo e projeção
           </CardTitle>
           <CardDescription>
-            Resumo rápido antes do rateio final.
+            Totais gerais da entrada. Os detalhes de cada produto ficam dentro do próprio card.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <SummaryBox
-              label="Tipos de produto"
-              value={String(totals.productTypes)}
-            />
-            <SummaryBox
-              label="Unidades totais"
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+            <MiniMetric label="Tipos" value={String(totals.productTypes)} />
+            <MiniMetric
+              label="Unidades"
               value={String(totals.totalQuantity || "—")}
             />
-            <SummaryBox
+            <MiniMetric
               label="Mercadorias"
-              value={formatCurrency(totals.goodsTotal)}
+              value={formatCurrency(preview?.totalCostOfGoods ?? totals.goodsTotal)}
             />
-            <SummaryBox
+            <MiniMetric
               label="Custos adicionais"
-              value={formatCurrency(totals.additionalTotal)}
+              value={formatCurrency(
+                preview
+                  ? preview.totalOperationalCost + preview.totalTaxCost + preview.totalOtherCost
+                  : totals.additionalTotal,
+              )}
             />
-            <SummaryBox
-              label="Total da entrada"
-              value={formatCurrency(totals.grandTotal)}
+            <MiniMetric
+              label="Total entrada"
+              value={formatCurrency(preview?.grandTotal ?? totals.grandTotal)}
+              tone="strong"
+            />
+            <MiniMetric
+              label="Receita proj."
+              value={
+                preview
+                  ? formatCurrency(calculatedGeneralTotals.totalSuggestedRevenue)
+                  : "—"
+              }
+            />
+            <MiniMetric
+              label="Lucro proj."
+              value={
+                preview
+                  ? formatCurrency(calculatedGeneralTotals.totalProjectedProfit)
+                  : "—"
+              }
+              tone={
+                preview && calculatedGeneralTotals.totalProjectedProfit >= 0
+                  ? "success"
+                  : "default"
+              }
+            />
+            <MiniMetric
+              label="Conferência"
+              value={calculatedGeneralTotals.allocationStatus}
+              tone={calculatedGeneralTotals.allocationStatus === "OK" ? "success" : "default"}
             />
           </div>
         </CardContent>
@@ -1378,8 +1497,6 @@ export default function BatchPricing() {
           {previewError}
         </div>
       )}
-
-      {preview && <BatchPreviewCards preview={preview} />}
 
       <Separator />
 
