@@ -93,6 +93,10 @@ function toBatchItem(item: LocalItem): BatchItemInput {
   return {
     productId: normalized.productId,
     productName: normalized.productName,
+    unitCostOriginal: normalized.unitCostOriginal,
+    costCurrency: normalized.currency,
+    exchangeRate: normalized.currency === "USD" ? normalized.exchangeRate : 0,
+    acquisitionPaymentMethod: normalized.acquisitionPaymentMethod,
     unitCostBrl: normalized.unitCostBrl,
     quantity: normalized.quantity,
     desiredMarginRate: normalized.desiredMarginRate,
@@ -109,6 +113,8 @@ export default function BatchPricing() {
   const [batchName, setBatchName]               = useState("");
   const [batchDescription, setBatchDescription] = useState("");
   const [totalOperationalCost, setTotalOperationalCost] = useState(0);
+  const [totalTaxCost, setTotalTaxCost] = useState(0);
+  const [totalOtherCost, setTotalOtherCost] = useState(0);
 
   // Modo FIFO
   const [fifoMode, setFifoMode] = useState(false);
@@ -227,7 +233,7 @@ export default function BatchPricing() {
       return;
     }
 
-    const result = calculateBatchPricing({ items: validItems, totalOperationalCost });
+    const result = calculateBatchPricing({ items: validItems, totalOperationalCost, totalTaxCost, totalOtherCost });
     if (isBatchPricingError(result)) setPreviewError(result.message);
     else setPreview(result);
   };
@@ -301,6 +307,8 @@ export default function BatchPricing() {
           name: batchName.trim(),
           description: batchDescription.trim() || undefined,
           totalOperationalCost,
+          totalTaxCost,
+          totalOtherCost,
         });
         batchId = batch.id;
       }
@@ -311,6 +319,8 @@ export default function BatchPricing() {
           batchId,
           items: validItems,
           totalOperationalCost,
+          totalTaxCost,
+          totalOtherCost,
         });
       } else {
         // Modo padrão
@@ -318,6 +328,8 @@ export default function BatchPricing() {
           batchId,
           items: validItems,
           totalOperationalCost,
+          totalTaxCost,
+          totalOtherCost,
           commitToStock,
         });
       }
@@ -380,7 +392,7 @@ export default function BatchPricing() {
         <CardHeader>
           <CardTitle className="text-base">Dados da Entrada</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-1.5">
             <Label>Nome da entrada *</Label>
             <Input
@@ -397,10 +409,32 @@ export default function BatchPricing() {
               placeholder="0,00"
             />
             <p className="text-xs text-muted-foreground">
-              Frete, despachante, armazenagem, taxas aduaneiras — tudo para trazer a entrada.
+              Frete, despachante, armazenagem e custos gerais da entrada.
             </p>
           </div>
-          <div className="md:col-span-2 space-y-1.5">
+          <div className="space-y-1.5">
+            <Label>Impostos / Taxas da Entrada (R$)</Label>
+            <CurrencyInput
+              value={totalTaxCost}
+              onValueChange={setTotalTaxCost}
+              placeholder="0,00"
+            />
+            <p className="text-xs text-muted-foreground">
+              Informe somente se houver imposto ou taxa da aquisição.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Outros Custos da Entrada (R$)</Label>
+            <CurrencyInput
+              value={totalOtherCost}
+              onValueChange={setTotalOtherCost}
+              placeholder="0,00"
+            />
+            <p className="text-xs text-muted-foreground">
+              Qualquer custo adicional que deve compor o custo real.
+            </p>
+          </div>
+          <div className="md:col-span-3 space-y-1.5">
             <Label>Descrição (opcional)</Label>
             <Textarea
               value={batchDescription}
@@ -411,7 +445,7 @@ export default function BatchPricing() {
           </div>
 
           {/* Toggle FIFO */}
-          <div className="md:col-span-2">
+          <div className="md:col-span-3">
             <div className={`rounded-xl border p-4 transition-colors ${
               fifoMode ? "border-primary/40 bg-primary/5" : "border-border"
             }`}>
@@ -696,6 +730,18 @@ export default function BatchPricing() {
                 {formatCurrency(items.reduce((s, i) => s + resolveUnitCostBrl(i) * i.quantity, 0))}
               </strong>
             </span>
+            <span>
+              Custos adicionais da entrada:{" "}
+              <strong className="text-foreground">
+                {formatCurrency(totalOperationalCost + totalTaxCost + totalOtherCost)}
+              </strong>
+            </span>
+            <span>
+              Total estimado:{" "}
+              <strong className="text-foreground">
+                {formatCurrency(items.reduce((s, i) => s + resolveUnitCostBrl(i) * i.quantity, 0) + totalOperationalCost + totalTaxCost + totalOtherCost)}
+              </strong>
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -818,8 +864,8 @@ function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
           Resultado do Rateio Proporcional
         </CardTitle>
         <CardDescription>
-          Custo operacional de{" "}
-          <strong>{formatCurrency(preview.totalOperationalCost)}</strong> rateado
+          Custos adicionais de{" "}
+          <strong>{formatCurrency(preview.totalOperationalCost + preview.totalTaxCost + preview.totalOtherCost)}</strong> rateados
           sobre <strong>{formatCurrency(preview.totalCostOfGoods)}</strong> em mercadorias.
         </CardDescription>
       </CardHeader>
@@ -833,6 +879,8 @@ function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
               <TableHead className="text-right">Custo Total Item</TableHead>
               <TableHead className="text-right">Proporção</TableHead>
               <TableHead className="text-right">Custo Op. Rateado</TableHead>
+              <TableHead className="text-right">Imposto Rateado</TableHead>
+              <TableHead className="text-right">Outros Rateados</TableHead>
               <TableHead className="text-right">Custo Final Unit.</TableHead>
               <TableHead className="text-right">Preço Sugerido Unit.</TableHead>
               <TableHead className="text-right">Preço Total (Qtd)</TableHead>
@@ -869,6 +917,12 @@ function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
                 <TableCell className="text-right text-sm text-orange-600 font-mono">
                   {formatCurrency(item.allocatedOperationalCost)}
                 </TableCell>
+                <TableCell className="text-right text-sm text-amber-600 font-mono">
+                  {formatCurrency(item.allocatedTaxCost)}
+                </TableCell>
+                <TableCell className="text-right text-sm text-blue-600 font-mono">
+                  {formatCurrency(item.allocatedOtherCost)}
+                </TableCell>
                 <TableCell className="text-right text-sm font-mono">
                   {formatCurrency(item.finalUnitCost)}
                 </TableCell>
@@ -890,12 +944,26 @@ function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
         <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: "Custo das Mercadorias", value: formatCurrency(preview.totalCostOfGoods) },
-            { label: "Custo Operacional",     value: formatCurrency(preview.totalOperationalCost) },
-            { label: "Total da Entrada",         value: formatCurrency(preview.grandTotal) },
+            { label: "Custo Operacional", value: formatCurrency(preview.totalOperationalCost) },
+            { label: "Impostos/Taxas", value: formatCurrency(preview.totalTaxCost) },
+            { label: "Outros Custos", value: formatCurrency(preview.totalOtherCost) },
+            { label: "Total da Entrada", value: formatCurrency(preview.grandTotal) },
             {
-              label: "Verificação (rateio)",
+              label: "Verificação operacional",
               value: formatCurrency(preview.allocationCheck),
               note: Math.abs(preview.allocationCheck - preview.totalOperationalCost) < 0.01
+                ? "✓ Correto" : "⚠ Divergência",
+            },
+            {
+              label: "Verificação impostos",
+              value: formatCurrency(preview.taxAllocationCheck),
+              note: Math.abs(preview.taxAllocationCheck - preview.totalTaxCost) < 0.01
+                ? "✓ Correto" : "⚠ Divergência",
+            },
+            {
+              label: "Verificação outros",
+              value: formatCurrency(preview.otherAllocationCheck),
+              note: Math.abs(preview.otherAllocationCheck - preview.totalOtherCost) < 0.01
                 ? "✓ Correto" : "⚠ Divergência",
             },
           ].map(({ label, value, note }) => (
