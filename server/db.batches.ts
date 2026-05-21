@@ -492,14 +492,16 @@ export async function processBatchFIFO(
         continue;
       }
 
-      // Leitura com lock exclusivo para evitar race condition
-      const [current] = await tx.execute(
+      // Leitura com lock exclusivo para evitar race condition.
+      // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+      const currentResult = await tx.execute(
         sql`SELECT id, stock_quantity, average_cost_brl, suggested_price_pix,
                    suggested_price_card, suggested_price_boleto
             FROM permupay_products
             WHERE id = ${item.productId}
             FOR UPDATE`
       ) as any;
+      const current = currentResult?.rows?.[0];
 
       if (!current) continue;
 
@@ -513,13 +515,16 @@ export async function processBatchFIFO(
       const priceCard  = parseFloat((prixPix * 1.05).toFixed(2));  // +5% cartão
       const priceBoleto = parseFloat((prixPix * 1.06).toFixed(2)); // +6% boleto
 
-      // Calcular próxima posição na fila para este produto
-      const [{ maxPos }] = await tx.execute(
+      // Calcular próxima posição na fila para este produto.
+      // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+      const maxPosResult = await tx.execute(
         sql`SELECT COALESCE(MAX(position), -1) AS "maxPos"
             FROM permupay_stock_queue
             WHERE product_id = ${item.productId}
               AND status IN ('EM_ESPERA', 'ATIVO')`
       ) as any;
+      const maxPosRow = maxPosResult?.rows?.[0];
+      const maxPos = maxPosRow?.maxPos ?? maxPosRow?.maxpos ?? -1;
 
       const nextPosition = Number(maxPos ?? -1) + 1;
 
@@ -703,13 +708,15 @@ export async function triggerStockTransition(
   if (!db) throw new Error("Database not available");
 
   return await db.transaction(async (tx) => {
-    // Lock exclusivo no produto para serializar vendas concorrentes
-    const [product] = await tx.execute(
+    // Lock exclusivo no produto para serializar vendas concorrentes.
+    // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+    const productResult = await tx.execute(
       sql`SELECT id, stock_quantity, name
           FROM permupay_products
           WHERE id = ${productId}
           FOR UPDATE`
     ) as any;
+    const product = productResult?.rows?.[0];
 
     if (!product) throw new Error("Produto não encontrado");
 
@@ -741,8 +748,9 @@ export async function triggerStockTransition(
             AND status = 'ATIVO'`
     );
 
-    // 2. Buscar próximo lote em espera (FIFO: menor position, criado antes)
-    const [nextQueue] = await tx.execute(
+    // 2. Buscar próximo lote em espera (FIFO: menor position, criado antes).
+    // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+    const nextQueueResult = await tx.execute(
       sql`SELECT id, quantity, unit_cost,
                  suggested_price_pix, suggested_price_card, suggested_price_boleto,
                  batch_id
@@ -753,6 +761,7 @@ export async function triggerStockTransition(
           LIMIT 1
           FOR UPDATE`
     ) as any;
+    const nextQueue = nextQueueResult?.rows?.[0];
 
     if (!nextQueue) {
       // Sem lotes em espera — produto fica com estoque 0
@@ -798,10 +807,12 @@ export async function triggerStockTransition(
           WHERE queue_id = ${nextQueue.id}`
     );
 
-    // Buscar nome do lote para retorno
-    const [batchInfo] = await tx.execute(
+    // Buscar nome do lote para retorno.
+    // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+    const batchInfoResult = await tx.execute(
       sql`SELECT name FROM permupay_pricing_batches WHERE id = ${nextQueue.batch_id}`
     ) as any;
+    const batchInfo = batchInfoResult?.rows?.[0];
 
     return {
       newStock: Number(nextQueue.quantity),
