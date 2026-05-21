@@ -248,9 +248,93 @@ export async function deleteBatch(
   const db = await getDb();
   if (!db) return;
 
-  await db
-    .delete(pricingBatches)
-    .where(eq(pricingBatches.id, batchId));
+  await db.transaction(async (tx) => {
+    const batchResult = await tx.execute(sql`
+      SELECT id, status
+      FROM permupay_pricing_batches
+      WHERE id = ${batchId}
+      LIMIT 1
+    `) as any;
+    const batch = batchResult?.rows?.[0];
+    if (!batch) throw new Error("Entrada não encontrada");
+
+    const queueResult = await tx.execute(sql`
+      SELECT id, product_id, quantity, quantity_remaining, status
+      FROM permupay_stock_queue
+      WHERE batch_id = ${batchId}
+    `) as any;
+    const queueRows = (queueResult?.rows ?? []) as any[];
+
+    const hasCriticalMovement = queueRows.some((row) => {
+      const qty = Number(row.quantity ?? 0);
+      const remaining = Number(row.quantity_remaining ?? 0);
+      const status = String(row.status ?? "").toUpperCase();
+      return status === "ESGOTADO" || remaining < qty;
+    });
+
+    if (hasCriticalMovement) {
+      throw new Error(
+        "Esta entrada já teve movimentação de estoque/venda e não pode ser apagada com segurança."
+      );
+    }
+
+    if (queueRows.length > 0) {
+      for (const row of queueRows) {
+        const status = String(row.status ?? "").toUpperCase();
+        const productId = Number(row.product_id ?? 0);
+        const remaining = Number(row.quantity_remaining ?? 0);
+
+        if (status === "ATIVO" && productId > 0 && remaining > 0) {
+          await tx.execute(sql`
+            UPDATE permupay_products
+            SET stock_quantity = GREATEST(0, stock_quantity - ${remaining}),
+                updated_at = NOW()
+            WHERE id = ${productId}
+          `);
+        }
+      }
+    } else {
+      const stockResult = await tx.execute(sql`
+        SELECT product_id, COALESCE(SUM(quantity), 0) AS quantity
+        FROM permupay_stock_entries
+        WHERE batch_id = ${batchId}
+          AND quantity > 0
+        GROUP BY product_id
+      `) as any;
+      const stockRows = (stockResult?.rows ?? []) as any[];
+
+      for (const row of stockRows) {
+        const productId = Number(row.product_id ?? 0);
+        const qty = Number(row.quantity ?? 0);
+        if (productId <= 0 || qty <= 0) continue;
+
+        const productResult = await tx.execute(sql`
+          SELECT stock_quantity
+          FROM permupay_products
+          WHERE id = ${productId}
+          FOR UPDATE
+        `) as any;
+        const currentStock = Number(productResult?.rows?.[0]?.stock_quantity ?? 0);
+        if (currentStock < qty) {
+          throw new Error(
+            `Produto #${productId} já teve movimentação. Exclusão da entrada bloqueada por segurança.`
+          );
+        }
+
+        await tx.execute(sql`
+          UPDATE permupay_products
+          SET stock_quantity = stock_quantity - ${qty},
+              updated_at = NOW()
+          WHERE id = ${productId}
+        `);
+      }
+    }
+
+    await tx.execute(sql`DELETE FROM permupay_stock_queue WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_stock_entries WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_batch_items WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_pricing_batches WHERE id = ${batchId}`);
+  });
 }
 
 // ─── Estoque ──────────────────────────────────────────────────────────────────
