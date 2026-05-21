@@ -1,81 +1,81 @@
 /**
- * CurrencyInput.tsx — Input com máscara automática de moeda (R$)
+ * CurrencyInput.tsx — máscara brasileira estável para valores monetários
  *
- * Comportamento:
- *  - O usuário digita apenas dígitos; a máscara formata automaticamente
- *  - Exibe: "R$ 1.250,00" enquanto o usuário digita
- *  - O valor numérico real é retornado via onValueChange (number)
- *  - Compatível com todos os campos de valor do sistema
- *
- * Uso:
- *   <CurrencyInput value={1250.50} onValueChange={(n) => setPrice(n)} />
+ * Regra de digitação:
+ * - usuário digita apenas números;
+ * - o valor é formatado automaticamente como 0,01 / 1,23 / 12,34 / 1.234,56;
+ * - o cursor permanece no final, evitando saltos para o meio do texto;
+ * - o componente retorna o número limpo em onValueChange.
  */
 
-import React, { useCallback, useRef, useState, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 interface CurrencyInputProps {
-  /** Valor numérico atual (em reais) */
   value?: number | string;
-  /** Callback com o valor numérico limpo (ex: 1250.50) */
   onValueChange: (value: number) => void;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
   id?: string;
   name?: string;
-  /** Se true, não exibe o prefixo "R$" */
   noPrefix?: boolean;
-  /** Tamanho do input */
   size?: "sm" | "md" | "lg";
-  /** Mínimo de casas decimais (padrão: 2) */
   decimalPlaces?: number;
 }
 
-/**
- * Formata um número para exibição em moeda brasileira sem o símbolo R$
- * Ex: 1250.5 → "1.250,50"
- */
-function formatBRL(value: number, decimalPlaces = 2): string {
+function onlyDigits(value: unknown): string {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+export function parseCurrencyValue(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+
+  const cleaned = raw
+    .replace(/[R$US$\s]/g, "")
+    .replace(/[^\d,.-]/g, "");
+
+  if (!cleaned) return 0;
+
+  // Formato BR: 1.234,56
+  if (cleaned.includes(",")) {
+    const parsed = Number.parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function formatCurrencyInput(value: number, decimalPlaces = 2): string {
+  if (!Number.isFinite(value) || value <= 0) return "";
   return new Intl.NumberFormat("pt-BR", {
     minimumFractionDigits: decimalPlaces,
     maximumFractionDigits: decimalPlaces,
   }).format(value);
 }
 
-/**
- * Converte string digitada para número.
- * Remove tudo exceto dígitos e vírgula/ponto.
- * Suporta formato BR "1.250,50" e formato US "1250.50".
- */
-function parseToNumber(raw: string): number {
-  // Remove símbolo de moeda, espaços e letras
-  let cleaned = raw.replace(/[R$\s]/g, "");
-  // Se tem vírgula como separador decimal (formato BR)
-  if (cleaned.includes(",")) {
-    cleaned = cleaned.replace(/\./g, "").replace(",", ".");
-  }
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? 0 : n;
+function maskDigitsToCurrency(digits: string, decimalPlaces = 2): string {
+  const clean = onlyDigits(digits);
+  if (!clean) return "";
+
+  const padded = clean.padStart(decimalPlaces + 1, "0");
+  const integerPart = padded.slice(0, padded.length - decimalPlaces);
+  const decimalPart = padded.slice(padded.length - decimalPlaces);
+  const integerNumber = Number.parseInt(integerPart, 10);
+
+  if (!Number.isFinite(integerNumber)) return "";
+
+  return `${new Intl.NumberFormat("pt-BR").format(integerNumber)},${decimalPart}`;
 }
 
-/**
- * Máscara de digitação: converte dígitos brutos em formato BRL
- * O usuário digita "125050" → exibe "1.250,50"
- */
-function maskFromDigits(digits: string, decimalPlaces = 2): string {
-  // Manter apenas dígitos
-  const onlyDigits = digits.replace(/\D/g, "");
-  if (!onlyDigits || onlyDigits === "0".repeat(onlyDigits.length)) return "";
-
-  // Converter centavos: os últimos `decimalPlaces` dígitos são decimais
-  const padded = onlyDigits.padStart(decimalPlaces + 1, "0");
-  const intPart = padded.slice(0, padded.length - decimalPlaces);
-  const decPart = padded.slice(padded.length - decimalPlaces);
-
-  const intFormatted = new Intl.NumberFormat("pt-BR").format(parseInt(intPart, 10));
-  return `${intFormatted},${decPart}`;
+function maskedStringToNumber(masked: string, decimalPlaces = 2): number {
+  const clean = onlyDigits(masked);
+  if (!clean) return 0;
+  return Number.parseInt(clean, 10) / Math.pow(10, decimalPlaces);
 }
 
 export function CurrencyInput({
@@ -90,76 +90,48 @@ export function CurrencyInput({
   size = "md",
   decimalPlaces = 2,
 }: CurrencyInputProps) {
-  // Estado interno: string formatada para exibição
-  const [displayValue, setDisplayValue] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const isInitialized = useRef(false);
-
-  // Sincronizar valor externo → display (apenas na inicialização ou mudança externa)
-  useEffect(() => {
-    const numericValue = typeof value === "string" ? parseToNumber(value) : (value ?? 0);
-    if (!isInitialized.current) {
-      if (numericValue > 0) {
-        setDisplayValue(formatBRL(numericValue, decimalPlaces));
-      }
-      isInitialized.current = true;
-      return;
-    }
-    // Atualização externa (ex: reset de formulário)
-    if (numericValue === 0 && displayValue !== "") {
-      // não limpar se o usuário está digitando
-    } else if (numericValue > 0) {
-      const current = parseToNumber(displayValue);
-      // Só atualiza se o valor externo mudou significativamente
-      if (Math.abs(current - numericValue) > 0.001) {
-        setDisplayValue(formatBRL(numericValue, decimalPlaces));
-      }
-    }
-  }, [value]);
-
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = e.target.value;
-
-      // Se o usuário apagou tudo
-      if (!raw || raw === "") {
-        setDisplayValue("");
-        onValueChange(0);
-        return;
-      }
-
-      // Extrair apenas dígitos da entrada
-      const digits = raw.replace(/\D/g, "");
-
-      if (!digits || digits === "0".repeat(digits.length)) {
-        setDisplayValue("");
-        onValueChange(0);
-        return;
-      }
-
-      // Gerar display formatado
-      const formatted = maskFromDigits(digits, decimalPlaces);
-      setDisplayValue(formatted);
-
-      // Calcular valor numérico real
-      const numericValue = parseToNumber(formatted);
-      onValueChange(numericValue);
-    },
-    [onValueChange, decimalPlaces]
+  const focusedRef = useRef(false);
+  const [displayValue, setDisplayValue] = useState(() =>
+    formatCurrencyInput(parseCurrencyValue(value), decimalPlaces),
   );
 
-  const handleBlur = useCallback(() => {
-    // Na saída do campo, garantir formatação completa
-    const numericValue = parseToNumber(displayValue);
-    if (numericValue > 0) {
-      setDisplayValue(formatBRL(numericValue, decimalPlaces));
-    }
-  }, [displayValue, decimalPlaces]);
+  useEffect(() => {
+    if (focusedRef.current) return;
+    const formatted = formatCurrencyInput(parseCurrencyValue(value), decimalPlaces);
+    setDisplayValue((current) => (current === formatted ? current : formatted));
+  }, [value, decimalPlaces]);
+
+  const keepCursorAtEnd = useCallback(() => {
+    requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    });
+  }, []);
+
+  const handleChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const digits = onlyDigits(event.target.value);
+      const masked = maskDigitsToCurrency(digits, decimalPlaces);
+      setDisplayValue(masked);
+      onValueChange(maskedStringToNumber(masked, decimalPlaces));
+      keepCursorAtEnd();
+    },
+    [decimalPlaces, keepCursorAtEnd, onValueChange],
+  );
 
   const handleFocus = useCallback(() => {
-    // Ao focar, selecionar tudo para facilitar substituição
-    inputRef.current?.select();
-  }, []);
+    focusedRef.current = true;
+    keepCursorAtEnd();
+  }, [keepCursorAtEnd]);
+
+  const handleBlur = useCallback(() => {
+    focusedRef.current = false;
+    const valueNumber = maskedStringToNumber(displayValue, decimalPlaces);
+    setDisplayValue(formatCurrencyInput(valueNumber, decimalPlaces));
+  }, [decimalPlaces, displayValue]);
 
   const sizeClass = {
     sm: "h-8 text-sm",
@@ -170,7 +142,7 @@ export function CurrencyInput({
   return (
     <div className="relative flex items-center">
       {!noPrefix && (
-        <span className="absolute left-3 text-xs text-muted-foreground pointer-events-none font-mono select-none z-10">
+        <span className="absolute left-3 z-10 select-none font-mono text-xs text-muted-foreground pointer-events-none">
           R$
         </span>
       )}
@@ -182,26 +154,23 @@ export function CurrencyInput({
         inputMode="numeric"
         value={displayValue}
         onChange={handleChange}
-        onBlur={handleBlur}
         onFocus={handleFocus}
+        onBlur={handleBlur}
         placeholder={placeholder}
         disabled={disabled}
+        autoComplete="off"
         className={cn(
           sizeClass,
           !noPrefix && "pl-9",
-          "font-mono",
-          disabled && "opacity-50 cursor-not-allowed",
-          className
+          "font-mono tabular-nums",
+          disabled && "cursor-not-allowed opacity-50",
+          className,
         )}
-        autoComplete="off"
       />
     </div>
   );
 }
 
-/**
- * Versão simplificada para uso inline em tabelas (sem prefixo R$, menor)
- */
 export function CurrencyInputCompact({
   value,
   onValueChange,
@@ -219,5 +188,3 @@ export function CurrencyInputCompact({
     />
   );
 }
-
-export default CurrencyInput;
