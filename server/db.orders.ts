@@ -26,13 +26,18 @@ import {
 
 function resolveOrderUnitPrice(
   product: typeof products.$inferSelect,
-  paymentMethod: "PIX" | "CARTAO" | "BOLETO"
+  paymentMethod: "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO"
 ): number {
   const fallback = Number(product.suggestedPrice ?? 0);
 
   if (paymentMethod === "PIX") {
     const pixPrice = Number(product.suggestedPricePix ?? 0);
     return pixPrice > 0 ? pixPrice : fallback;
+  }
+
+  if (paymentMethod === "DINHEIRO") {
+    const cashPrice = Number(product.suggestedPricePix ?? 0);
+    return cashPrice > 0 ? cashPrice : fallback;
   }
 
   if (paymentMethod === "CARTAO") {
@@ -54,7 +59,7 @@ export async function createOrder(data: {
   buyerName: string;
   buyerContact: string;
   buyerContactType: string;
-  paymentMethod: "PIX" | "CARTAO" | "BOLETO";
+  paymentMethod: "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 }): Promise<Order> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
