@@ -352,14 +352,14 @@ export default function ProductPage() {
           {/* Galeria */}
           <div className="md:sticky md:top-24">
             <div
-              className="relative overflow-hidden rounded-3xl bg-neutral-50 border border-neutral-100"
+              className="relative overflow-hidden rounded-3xl bg-white border border-neutral-200 shadow-sm"
               style={{ aspectRatio: "1 / 1" }}
             >
               {activeImage ? (
                 <img
                   src={activeImage}
                   alt={p.name}
-                  className="absolute inset-0 w-full h-full object-contain p-7 sm:p-10"
+                  className="absolute inset-0 w-full h-full object-contain p-3 sm:p-4" style={{ objectPosition: "center center" }}
                 />
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
@@ -406,13 +406,13 @@ export default function ProductPage() {
                   <button
                     key={img.id}
                     onClick={() => setSelectedImageUrl(img.url)}
-                    className={`relative rounded-xl border overflow-hidden bg-neutral-50 transition-all ${
+                    className={`relative rounded-xl border overflow-hidden bg-white transition-all ${
                       activeImage === img.url ? "border-neutral-900 ring-2 ring-neutral-900/10" : "border-neutral-200 hover:border-neutral-400"
                     }`}
                     style={{ aspectRatio: "1 / 1" }}
                     aria-label={`Ver imagem ${img.alt}`}
                   >
-                    <img src={img.url} alt={img.alt} className="absolute inset-0 w-full h-full object-contain p-2" />
+                    <img src={img.url} alt={img.alt} className="absolute inset-0 w-full h-full object-contain p-1.5" />
                   </button>
                 ))}
               </div>
@@ -458,7 +458,7 @@ export default function ProductPage() {
             )}
 
             {inStock && hasPrice && (
-              <div className="rounded-3xl border border-neutral-100 bg-neutral-50/50 p-4 sm:p-5">
+              <div className="rounded-3xl border border-neutral-200 bg-white p-4 sm:p-5 shadow-sm">
                 <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-400 mb-3">Opções de pagamento</p>
 
                 {cashPriceVal && (
