@@ -1,12 +1,13 @@
 /**
  * client/src/pages/Pedidos.tsx
  *
- * ALTERAÇÕES:
- * - Status padrão alterado para AGUARDANDO_PAGAMENTO
- * - Label "Pago" substituído por "Pagamento Confirmado / Liberado para Retirada"
- * - Removida lógica de expiração de 2h (pedido não expira mais automaticamente)
- * - Botão "Confirmar Pagamento" debita estoque e ativa lote FIFO
- * - Cancelamento não devolve estoque (nunca foi debitado)
+ * Correção desta fase:
+ * - Confirmação manual de recebimento de pagamento diretamente na linha do pedido.
+ * - Botão claro: "Confirmar recebimento".
+ * - Confirmação antes de liberar pedido.
+ * - Pedido confirmado vira PAGO / Liberado para retirada.
+ * - Suporte visual para PIX, DINHEIRO, CARTAO e BOLETO.
+ * - Ações não dependem mais de abrir a linha para aparecer.
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -17,6 +18,8 @@ import {
   Clock,
   ShoppingBag,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,7 +31,7 @@ type OrderStatus =
   | "EXPIRADO";
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
-  AGUARDANDO_PAGAMENTO: "Aguard. Pagamento",
+  AGUARDANDO_PAGAMENTO: "Aguardando pagamento",
   RESERVADO: "Reservado",
   PAGO: "Pagamento Confirmado / Liberado para Retirada",
   CANCELADO: "Cancelado",
@@ -53,18 +56,17 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
 
 const PAYMENT_LABEL: Record<string, string> = {
   PIX: "PIX",
+  DINHEIRO: "Dinheiro",
   CARTAO: "Cartão",
   BOLETO: "Boleto",
 };
 
 const fmt = (v: number) =>
-  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export default function Pedidos() {
   const utils = trpc.useUtils();
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | "TODOS">(
-    "TODOS"
-  );
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | "TODOS">("TODOS");
   const [confirmNotes, setConfirmNotes] = useState<Record<number, string>>({});
   const [expanded, setExpanded] = useState<number | null>(null);
 
@@ -78,75 +80,87 @@ export default function Pedidos() {
   );
 
   const confirm = trpc.orders.confirm.useMutation({
-    onSuccess: () => {
-      toast.success(
-        "Pagamento confirmado! Estoque debitado. Pedido liberado para retirada."
-      );
-      utils.orders.list.invalidate();
+    onSuccess: async () => {
+      toast.success("Pagamento confirmado! Pedido liberado para retirada.");
+      await Promise.all([
+        utils.orders.list.invalidate(),
+        utils.orders.counts.invalidate(),
+      ]);
+      refetch();
     },
     onError: (e) => toast.error(e.message),
   });
 
   const cancel = trpc.orders.cancel.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Pedido cancelado.");
-      utils.orders.list.invalidate();
+      await Promise.all([
+        utils.orders.list.invalidate(),
+        utils.orders.counts.invalidate(),
+      ]);
+      refetch();
     },
     onError: (e) => toast.error(e.message),
   });
 
   const pendingOrders = orders.filter(
-    (o) =>
-      o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
+    (o: any) => o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
   );
+
+  const handleConfirmPayment = (order: any) => {
+    const ok = window.confirm(
+      `Confirmar recebimento do pagamento do pedido #${order.id}?\n\n` +
+      `${order.productName}\n` +
+      `Cliente: ${order.buyerName}\n` +
+      `Valor: ${fmt(order.totalPrice)}\n\n` +
+      `Depois disso o pedido ficará liberado para retirada.`
+    );
+
+    if (!ok) return;
+
+    confirm.mutate({
+      orderId: order.id,
+      adminNotes: confirmNotes[order.id],
+    });
+  };
+
+  const handleCancelOrder = (order: any) => {
+    const ok = window.confirm(
+      `Cancelar o pedido #${order.id}?\n\n` +
+      `Essa ação não libera o pedido para retirada.`
+    );
+    if (!ok) return;
+    cancel.mutate({ orderId: order.id, adminNotes: confirmNotes[order.id] });
+  };
 
   return (
     <div className="min-h-screen bg-background">
       <main className="container py-8 max-w-5xl">
         <div className="space-y-6">
-          {/* Cabeçalho */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">
-                Pedidos & Pagamentos
-              </h1>
+              <h1 className="text-2xl font-bold text-foreground">Pedidos & Pagamentos</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Confirme pagamentos manualmente para liberar produtos para retirada.
+                Confirme manualmente o recebimento do pagamento para liberar o produto para retirada.
               </p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetch()}
-              className="gap-2"
-            >
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
               <RefreshCw className="w-4 h-4" />
               Atualizar
             </Button>
           </div>
 
-          {/* Alerta de pendentes */}
           {pendingOrders.length > 0 && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-3">
               <Clock className="w-5 h-5 text-blue-600 shrink-0" />
               <span className="text-sm text-blue-800 font-medium">
-                {pendingOrders.length} pedido(s) aguardando confirmação de
-                pagamento
+                {pendingOrders.length} pedido(s) aguardando confirmação de pagamento
               </span>
             </div>
           )}
 
-          {/* Filtros */}
           <div className="flex gap-2 flex-wrap">
-            {(
-              [
-                "TODOS",
-                "AGUARDANDO_PAGAMENTO",
-                "PAGO",
-                "CANCELADO",
-                "EXPIRADO",
-              ] as const
-            ).map((s) => (
+            {(["TODOS", "AGUARDANDO_PAGAMENTO", "PAGO", "CANCELADO", "EXPIRADO"] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
@@ -156,136 +170,133 @@ export default function Pedidos() {
                     : "bg-background text-muted-foreground border-border hover:border-primary/50"
                 }`}
               >
-                {s === "TODOS"
-                  ? "Todos"
-                  : STATUS_LABEL_SHORT[s as OrderStatus]}
+                {s === "TODOS" ? "Todos" : STATUS_LABEL_SHORT[s as OrderStatus]}
               </button>
             ))}
           </div>
 
-          {/* Lista */}
           {isLoading ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              Carregando...
-            </div>
+            <div className="text-center py-12 text-muted-foreground text-sm">Carregando...</div>
           ) : orders.length === 0 ? (
             <div className="rounded-xl border border-border bg-card p-12 text-center">
               <ShoppingBag className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">
-                Nenhum pedido encontrado
-              </p>
+              <p className="text-sm text-muted-foreground">Nenhum pedido encontrado</p>
             </div>
           ) : (
             <div className="space-y-3">
               {orders.map((order: any) => {
                 const isOpen = expanded === order.id;
-                const isPending =
-                  order.status === "AGUARDANDO_PAGAMENTO" ||
-                  order.status === "RESERVADO";
+                const isPending = order.status === "AGUARDANDO_PAGAMENTO" || order.status === "RESERVADO";
 
                 return (
                   <div
                     key={order.id}
                     className={`rounded-lg border bg-card transition-all ${
-                      isPending ? "border-blue-200" : "border-border"
+                      isPending ? "border-blue-200 shadow-sm" : "border-border"
                     }`}
                   >
-                    {/* Linha principal */}
-                    <div
-                      className="p-4 cursor-pointer select-none"
-                      onClick={() =>
-                        setExpanded(isOpen ? null : order.id)
-                      }
-                    >
+                    <div className="p-4">
                       <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="flex-1 min-w-0">
+                        <button
+                          type="button"
+                          className="flex-1 min-w-0 text-left"
+                          onClick={() => setExpanded(isOpen ? null : order.id)}
+                        >
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-foreground text-sm">
                               #{order.id} — {order.productName}
                             </span>
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
-                                STATUS_COLOR[order.status as OrderStatus]
-                              }`}
-                            >
+                            <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${STATUS_COLOR[order.status as OrderStatus]}`}>
                               {STATUS_LABEL_SHORT[order.status as OrderStatus]}
                             </span>
                             <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                              {PAYMENT_LABEL[order.paymentMethod] ??
-                                order.paymentMethod}
+                              {PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod}
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {order.buyerName} · {order.buyerContact} ·{" "}
-                            {new Date(order.createdAt).toLocaleString("pt-BR")}
+                            {order.buyerName} · {order.buyerContact} · {new Date(order.createdAt).toLocaleString("pt-BR")}
                           </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-foreground">
-                            {fmt(order.totalPrice)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {order.quantity}x {fmt(order.unitPrice)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                        </button>
 
-                    {/* Detalhes expandidos */}
-                    {isOpen && (
-                      <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
-                        {order.adminNotes && (
-                          <p className="text-xs text-muted-foreground italic">
-                            Notas: {order.adminNotes}
-                          </p>
-                        )}
+                        <div className="flex items-center gap-3 flex-wrap justify-end">
+                          <div className="text-right min-w-[110px]">
+                            <p className="font-bold text-foreground">{fmt(order.totalPrice)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {order.quantity}x {fmt(order.unitPrice)}
+                            </p>
+                          </div>
 
-                        {isPending && (
-                          <div className="space-y-3">
-                            <textarea
-                              placeholder="Notas internas (opcional)..."
-                              rows={2}
-                              value={confirmNotes[order.id] ?? ""}
-                              onChange={(e) =>
-                                setConfirmNotes((n) => ({
-                                  ...n,
-                                  [order.id]: e.target.value,
-                                }))
-                              }
-                              className="w-full text-sm border border-border rounded-md px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary bg-background"
-                            />
-                            <div className="flex gap-2">
+                          {isPending && (
+                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 size="sm"
                                 className="gap-2 bg-green-600 hover:bg-green-700 text-white"
                                 disabled={confirm.isPending}
-                                onClick={() =>
-                                  confirm.mutate({
-                                    orderId: order.id,
-                                    adminNotes: confirmNotes[order.id],
-                                  })
-                                }
+                                onClick={() => handleConfirmPayment(order)}
                               >
                                 <CheckCircle className="w-4 h-4" />
-                                Confirmar Pagamento
+                                Confirmar recebimento
                               </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="gap-2 text-destructive hover:text-destructive"
                                 disabled={cancel.isPending}
-                                onClick={() => {
-                                  if (
-                                    window.confirm("Cancelar este pedido?")
-                                  ) {
-                                    cancel.mutate({ orderId: order.id });
-                                  }
-                                }}
+                                onClick={() => handleCancelOrder(order)}
                               >
                                 <XCircle className="w-4 h-4" />
                                 Cancelar
                               </Button>
                             </div>
+                          )}
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={() => setExpanded(isOpen ? null : order.id)}
+                          >
+                            {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {isOpen && (
+                      <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                          <div className="rounded-md bg-muted/30 px-3 py-2">
+                            <span className="block text-muted-foreground">Status</span>
+                            <strong>{STATUS_LABEL[order.status as OrderStatus]}</strong>
+                          </div>
+                          <div className="rounded-md bg-muted/30 px-3 py-2">
+                            <span className="block text-muted-foreground">Pagamento</span>
+                            <strong>{PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod}</strong>
+                          </div>
+                          <div className="rounded-md bg-muted/30 px-3 py-2">
+                            <span className="block text-muted-foreground">Contato</span>
+                            <strong>{order.buyerContact}</strong>
+                          </div>
+                        </div>
+
+                        {order.adminNotes && (
+                          <p className="text-xs text-muted-foreground italic">Notas: {order.adminNotes}</p>
+                        )}
+
+                        {isPending && (
+                          <div className="space-y-3">
+                            <textarea
+                              placeholder="Notas internas antes de confirmar/cancelar (opcional)..."
+                              rows={2}
+                              value={confirmNotes[order.id] ?? ""}
+                              onChange={(e) =>
+                                setConfirmNotes((n) => ({ ...n, [order.id]: e.target.value }))
+                              }
+                              className="w-full text-sm border border-border rounded-md px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary bg-background"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Ao confirmar recebimento, o sistema marca o pedido como liberado e debita o estoque com segurança.
+                            </p>
                           </div>
                         )}
 
@@ -296,10 +307,7 @@ export default function Pedidos() {
                             </p>
                             {order.confirmedAt && (
                               <p className="text-xs text-green-600 mt-0.5">
-                                Confirmado em{" "}
-                                {new Date(order.confirmedAt).toLocaleString(
-                                  "pt-BR"
-                                )}
+                                Confirmado em {new Date(order.confirmedAt).toLocaleString("pt-BR")}
                               </p>
                             )}
                           </div>
