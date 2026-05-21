@@ -13,7 +13,9 @@
  * AJUSTE DE TRANSIÇÃO — Entrada de Produtos:
  * - Mantém produtos antigos editáveis.
  * - Marca custo operacional como campo legado.
- * - Orienta que novas entradas/custos operacionais devem ser registradas em Entrada de Produtos.
+ * - Permite selecionar produto existente vindo da Entrada de Produtos/lista de produtos.
+ * - Carrega custo, categoria e estoque como fallback seguro.
+ * - Adiciona modo de preço manual com cálculo de lucro/prejuízo sem alterar checkout.
  */
 
 import { useEffect, useMemo, useState, useCallback, type ChangeEvent } from "react";
@@ -61,7 +63,7 @@ import { toast } from "sonner";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
-type MarginMode = "PERCENT" | "VALUE";
+type MarginMode = "PERCENT" | "VALUE" | "MANUAL";
 
 interface FormState {
   name: string;
@@ -86,6 +88,7 @@ interface FormState {
   marginMode: MarginMode;
   desiredMarginRate: string;
   desiredMarginValue: string;
+  manualSalePrice: string;
 }
 
 const defaultForm: FormState = {
@@ -111,6 +114,7 @@ const defaultForm: FormState = {
   marginMode: "PERCENT",
   desiredMarginRate: "30",
   desiredMarginValue: "",
+  manualSalePrice: "",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -140,6 +144,26 @@ function methodIcon(method: PaymentMethod) {
     case "CREDITO_A_VISTA":   return <CreditCard className="w-4 h-4" />;
     case "CREDITO_PARCELADO": return <Tag className="w-4 h-4" />;
   }
+}
+
+interface ManualPricingSummary {
+  salePrice: number;
+  profitValue: number;
+  profitPercentOnSale: number;
+  markupPercentOnCost: number;
+  isLoss: boolean;
+}
+
+function calculateManualPricing(realUnitCost: number, manualSalePrice: number): ManualPricingSummary | null {
+  if (realUnitCost <= 0 || manualSalePrice <= 0) return null;
+  const profitValue = manualSalePrice - realUnitCost;
+  return {
+    salePrice: manualSalePrice,
+    profitValue,
+    profitPercentOnSale: manualSalePrice > 0 ? (profitValue / manualSalePrice) * 100 : 0,
+    markupPercentOnCost: realUnitCost > 0 ? (profitValue / realUnitCost) * 100 : 0,
+    isLoss: profitValue < 0,
+  };
 }
 
 // ── Sub-componentes (mesma estrutura de ConfiguracoesPagamento) ───────────────
@@ -313,6 +337,11 @@ export default function ProductForm() {
     { id: productId! },
     { enabled: isEditing }
   );
+  const productsQuery = trpc.products.list.useQuery(undefined, {
+    enabled: !isEditing,
+    staleTime: 60_000,
+  });
+  const [selectedExistingProductId, setSelectedExistingProductId] = useState<string>("");
   const utils = trpc.useUtils();
   const addImageMutation = trpc.products.addImage.useMutation();
 
@@ -406,9 +435,53 @@ export default function ProductForm() {
         marginMode: ((p as any).marginMode as MarginMode) || "PERCENT",
         desiredMarginRate: p.desiredMarginRate ? String(p.desiredMarginRate) : "30",
         desiredMarginValue: p.desiredMarginValue ? String(p.desiredMarginValue) : "",
+        manualSalePrice: p.suggestedPricePix
+          ? String(p.suggestedPricePix)
+          : p.suggestedPrice
+          ? String(p.suggestedPrice)
+          : "",
       }));
     }
   }, [productQuery.data]);
+
+  const applyExistingProductToForm = useCallback((rawProductId: string) => {
+    setSelectedExistingProductId(rawProductId);
+    const selectedId = rawProductId ? Number(rawProductId) : undefined;
+    const selected = productsQuery.data?.find((p: any) => p.id === selectedId) as any;
+    if (!selected) return;
+
+    const cost = Number(selected.finalUnitCostBrl ?? selected.averageCostBrl ?? selected.costPrice ?? 0);
+
+    setForm((prev) => ({
+      ...prev,
+      name: selected.name || prev.name,
+      shortDescription: selected.shortDescription || prev.shortDescription,
+      description: selected.description || prev.description,
+      category: (selected.category as ProductCategory) || prev.category,
+      categoryLabel: selected.categoryLabel || prev.categoryLabel,
+      ncm: selected.ncm || prev.ncm,
+      promoTag: selected.promoTag || prev.promoTag,
+      published: selected.published ?? prev.published,
+      active: selected.active ?? prev.active,
+      notes: selected.notes || prev.notes,
+      costCurrency: (selected.costCurrency as "BRL" | "USD") || "BRL",
+      costPrice: cost > 0 ? String(cost) : selected.costPrice ? String(selected.costPrice) : prev.costPrice,
+      costPriceUsd: selected.costPriceUsd ? String(selected.costPriceUsd) : prev.costPriceUsd,
+      usdExchangeRate: selected.usdExchangeRate ? String(selected.usdExchangeRate) : prev.usdExchangeRate,
+      packagingCost: selected.packagingCost ? String(selected.packagingCost) : prev.packagingCost,
+      inboundShippingCost: selected.inboundShippingCost ? String(selected.inboundShippingCost) : prev.inboundShippingCost,
+      operationalCost: selected.operationalCost ? String(selected.operationalCost) : prev.operationalCost,
+      stockQuantity: selected.stockQuantity != null ? String(selected.stockQuantity) : prev.stockQuantity,
+      minimumStock: selected.minimumStock != null ? String(selected.minimumStock) : prev.minimumStock,
+      manualSalePrice: selected.suggestedPricePix
+        ? String(selected.suggestedPricePix)
+        : selected.suggestedPrice
+        ? String(selected.suggestedPrice)
+        : prev.manualSalePrice,
+    }));
+
+    toast.success(`Produto #${selected.id} carregado para publicação/edição comercial.`);
+  }, [productsQuery.data]);
 
   const costPriceBrl = useMemo(() => {
     if (form.costCurrency === "USD") return n(form.costPriceUsd) * n(form.usdExchangeRate);
@@ -420,18 +493,32 @@ export default function ProductForm() {
     [costPriceBrl, form.packagingCost, form.inboundShippingCost, form.operationalCost]
   );
 
+  const manualPricing = useMemo(
+    () => calculateManualPricing(finalUnitCost, n(form.manualSalePrice)),
+    [finalUnitCost, form.manualSalePrice]
+  );
+
   const effectiveMarginRate = useMemo(() => {
     if (form.marginMode === "VALUE") {
       if (finalUnitCost <= 0) return 0;
       return (n(form.desiredMarginValue) / finalUnitCost) * 100;
     }
+    if (form.marginMode === "MANUAL") {
+      return manualPricing?.markupPercentOnCost ?? 0;
+    }
     return n(form.desiredMarginRate);
-  }, [form.marginMode, form.desiredMarginRate, form.desiredMarginValue, finalUnitCost]);
+  }, [form.marginMode, form.desiredMarginRate, form.desiredMarginValue, form.manualSalePrice, finalUnitCost, manualPricing]);
 
   const handleCalculate = useCallback(() => {
     setCalcError(null);
     if (!form.name.trim()) { setCalcError("Informe o nome do produto."); return; }
     if (costPriceBrl <= 0) { setCalcError("Informe o preço de custo."); return; }
+    if (form.marginMode === "MANUAL") {
+      if (n(form.manualSalePrice) <= 0) { setCalcError("Informe o preço manual de venda."); return; }
+      setPricingResult(null);
+      return;
+    }
+
     if (!globalSettings.data) { setCalcError("Aguardando configurações globais de pagamento..."); return; }
 
     const gs = globalSettings.data;
@@ -480,6 +567,8 @@ export default function ProductForm() {
     setIsSaving(true);
 
     const gs = globalSettings.data;
+    const manualPrice = form.marginMode === "MANUAL" ? n(form.manualSalePrice) : 0;
+    const manualProfit = manualPrice > 0 ? manualPrice - finalUnitCost : 0;
     const pixResult    = pricingResult?.results.find((r) => r.method === "PIX");
     const cardResult   = pricingResult?.results.find((r) => r.method === "CREDITO_A_VISTA");
     const boletoResult = pricingResult?.results.find((r) => r.method === "BOLETO");
@@ -505,9 +594,9 @@ export default function ProductForm() {
       operationalCost: n(form.operationalCost),
       stockQuantity: n(form.stockQuantity),
       minimumStock: n(form.minimumStock),
-      desiredMarginRate: effectiveMarginRate,
-      desiredMarginValue: n(form.desiredMarginValue),
-      marginMode: form.marginMode,
+      desiredMarginRate: Math.max(0, effectiveMarginRate),
+      desiredMarginValue: form.marginMode === "MANUAL" ? Math.max(0, manualProfit) : n(form.desiredMarginValue),
+      marginMode: form.marginMode === "MANUAL" ? "VALUE" : form.marginMode,
       taxRegime: (gs?.taxRegime as TaxRegime) ?? "SIMPLES_NACIONAL",
       estimatedTaxRate: 0,
       taxCash: 0,
@@ -527,18 +616,20 @@ export default function ProductForm() {
       cardAnticipationRate: gs?.cardAnticipationRate ?? 1.5,
       cardMonthlyRate: gs?.cardMonthlyRate ?? 1.99,
       cardCustomerPaysInterest: gs?.cardCustomerPaysInterest ?? false,
-      suggestedPrice: bestResult?.suggestedPrice ?? 0,
-      suggestedPricePix: pixResult?.suggestedPrice ?? 0,
-      suggestedPriceCard: cardResult?.suggestedPrice ?? 0,
-      suggestedPriceBoleto: boletoResult?.suggestedPrice ?? 0,
+      suggestedPrice: form.marginMode === "MANUAL" ? manualPrice : bestResult?.suggestedPrice ?? 0,
+      suggestedPricePix: form.marginMode === "MANUAL" ? manualPrice : pixResult?.suggestedPrice ?? 0,
+      suggestedPriceCard: form.marginMode === "MANUAL" ? manualPrice : cardResult?.suggestedPrice ?? 0,
+      suggestedPriceBoleto: form.marginMode === "MANUAL" ? manualPrice : boletoResult?.suggestedPrice ?? 0,
     };
 
     if (isEditing) {
       updateProduct.mutate({ id: productId!, data: payload });
+    } else if (selectedExistingProductId) {
+      updateProduct.mutate({ id: Number(selectedExistingProductId), data: payload });
     } else {
       createProduct.mutate(payload);
     }
-  }, [form, costPriceBrl, effectiveMarginRate, pricingResult, globalSettings.data, isEditing, productId, createProduct, updateProduct]);
+  }, [form, costPriceBrl, finalUnitCost, effectiveMarginRate, pricingResult, globalSettings.data, isEditing, productId, selectedExistingProductId, createProduct, updateProduct]);
 
   if (isEditing && productQuery.isLoading) {
     return (
@@ -611,7 +702,7 @@ export default function ProductForm() {
               className="gap-2"
             >
               <Save className="w-3.5 h-3.5" />
-              {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar Produto"}
+              {isSaving ? "Salvando..." : isEditing || selectedExistingProductId ? "Salvar Alterações" : "Criar Produto"}
             </Button>
           </div>
         </div>
@@ -631,6 +722,46 @@ export default function ProductForm() {
 
           {/* ── FORMULÁRIO ─────────────────────────────────────────────── */}
           <div className="space-y-6">
+
+            {/* 0. SELECIONAR PRODUTO EXISTENTE / ENTRADA */}
+            {!isEditing && (
+              <SectionCard>
+                <SectionHeader
+                  icon={<Layers className="w-4 h-4" />}
+                  title="Selecionar Produto da Entrada de Produtos"
+                  subtitle="Use um produto já cadastrado para publicar/configurar comercialmente sem duplicar"
+                />
+
+                <div className="space-y-3">
+                  <Field
+                    label="Produto existente"
+                    hint="Opcional durante a transição. Produtos antigos continuam funcionando; produtos novos devem vir da Entrada de Produtos."
+                  >
+                    <select
+                      value={selectedExistingProductId}
+                      onChange={(e) => applyExistingProductToForm(e.target.value)}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={productsQuery.isLoading}
+                    >
+                      <option value="">{productsQuery.isLoading ? "Carregando produtos..." : "— Selecionar produto já cadastrado —"}</option>
+                      {productsQuery.data?.map((product: any) => (
+                        <option key={product.id} value={product.id}>
+                          #{product.id} — {product.name} · Estoque: {product.stockQuantity ?? 0}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <div className="flex items-start gap-2.5 p-3 rounded-md border border-blue-200 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-950/20">
+                    <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                    <p className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed">
+                      Selecione um produto que veio da Entrada de Produtos para carregar nome, categoria, estoque e custo.
+                      Se for produto antigo sem entrada formal, ele continua editável usando o custo legado como fallback.
+                    </p>
+                  </div>
+                </div>
+              </SectionCard>
+            )}
 
             {/* 1. IDENTIDADE DO PRODUTO */}
             <SectionCard>
@@ -855,7 +986,7 @@ export default function ProductForm() {
               />
 
               <div className="flex gap-1.5 mb-4">
-                {(["PERCENT", "VALUE"] as const).map((m) => (
+                {(["PERCENT", "VALUE", "MANUAL"] as const).map((m) => (
                   <Button
                     key={m}
                     variant={form.marginMode === m ? "default" : "outline"}
@@ -863,7 +994,7 @@ export default function ProductForm() {
                     onClick={() => set("marginMode")(m)}
                     className="h-8 text-xs"
                   >
-                    {m === "PERCENT" ? "Porcentagem (%)" : "Valor (R$)"}
+                    {m === "PERCENT" ? "Porcentagem (%)" : m === "VALUE" ? "Valor (R$)" : "Preço manual"}
                   </Button>
                 ))}
               </div>
@@ -873,15 +1004,35 @@ export default function ProductForm() {
                   <Field label="Margem desejada (%)" required>
                     <NI value={form.desiredMarginRate} onChange={set("desiredMarginRate") as any} suffix="%" placeholder="30" />
                   </Field>
-                ) : (
+                ) : form.marginMode === "VALUE" ? (
                   <Field label="Margem em valor (R$)" required>
                     <NI value={form.desiredMarginValue} onChange={set("desiredMarginValue") as any} prefix="R$" placeholder="0,00" />
                   </Field>
+                ) : (
+                  <Field label="Preço manual de venda (R$)" required>
+                    <NI value={form.manualSalePrice} onChange={set("manualSalePrice") as any} prefix="R$" placeholder="0,00" />
+                  </Field>
                 )}
-                <Field label="Margem efetiva">
+                <Field label={form.marginMode === "MANUAL" ? "Markup sobre custo" : "Margem efetiva"}>
                   <NI value={effectiveMarginRate.toFixed(2)} onChange={() => {}} suffix="%" disabled />
                 </Field>
               </div>
+
+              {form.marginMode === "MANUAL" && manualPricing && (
+                <div className={`mb-4 flex items-start gap-2.5 p-3 rounded-md border ${manualPricing.isLoss ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300" : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"}`}>
+                  {manualPricing.isLoss ? <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> : <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />}
+                  <div className="text-xs leading-relaxed">
+                    <p className="font-semibold">
+                      {manualPricing.isLoss
+                        ? `Este preço gera prejuízo de ${formatCurrency(Math.abs(manualPricing.profitValue))} por unidade.`
+                        : `Lucro estimado de ${formatCurrency(manualPricing.profitValue)} por unidade.`}
+                    </p>
+                    <p>
+                      Margem sobre venda: {formatPercent(manualPricing.profitPercentOnSale)} · Markup sobre custo: {formatPercent(manualPricing.markupPercentOnCost)}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Aviso fonte única de taxas */}
               <div className="flex items-start gap-2.5 p-3 rounded-md border border-border bg-muted/30">
@@ -947,7 +1098,7 @@ export default function ProductForm() {
                   <div className="p-3 space-y-3 rounded-md border border-border bg-muted/10">
                     <p className="text-xs text-muted-foreground uppercase tracking-wider">Margem Desejada</p>
                     <div className="flex gap-1.5">
-                      {(["PERCENT", "VALUE"] as const).map((m) => (
+                      {(["PERCENT", "VALUE", "MANUAL"] as const).map((m) => (
                         <Button
                           key={m}
                           variant={form.marginMode === m ? "default" : "outline"}
@@ -955,20 +1106,29 @@ export default function ProductForm() {
                           onClick={() => set("marginMode")(m)}
                           className="flex-1 h-7 text-xs"
                         >
-                          {m === "PERCENT" ? "%" : "R$"}
+                          {m === "PERCENT" ? "%" : m === "VALUE" ? "R$" : "Manual"}
                         </Button>
                       ))}
                     </div>
                     {form.marginMode === "PERCENT" ? (
                       <NI value={form.desiredMarginRate} onChange={set("desiredMarginRate") as any} suffix="%" placeholder="30" />
-                    ) : (
+                    ) : form.marginMode === "VALUE" ? (
                       <NI value={form.desiredMarginValue} onChange={set("desiredMarginValue") as any} prefix="R$" placeholder="0,00" />
+                    ) : (
+                      <NI value={form.manualSalePrice} onChange={set("manualSalePrice") as any} prefix="R$" placeholder="0,00" />
                     )}
-                    {effectiveMarginRate > 0 && (
+                    {form.marginMode !== "MANUAL" && effectiveMarginRate > 0 && (
                       <p className="text-xs text-muted-foreground">
                         Margem efetiva:{" "}
                         <span className="text-emerald-500 font-semibold">{effectiveMarginRate.toFixed(1)}%</span>
                       </p>
+                    )}
+                    {form.marginMode === "MANUAL" && manualPricing && (
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <p>Lucro/prejuízo: <span className={manualPricing.isLoss ? "text-red-500 font-semibold" : "text-emerald-500 font-semibold"}>{formatCurrency(manualPricing.profitValue)}</span></p>
+                        <p>Margem venda: <span className={manualPricing.isLoss ? "text-red-500 font-semibold" : "text-emerald-500 font-semibold"}>{formatPercent(manualPricing.profitPercentOnSale)}</span></p>
+                        <p>Markup custo: <span className={manualPricing.isLoss ? "text-red-500 font-semibold" : "text-emerald-500 font-semibold"}>{formatPercent(manualPricing.markupPercentOnCost)}</span></p>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -999,6 +1159,20 @@ export default function ProductForm() {
                 >
                   <RefreshCcw className="w-3.5 h-3.5" /> Calcular Preços
                 </Button>
+              )}
+
+              {/* Resultado manual */}
+              {form.marginMode === "MANUAL" && manualPricing && (
+                <div className={`rounded-md border p-3.5 ${manualPricing.isLoss ? "border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-950/20" : "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"}`}>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Preço Manual</p>
+                  <p className="text-xl font-bold text-foreground mb-2">{formatCurrency(manualPricing.salePrice)}</p>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Custo real:</span><span>{formatCurrency(finalUnitCost)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Lucro/prejuízo:</span><span className={manualPricing.isLoss ? "text-red-500 font-semibold" : "text-emerald-500 font-semibold"}>{formatCurrency(manualPricing.profitValue)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Margem sobre venda:</span><span>{formatPercent(manualPricing.profitPercentOnSale)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Markup sobre custo:</span><span>{formatPercent(manualPricing.markupPercentOnCost)}</span></div>
+                  </div>
+                </div>
               )}
 
               {/* Resultados */}
@@ -1046,7 +1220,7 @@ export default function ProductForm() {
                 className="w-full gap-2"
               >
                 <Save className="w-4 h-4" />
-                {isSaving ? "Salvando..." : isEditing ? "Salvar Alterações" : "Criar & Publicar"}
+                {isSaving ? "Salvando..." : isEditing || selectedExistingProductId ? "Salvar Alterações" : "Criar & Publicar"}
               </Button>
             </div>
           </div>
