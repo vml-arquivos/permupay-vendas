@@ -51,6 +51,7 @@ import {
   WalletCards,
   Eye,
   Pencil,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -1771,50 +1772,67 @@ export default function BatchPricing() {
       </Card>
 
       <AlertDialog open={!!selectedBatchId} onOpenChange={(open) => !open && setSelectedBatchId(null)}>
-        <AlertDialogContent className="max-w-6xl max-h-[88vh] overflow-y-auto">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {selectedBatchQuery.data ? `Entrada #${selectedBatchQuery.data.id} — ${selectedBatchQuery.data.name}` : "Detalhes da entrada"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Visualização completa do lote: custos gerais, produtos, rateios, preço sugerido e lucro projetado.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+        <AlertDialogContent className="w-[calc(100vw-1.5rem)] max-w-5xl max-h-[90vh] overflow-hidden p-0">
+          <div className="relative flex max-h-[90vh] flex-col bg-background">
+            <button
+              type="button"
+              onClick={() => setSelectedBatchId(null)}
+              className="absolute right-4 top-4 z-20 inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Fechar detalhes da entrada"
+            >
+              <X className="h-4 w-4" />
+            </button>
 
-          {selectedBatchQuery.isLoading ? (
-            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-              Carregando detalhes da entrada...
-            </div>
-          ) : selectedBatchQuery.data ? (
-            <BatchDetailsContent batch={selectedBatchQuery.data as any} />
-          ) : (
-            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-              Entrada não encontrada.
-            </div>
-          )}
+            <div className="overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+              <AlertDialogHeader className="pr-12 text-left">
+                <AlertDialogTitle>
+                  {selectedBatchQuery.data ? `Entrada #${selectedBatchQuery.data.id} — ${selectedBatchQuery.data.name}` : "Detalhes da entrada"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  Visualização completa do lote com custos gerais e produtos, sem barra lateral para arrastar.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
 
-          <AlertDialogFooter className="gap-2 sm:justify-between">
-            <div className="flex flex-wrap gap-2">
-              {selectedBatchQuery.data && (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => loadBatchForEdit(selectedBatchQuery.data as any)}
-                  >
-                    <Pencil className="mr-2 h-4 w-4" /> Editar entrada
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => setDeleteBatchTarget(selectedBatchQuery.data as any)}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> Apagar entrada
-                  </Button>
-                </>
-              )}
+              <div className="mt-4">
+                {selectedBatchQuery.isLoading ? (
+                  <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+                    Carregando detalhes da entrada...
+                  </div>
+                ) : selectedBatchQuery.data ? (
+                  <BatchDetailsContent batch={selectedBatchQuery.data as any} />
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+                    Entrada não encontrada.
+                  </div>
+                )}
+              </div>
             </div>
-            <AlertDialogCancel>Fechar</AlertDialogCancel>
-          </AlertDialogFooter>
+
+            <div className="border-t border-border px-4 py-3 sm:px-6">
+              <AlertDialogFooter className="gap-2 sm:justify-between">
+                <div className="flex flex-wrap gap-2">
+                  {selectedBatchQuery.data && (
+                    <>
+                      <Button
+                        variant="outline"
+                        onClick={() => loadBatchForEdit(selectedBatchQuery.data as any)}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" /> Editar entrada
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeleteBatchTarget(selectedBatchQuery.data as any)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" /> Apagar entrada
+                      </Button>
+                    </>
+                  )}
+                </div>
+                <AlertDialogCancel>Fechar</AlertDialogCancel>
+              </AlertDialogFooter>
+            </div>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
 
@@ -1908,8 +1926,8 @@ function BatchDetailsContent({ batch }: { batch: any }) {
   const profit = items.reduce((sum: number, item: any) => sum + (Number(item.suggestedPrice ?? 0) - Number(item.finalUnitCost ?? 0)) * Number(item.quantity ?? 0), 0);
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
+    <div className="space-y-5 overflow-x-hidden">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
         <SummaryBox label="Status" value={statusLabel(batch.status)} />
         <SummaryBox label="Data" value={formatBatchDate(batch.createdAt)} />
         <SummaryBox label="Produtos" value={String(items.length)} />
@@ -1919,23 +1937,22 @@ function BatchDetailsContent({ batch }: { batch: any }) {
         <SummaryBox label="Total entrada" value={formatCurrency(grandTotal)} />
       </div>
 
-      <div className="rounded-lg border border-border overflow-hidden">
-        <div className="grid grid-cols-[minmax(220px,1.4fr)_70px_95px_110px_110px_110px_110px_110px_110px] gap-2 bg-muted/50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground overflow-x-auto">
-          <span>Produto</span>
-          <span>Qtd</span>
-          <span>Custo BRL</span>
-          <span>Base</span>
-          <span>Rateio</span>
-          <span>Custo real</span>
-          <span>Total real</span>
-          <span>Preço final</span>
-          <span>Lucro total</span>
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">Produtos desta entrada</h4>
+            <p className="text-xs text-muted-foreground">Lista organizada em cards para visualizar tudo sem arrastar horizontalmente.</p>
+          </div>
+          <Badge variant="outline">{items.length} produto(s)</Badge>
         </div>
-        <div className="divide-y divide-border">
-          {items.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">Nenhum produto encontrado nesta entrada.</div>
-          ) : (
-            items.map((item: any, index: number) => {
+
+        {items.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+            Nenhum produto encontrado nesta entrada.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {items.map((item: any, index: number) => {
               const qty = Number(item.quantity ?? 0);
               const unitBrl = Number(item.unitCostBrl ?? 0);
               const baseTotal = Number(item.totalItemCost ?? item.baseTotalCost ?? unitBrl * qty);
@@ -1947,26 +1964,45 @@ function BatchDetailsContent({ batch }: { batch: any }) {
               const allocated = Number(item.allocatedOperationalCost ?? 0) + Number(item.allocatedTaxCost ?? 0) + Number(item.allocatedOtherCost ?? 0);
 
               return (
-                <div key={item.id ?? `${item.productName}-${index}`} className="grid grid-cols-[minmax(220px,1.4fr)_70px_95px_110px_110px_110px_110px_110px_110px] gap-2 px-3 py-2 text-xs overflow-x-auto">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-foreground">{item.productName}</p>
-                    <p className="text-[10px] text-muted-foreground">{item.productId ? `Produto #${item.productId}` : "Produto novo/sem vínculo"} · {item.costCurrency ?? "BRL"}</p>
+                <div key={item.id ?? `${item.productName}-${index}`} className="rounded-lg border border-border bg-background p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{item.productName || `Produto ${index + 1}`}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.productId ? `Produto #${item.productId}` : 'Produto novo/sem vínculo'} · {item.costCurrency ?? 'BRL'}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">Qtd {qty || '—'}</Badge>
                   </div>
-                  <strong>{qty || "—"}</strong>
-                  <strong>{formatCurrency(unitBrl)}</strong>
-                  <span>{formatCurrency(baseTotal)}</span>
-                  <span>{formatCurrency(allocated)}</span>
-                  <strong className="text-primary">{formatCurrency(finalUnit)}</strong>
-                  <strong>{formatCurrency(realTotal)}</strong>
-                  <span>{price > 0 ? formatCurrency(price) : "Sem preço"}</span>
-                  <span className={profitTotal >= 0 ? "text-emerald-600 font-semibold" : "text-destructive font-semibold"}>
-                    {price > 0 ? formatCurrency(profitTotal) : "—"}
-                  </span>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+                    <MiniInfoBox label="Custo BRL" value={formatCurrency(unitBrl)} />
+                    <MiniInfoBox label="Base" value={formatCurrency(baseTotal)} />
+                    <MiniInfoBox label="Rateio" value={formatCurrency(allocated)} />
+                    <MiniInfoBox label="Custo real" value={formatCurrency(finalUnit)} highlight />
+                    <MiniInfoBox label="Total real" value={formatCurrency(realTotal)} />
+                    <MiniInfoBox label="Preço final" value={price > 0 ? formatCurrency(price) : 'Sem preço'} />
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="rounded-md bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+                      <span className="block text-[10px] uppercase tracking-wide">Lucro unitário</span>
+                      <strong className={profitUnit >= 0 ? 'text-emerald-600' : 'text-destructive'}>
+                        {price > 0 ? formatCurrency(profitUnit) : '—'}
+                      </strong>
+                    </div>
+                    <div className="rounded-md bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+                      <span className="block text-[10px] uppercase tracking-wide">Lucro total</span>
+                      <strong className={profitTotal >= 0 ? 'text-emerald-600' : 'text-destructive'}>
+                        {price > 0 ? formatCurrency(profitTotal) : '—'}
+                      </strong>
+                    </div>
+                  </div>
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
@@ -1977,6 +2013,15 @@ function BatchDetailsContent({ batch }: { batch: any }) {
           value={Math.abs(items.reduce((sum: number, item: any) => sum + Number(item.allocatedOperationalCost ?? 0), 0) - operationalTotal) < 0.05 ? "OK" : "Verificar"}
         />
       </div>
+    </div>
+  );
+}
+
+function MiniInfoBox({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-md px-3 py-2 text-xs ${highlight ? "bg-primary/5" : "bg-muted/25"}`}>
+      <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <strong className={highlight ? "text-primary" : "text-foreground"}>{value}</strong>
     </div>
   );
 }
