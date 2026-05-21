@@ -210,6 +210,10 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .query(({ input }) => db.getProductById(input.id)),
 
+    costContext: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => db.getProductCostContext(input.id)),
+
     update: protectedProcedure
       .input(z.object({ id: z.number(), data: productInput.partial() }))
       .mutation(({ input }) => db.updateProduct(input.id, input.data)),
@@ -340,6 +344,10 @@ export const appRouter = router({
 
     list: protectedProcedure.query(() => dbBatches.listBatches()),
 
+    regularizationCandidates: protectedProcedure.query(() =>
+      dbBatches.listInitialRegularizationCandidates()
+    ),
+
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => dbBatches.getBatchById(input.id)),
@@ -384,6 +392,27 @@ export const appRouter = router({
       )
       .mutation(({ input, ctx }) =>
         dbBatches.processBatchFIFO(
+          input.batchId,
+          ctx.user.id,
+          input.items,
+          input.totalOperationalCost,
+          input.totalTaxCost ?? 0,
+          input.totalOtherCost ?? 0
+        )
+      ),
+
+    processInitialRegularization: protectedProcedure
+      .input(
+        z.object({
+          batchId: z.number(),
+          items: z.array(batchItemSchema).min(1),
+          totalOperationalCost: z.number().min(0),
+          totalTaxCost: z.number().min(0).optional(),
+          totalOtherCost: z.number().min(0).optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbBatches.processInitialRegularizationBatch(
           input.batchId,
           ctx.user.id,
           input.items,
