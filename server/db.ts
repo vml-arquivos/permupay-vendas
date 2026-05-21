@@ -142,6 +142,24 @@ export async function listProducts(_userId?: number) {
   }
 }
 
+export async function listProductsToPublish(_userId?: number) {
+  const all = await listProducts(_userId);
+
+  return (all as any[])
+    .filter((p) => {
+      const hasStock = Number(p.stockQuantity ?? 0) > 0;
+      const hasRealCost = Number(p.finalUnitCostBrl ?? p.averageCostBrl ?? 0) > 0;
+
+      return p.active !== false && p.published !== true && hasStock && hasRealCost;
+    })
+    .sort((a, b) => {
+      const aDate = new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
+      const bDate = new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
+      return bDate - aDate;
+    });
+}
+
+
 export async function getProductById(id: number, _userId?: number) {
   const db = await getDb();
   if (!db) return undefined;
