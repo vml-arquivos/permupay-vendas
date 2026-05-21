@@ -1,8 +1,9 @@
 /**
  * BatchPricing.tsx — Entrada de Produtos com Rateio Proporcional + FIFO
  *
- * NOVO: Toggle "Modo FIFO" — quando ativado, produtos com estoque ativo
- * entram na fila de espera e só são ativados quando o estoque atual zera.
+ * Esta tela é a base operacional da Entrada de Produtos.
+ * Ela permite registrar entrada para produto existente ou criar um produto base
+ * antes de processar estoque, preservando compatibilidade com produtos antigos.
  */
 
 import { useState, useCallback } from "react";
@@ -27,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
   PlusCircle, Trash2, Calculator, PackageCheck, ChevronLeft,
-  Clock, Zap, Info, CheckCircle2, AlertTriangle,
+  Clock, Zap, Info, CheckCircle2, AlertTriangle, PackagePlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -38,18 +39,66 @@ import { CurrencyInput } from "@/components/CurrencyInput";
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
 
+type EntryMode = "EXISTING" | "NEW";
+type AcquisitionCurrency = "BRL" | "USD";
+type AcquisitionPaymentMethod = "DINHEIRO" | "PIX" | "BOLETO" | "CARTAO" | "DOLAR" | "OUTRO";
+type ProductCategory = "CELULAR" | "ELETRONICO" | "PERFUME" | "OUTRO";
+
 interface LocalItem extends BatchItemInput {
   _id: string;
+  entryMode: EntryMode;
+  category: ProductCategory;
+  currency: AcquisitionCurrency;
+  unitCostOriginal: number;
+  exchangeRate: number;
+  acquisitionPaymentMethod: AcquisitionPaymentMethod;
 }
 
 const emptyItem = (): LocalItem => ({
   _id: crypto.randomUUID(),
+  entryMode: "EXISTING",
   productName: "",
+  productId: undefined,
+  category: "OUTRO",
+  currency: "BRL",
+  unitCostOriginal: 0,
+  exchangeRate: 5.5,
   unitCostBrl: 0,
   quantity: 1,
   desiredMarginRate: 30,
   estimatedTaxRate: 6,
+  acquisitionPaymentMethod: "PIX",
 });
+
+function resolveUnitCostBrl(item: LocalItem): number {
+  const original = Number(item.unitCostOriginal || 0);
+  if (item.currency === "USD") return original * Number(item.exchangeRate || 0);
+  return original;
+}
+
+function normalizeItem(item: LocalItem): LocalItem {
+  return {
+    ...item,
+    unitCostOriginal: Number(item.unitCostOriginal || 0),
+    exchangeRate: Number(item.exchangeRate || 0),
+    unitCostBrl: resolveUnitCostBrl(item),
+    quantity: Number(item.quantity || 0),
+    desiredMarginRate: Number(item.desiredMarginRate || 0),
+    estimatedTaxRate: Number(item.estimatedTaxRate ?? 0),
+  };
+}
+
+function toBatchItem(item: LocalItem): BatchItemInput {
+  const normalized = normalizeItem(item);
+  return {
+    productId: normalized.productId,
+    productName: normalized.productName,
+    unitCostBrl: normalized.unitCostBrl,
+    quantity: normalized.quantity,
+    desiredMarginRate: normalized.desiredMarginRate,
+    estimatedTaxRate: normalized.estimatedTaxRate,
+  };
+}
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -78,7 +127,13 @@ export default function BatchPricing() {
 
   const utils = trpc.useUtils();
 
+  const productsQuery = trpc.products.list.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+
   // ── Mutations ───────────────────────────────────────────────────────────────
+
+  const createProduct = trpc.products.create.useMutation();
 
   const createBatch = trpc.batches.create.useMutation({
     onSuccess: (batch) => setSavedBatchId(batch.id),
@@ -114,17 +169,51 @@ export default function BatchPricing() {
     setItems((prev) => prev.filter((i) => i._id !== id));
 
   const updateItem = useCallback(
-    (id: string, field: keyof BatchItemInput, value: string | number) => {
+    (id: string, field: keyof LocalItem, value: string | number | undefined) => {
       setItems((prev) =>
-        prev.map((item) =>
-          item._id === id
-            ? { ...item, [field]: typeof value === "string" ? value : Number(value) }
-            : item
-        )
+        prev.map((item) => {
+          if (item._id !== id) return item;
+          const next: LocalItem = {
+            ...item,
+            [field]: typeof value === "string" ? value : value === undefined ? undefined : Number(value),
+          } as LocalItem;
+
+          if (field === "currency" || field === "unitCostOriginal" || field === "exchangeRate") {
+            next.unitCostBrl = resolveUnitCostBrl(next);
+          }
+
+          return next;
+        })
       );
     },
     []
   );
+
+  const applyExistingProduct = useCallback((itemId: string, rawProductId: string) => {
+    const selectedId = rawProductId ? Number(rawProductId) : undefined;
+    const selected = productsQuery.data?.find((p: any) => p.id === selectedId) as any;
+
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item._id !== itemId) return item;
+        if (!selected) {
+          return { ...item, productId: undefined, entryMode: "EXISTING" };
+        }
+
+        const cost = Number(selected.finalUnitCostBrl ?? selected.averageCostBrl ?? selected.costPrice ?? 0);
+        return {
+          ...item,
+          entryMode: "EXISTING",
+          productId: selected.id,
+          productName: selected.name ?? item.productName,
+          category: (selected.category as ProductCategory) ?? item.category,
+          currency: "BRL",
+          unitCostOriginal: cost > 0 ? cost : item.unitCostOriginal,
+          unitCostBrl: cost > 0 ? cost : item.unitCostBrl,
+        };
+      })
+    );
+  }, [productsQuery.data]);
 
   // ── Preview ─────────────────────────────────────────────────────────────────
 
@@ -132,7 +221,7 @@ export default function BatchPricing() {
     setPreviewError(null);
     setPreview(null);
 
-    const validItems = items.filter((i) => i.productName.trim());
+    const validItems = items.filter((i) => i.productName.trim()).map(toBatchItem);
     if (validItems.length === 0) {
       setPreviewError("Adicione pelo menos 1 item com nome preenchido.");
       return;
@@ -148,10 +237,64 @@ export default function BatchPricing() {
   const handleSaveAndProcess = async (commitToStock: boolean) => {
     if (!batchName.trim()) { toast.error("Informe o nome da entrada."); return; }
 
-    const validItems = items.filter((i) => i.productName.trim());
-    if (validItems.length === 0) { toast.error("Adicione pelo menos 1 item."); return; }
+    const validLocalItems = items.filter((i) => i.productName.trim()).map(normalizeItem);
+    if (validLocalItems.length === 0) { toast.error("Adicione pelo menos 1 item."); return; }
+
+    const invalidUsd = validLocalItems.find((i) => i.currency === "USD" && Number(i.exchangeRate || 0) <= 0);
+    if (invalidUsd) {
+      toast.error(`Informe a cotação do dólar para ${invalidUsd.productName}.`);
+      return;
+    }
 
     try {
+      const preparedItems: LocalItem[] = [];
+      for (const item of validLocalItems) {
+        if (item.productId) {
+          preparedItems.push(item);
+          continue;
+        }
+
+        if (item.entryMode !== "NEW") {
+          throw new Error(`Selecione um produto existente ou marque como produto novo: ${item.productName}.`);
+        }
+
+        const newProduct = await createProduct.mutateAsync({
+          name: item.productName.trim(),
+          category: item.category,
+          costPrice: item.unitCostBrl,
+          packagingCost: 0,
+          inboundShippingCost: 0,
+          operationalCost: 0,
+          desiredMarginRate: item.desiredMarginRate,
+          desiredMarginValue: 0,
+          marginMode: "PERCENT",
+          taxRegime: "SIMPLES_NACIONAL",
+          estimatedTaxRate: item.estimatedTaxRate ?? 0,
+          active: true,
+          published: false,
+          costCurrency: item.currency,
+          costPriceUsd: item.currency === "USD" ? item.unitCostOriginal : 0,
+          usdExchangeRate: item.currency === "USD" ? item.exchangeRate : 0,
+          stockQuantity: 0,
+          minimumStock: 0,
+          shortDescription: "",
+          description: "",
+          categoryLabel: "",
+          notes: `Produto criado pela Entrada de Produtos. Pagamento da aquisição: ${item.acquisitionPaymentMethod}.`,
+        });
+
+        preparedItems.push({ ...item, productId: newProduct.id });
+      }
+
+      setItems((prev) =>
+        prev.map((current) => {
+          const prepared = preparedItems.find((item) => item._id === current._id);
+          return prepared ?? current;
+        })
+      );
+
+      const validItems = preparedItems.map(toBatchItem);
+
       let batchId = savedBatchId;
       if (!batchId) {
         const batch = await createBatch.mutateAsync({
@@ -166,14 +309,14 @@ export default function BatchPricing() {
         // Modo FIFO — respeita estoque existente
         await processFIFO.mutateAsync({
           batchId,
-          items: validItems.map(({ _id, ...item }) => item),
+          items: validItems,
           totalOperationalCost,
         });
       } else {
         // Modo padrão
         await processBatch.mutateAsync({
           batchId,
-          items: validItems.map(({ _id, ...item }) => item),
+          items: validItems,
           totalOperationalCost,
           commitToStock,
         });
@@ -183,7 +326,7 @@ export default function BatchPricing() {
     }
   };
 
-  const isLoading = createBatch.isPending || processBatch.isPending || processFIFO.isPending;
+  const isLoading = createProduct.isPending || createBatch.isPending || processBatch.isPending || processFIFO.isPending;
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -328,6 +471,14 @@ export default function BatchPricing() {
               )}
             </div>
           </div>
+
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300">
+            <PackagePlus className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <p>
+              Produto existente mantém o mesmo ID e recebe nova entrada de estoque. Produto novo é criado como rascunho
+              não publicado e depois recebe a entrada. A forma de pagamento informada aqui é da compra, não da venda ao cliente.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -337,7 +488,7 @@ export default function BatchPricing() {
           <div>
             <CardTitle className="text-base">Produtos da Entrada</CardTitle>
             <CardDescription>
-              Preencha os produtos comprados nesta entrada. Por enquanto, informe o custo unitário em BRL; se a compra foi em USD, converta antes. Vincule ao <strong>ID do produto</strong> para ativar o FIFO.
+              Selecione um produto existente ou marque como novo. A tela converte USD para BRL, calcula o rateio proporcional e usa o ID do produto para ativar estoque/FIFO sem duplicar cadastro.
             </CardDescription>
           </div>
           <Button size="sm" variant="outline" onClick={addItem}>
@@ -349,85 +500,182 @@ export default function BatchPricing() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[200px]">Produto</TableHead>
-                <TableHead className="w-[90px]">ID Produto</TableHead>
-                <TableHead className="w-[110px]">Custo Unit. (R$)</TableHead>
+                <TableHead className="w-[130px]">Tipo</TableHead>
+                <TableHead className="w-[220px]">Produto existente</TableHead>
+                <TableHead className="w-[220px]">Nome</TableHead>
+                <TableHead className="w-[130px]">Categoria</TableHead>
+                <TableHead className="w-[95px]">Moeda</TableHead>
+                <TableHead className="w-[120px]">Custo original</TableHead>
+                <TableHead className="w-[100px]">Cotação</TableHead>
+                <TableHead className="w-[120px]">Custo BRL</TableHead>
                 <TableHead className="w-[70px]">Qtd</TableHead>
+                <TableHead className="w-[105px]">Pagamento compra</TableHead>
                 <TableHead className="w-[90px]">Margem %</TableHead>
                 <TableHead className="w-[90px]">Imposto %</TableHead>
                 <TableHead className="w-[36px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item) => (
-                <TableRow key={item._id}>
-                  <TableCell>
-                    <Input
-                      value={item.productName}
-                      onChange={(e) => updateItem(item._id, "productName", e.target.value)}
-                      placeholder="Nome do produto"
-                      className="h-8 text-sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={item.productId ?? ""}
-                      onChange={(e) =>
-                        updateItem(item._id, "productId", e.target.value ? Number(e.target.value) : (undefined as any))
-                      }
-                      placeholder="ID"
-                      className="h-8 text-sm"
-                      title="ID do produto cadastrado (necessário para FIFO)"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <CurrencyInput
-                      value={item.unitCostBrl}
-                      onValueChange={(v) => updateItem(item._id, "unitCostBrl", v)}
-                      noPrefix
-                      placeholder="0,00"
-                      size="sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      type="number" min={1} step={1}
-                      value={item.quantity}
-                      onChange={(e) => updateItem(item._id, "quantity", e.target.value)}
-                      className="h-8 text-sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      type="number" min={0} max={99} step={0.5}
-                      value={item.desiredMarginRate}
-                      onChange={(e) => updateItem(item._id, "desiredMarginRate", e.target.value)}
-                      className="h-8 text-sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      type="number" min={0} max={99} step={0.1}
-                      value={item.estimatedTaxRate ?? 6}
-                      onChange={(e) => updateItem(item._id, "estimatedTaxRate", e.target.value)}
-                      className="h-8 text-sm"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost" size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => removeItem(item._id)}
-                      disabled={items.length === 1}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {items.map((item) => {
+                const unitCostBrl = resolveUnitCostBrl(item);
+                return (
+                  <TableRow key={item._id}>
+                    <TableCell>
+                      <select
+                        value={item.entryMode}
+                        onChange={(e) => {
+                          const mode = e.target.value as EntryMode;
+                          updateItem(item._id, "entryMode", mode);
+                          if (mode === "NEW") updateItem(item._id, "productId", undefined);
+                        }}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      >
+                        <option value="EXISTING">Existente</option>
+                        <option value="NEW">Novo</option>
+                      </select>
+                    </TableCell>
+
+                    <TableCell>
+                      <select
+                        value={item.productId ?? ""}
+                        onChange={(e) => applyExistingProduct(item._id, e.target.value)}
+                        disabled={item.entryMode === "NEW" || productsQuery.isLoading}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
+                        title="Selecione um produto já cadastrado para não duplicar"
+                      >
+                        <option value="">{productsQuery.isLoading ? "Carregando..." : "Selecionar"}</option>
+                        {productsQuery.data?.map((product: any) => (
+                          <option key={product.id} value={product.id}>
+                            #{product.id} — {product.name}
+                          </option>
+                        ))}
+                      </select>
+                    </TableCell>
+
+                    <TableCell>
+                      <Input
+                        value={item.productName}
+                        onChange={(e) => updateItem(item._id, "productName", e.target.value)}
+                        placeholder={item.entryMode === "NEW" ? "Nome do produto novo" : "Nome do produto"}
+                        className="h-8 text-sm"
+                      />
+                      {item.productId && (
+                        <p className="mt-1 text-[10px] text-muted-foreground">ID vinculado: #{item.productId}</p>
+                      )}
+                    </TableCell>
+
+                    <TableCell>
+                      <select
+                        value={item.category}
+                        onChange={(e) => updateItem(item._id, "category", e.target.value as ProductCategory)}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      >
+                        <option value="CELULAR">Celular</option>
+                        <option value="ELETRONICO">Eletrônico</option>
+                        <option value="PERFUME">Perfume</option>
+                        <option value="OUTRO">Outro</option>
+                      </select>
+                    </TableCell>
+
+                    <TableCell>
+                      <select
+                        value={item.currency}
+                        onChange={(e) => updateItem(item._id, "currency", e.target.value as AcquisitionCurrency)}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      >
+                        <option value="BRL">BRL</option>
+                        <option value="USD">USD</option>
+                      </select>
+                    </TableCell>
+
+                    <TableCell>
+                      <CurrencyInput
+                        value={item.unitCostOriginal}
+                        onValueChange={(v) => updateItem(item._id, "unitCostOriginal", v)}
+                        noPrefix
+                        placeholder="0,00"
+                        size="sm"
+                      />
+                    </TableCell>
+
+                    <TableCell>
+                      <Input
+                        type="number" min={0} step={0.01}
+                        value={item.currency === "USD" ? item.exchangeRate : ""}
+                        onChange={(e) => updateItem(item._id, "exchangeRate", e.target.value)}
+                        disabled={item.currency !== "USD"}
+                        placeholder="5.20"
+                        className="h-8 text-sm disabled:opacity-50"
+                      />
+                    </TableCell>
+
+                    <TableCell>
+                      <CurrencyInput
+                        value={unitCostBrl}
+                        onValueChange={(v) => updateItem(item._id, "unitCostBrl", v)}
+                        noPrefix
+                        disabled
+                        placeholder="0,00"
+                        size="sm"
+                      />
+                    </TableCell>
+
+                    <TableCell>
+                      <Input
+                        type="number" min={1} step={1}
+                        value={item.quantity}
+                        onChange={(e) => updateItem(item._id, "quantity", e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </TableCell>
+
+                    <TableCell>
+                      <select
+                        value={item.acquisitionPaymentMethod}
+                        onChange={(e) => updateItem(item._id, "acquisitionPaymentMethod", e.target.value as AcquisitionPaymentMethod)}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                        title="Forma usada para comprar este item. Não altera o pagamento da venda."
+                      >
+                        <option value="DINHEIRO">Dinheiro</option>
+                        <option value="PIX">Pix</option>
+                        <option value="BOLETO">Boleto</option>
+                        <option value="CARTAO">Cartão</option>
+                        <option value="DOLAR">Dólar</option>
+                        <option value="OUTRO">Outro</option>
+                      </select>
+                    </TableCell>
+
+                    <TableCell>
+                      <Input
+                        type="number" min={0} max={99} step={0.5}
+                        value={item.desiredMarginRate}
+                        onChange={(e) => updateItem(item._id, "desiredMarginRate", e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </TableCell>
+
+                    <TableCell>
+                      <Input
+                        type="number" min={0} max={99} step={0.1}
+                        value={item.estimatedTaxRate ?? 6}
+                        onChange={(e) => updateItem(item._id, "estimatedTaxRate", e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </TableCell>
+
+                    <TableCell>
+                      <Button
+                        variant="ghost" size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => removeItem(item._id)}
+                        disabled={items.length === 1}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
 
@@ -445,7 +693,7 @@ export default function BatchPricing() {
             <span>
               Custo das mercadorias:{" "}
               <strong className="text-foreground">
-                {formatCurrency(items.reduce((s, i) => s + i.unitCostBrl * i.quantity, 0))}
+                {formatCurrency(items.reduce((s, i) => s + resolveUnitCostBrl(i) * i.quantity, 0))}
               </strong>
             </span>
           </div>
