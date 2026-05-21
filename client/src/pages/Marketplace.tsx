@@ -92,7 +92,7 @@ function ProductCard({ product: p }: { product: CatalogProduct }) {
       >
         {/* ── Container da imagem: BLINDADO ── */}
         <div
-          className="relative overflow-hidden bg-[#F8F8F6] mb-4 rounded-sm"
+          className="relative overflow-hidden bg-white mb-4 rounded-2xl border border-neutral-100 shadow-sm"
           style={{ aspectRatio: "4/5" }}   /* proporção fixa em todos os cards */
         >
           {p.imageUrl ? (
@@ -235,7 +235,7 @@ export default function Marketplace() {
 
   const cats     = useMemo(() => Array.from(new Set(products.map((p) => p.category))), [products]);
   const filtered = useMemo(() => cat ? products.filter((p) => p.category === cat) : products, [products, cat]);
-  const featured = products.find((p) => p.imageUrl && hasStock(p));
+  const heroProducts = useMemo(() => products.filter((p) => p.imageUrl && hasStock(p)).slice(0, 3), [products]);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#ffffff", fontFamily: SANS }}>
@@ -339,46 +339,50 @@ export default function Marketplace() {
             </div>
           </div>
 
-          {/* Visual hero: imagem do produto em destaque */}
-          <div className="hidden lg:flex items-center justify-center relative min-h-[360px]">
-            <div className="absolute w-[320px] h-[320px] rounded-full border border-neutral-100 animate-[spin_40s_linear_infinite]" />
-            <div className="absolute w-[220px] h-[220px] rounded-full border border-neutral-100/70" />
-            <div className="absolute top-8 right-16 w-2 h-2 rounded-full bg-amber-200" />
-            <div className="absolute bottom-16 left-12 w-1 h-1 rounded-full bg-neutral-300" />
+          {/* Visual hero premium: composição editorial mais limpa */}
+          <div className="hidden lg:flex items-center justify-center relative min-h-[420px]">
+            <div className="absolute inset-0 rounded-[2rem] border border-neutral-100 bg-white/60" />
+            <div className="absolute top-10 left-10 text-[9px] tracking-[0.32em] uppercase text-neutral-300">Seleção premium</div>
 
-            {featured ? (
-              <Link href={`/vitrine/${featured.id}`}>
-                <div className="relative z-10 cursor-pointer group">
-                  <div
-                    className="w-56 h-56 rounded-sm overflow-hidden transition-transform duration-700 group-hover:scale-105"
-                    style={{ backgroundColor: "#F8F8F6" }}
-                  >
-                    {/* object-cover garante preenchimento total sem corte visível */}
+            {heroProducts.length > 0 ? (
+              <div className="relative z-10 grid w-full max-w-[520px] grid-cols-[1.1fr_0.9fr] gap-5 px-8">
+                <Link href={`/vitrine/${heroProducts[0].id}`}>
+                  <div className="group relative h-[360px] overflow-hidden rounded-[2rem] border border-neutral-100 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.08)] cursor-pointer">
                     <img
-                      src={featured.imageUrl!}
-                      alt={featured.name}
-                      className="w-full h-full object-cover"
+                      src={heroProducts[0].imageUrl!}
+                      alt={heroProducts[0].name}
+                      className="h-full w-full object-contain p-6 transition-transform duration-700 group-hover:scale-[1.03]"
                     />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-white via-white/95 to-transparent p-6">
+                      <p className="text-[9px] tracking-[0.24em] uppercase text-neutral-400 mb-2">Destaque da coleção</p>
+                      <h3 className="line-clamp-2 text-lg font-semibold text-neutral-900" style={{ fontFamily: SERIF }}>{heroProducts[0].name}</h3>
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <span className="text-xl font-semibold text-neutral-900" style={{ fontFamily: SANS }}>{pixPrice(heroProducts[0]) ? fmt(pixPrice(heroProducts[0])!) : '—'}</span>
+                        <span className="inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-emerald-600"><Sparkles className="w-3 h-3" /> via pix</span>
+                      </div>
+                    </div>
                   </div>
+                </Link>
 
-                  {/* Float card com preço */}
-                  <div className="absolute -bottom-8 -right-10 bg-white shadow-[0_8px_40px_rgba(0,0,0,0.10)] p-5 min-w-[180px] z-20 border border-neutral-50">
-                    <p className="text-[8px] tracking-[0.25em] uppercase text-neutral-400 mb-1.5 line-clamp-1" style={{ fontFamily: SANS }}>
-                      {featured.name.split(" ").slice(0, 3).join(" ")}
-                    </p>
-                    <p className="text-xl font-semibold text-neutral-900" style={{ fontFamily: SANS, letterSpacing: "-0.02em" }}>
-                      {pixPrice(featured) ? fmt(pixPrice(featured)!) : "—"}
-                    </p>
-                    {pixPrice(featured) && (
-                      <p className="text-[8px] text-emerald-600 font-semibold tracking-[0.2em] mt-1 uppercase flex items-center gap-1" style={{ fontFamily: SANS }}>
-                        <Sparkles className="w-2.5 h-2.5" /> via pix
-                      </p>
-                    )}
-                  </div>
+                <div className="flex flex-col gap-5 pt-8">
+                  {heroProducts.slice(1, 3).map((product) => (
+                    <Link key={product.id} href={`/vitrine/${product.id}`}>
+                      <div className="group flex h-[160px] cursor-pointer items-center gap-4 rounded-[1.6rem] border border-neutral-100 bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.06)] transition-transform duration-300 hover:-translate-y-1">
+                        <div className="flex h-full w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-[1.2rem] bg-white">
+                          <img src={product.imageUrl!} alt={product.name} className="h-full w-full object-contain p-3 transition-transform duration-500 group-hover:scale-[1.04]" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[8px] tracking-[0.22em] uppercase text-neutral-400 mb-2">Curadoria especial</p>
+                          <h4 className="line-clamp-2 text-sm font-semibold text-neutral-900" style={{ fontFamily: SERIF }}>{product.name}</h4>
+                          <p className="mt-2 text-sm font-semibold text-neutral-900" style={{ fontFamily: SANS }}>{pixPrice(product) ? fmt(pixPrice(product)!) : '—'}</p>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
                 </div>
-              </Link>
+              </div>
             ) : (
-              <div className="relative z-10 w-56 h-56 flex items-center justify-center rounded-sm" style={{ backgroundColor: "#F8F8F6" }}>
+              <div className="relative z-10 flex h-[300px] w-full max-w-[520px] items-center justify-center rounded-[2rem] border border-neutral-100 bg-white shadow-sm">
                 <ShoppingBag className="w-14 h-14 text-neutral-200" />
               </div>
             )}
@@ -481,7 +485,7 @@ export default function Marketplace() {
       )}
 
       {/* ══ BANNER LISTA DE DESEJOS ═════════════════════════════════════════ */}
-      <section className="border-t border-neutral-100 py-24" style={{ backgroundColor: "#FAFAF8" }}>
+      <section className="border-t border-neutral-100 py-24" style={{ backgroundColor: "#ffffff" }}>
         <div className="max-w-lg mx-auto px-6 text-center space-y-6">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full border border-neutral-200 bg-white mx-auto">
             <Heart className="w-4.5 h-4.5 text-neutral-400" />
