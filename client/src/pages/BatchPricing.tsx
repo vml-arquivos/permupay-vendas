@@ -39,6 +39,8 @@ import {
   Calculator,
   PackageCheck,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Zap,
   Info,
@@ -161,7 +163,8 @@ function normalizeItem(item: LocalItem) {
   return {
     ...item,
     unitCostOriginalNumber: toMoney(item.unitCostOriginal),
-    exchangeRateNumber: item.currency === "USD" ? toNumber(item.exchangeRate) : 0,
+    exchangeRateNumber:
+      item.currency === "USD" ? toNumber(item.exchangeRate) : 0,
     unitCostBrl,
     quantityNumber: Math.trunc(toNumber(item.quantity)),
     desiredMarginRateNumber: toNumber(item.desiredMarginRate),
@@ -201,13 +204,17 @@ function Field({
   required?: boolean;
 }) {
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="space-y-1">
+      <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
         {required && <span className="ml-0.5 text-destructive">*</span>}
       </Label>
       {children}
-      {hint && <p className="text-[11px] leading-relaxed text-muted-foreground">{hint}</p>}
+      {hint && (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -235,19 +242,25 @@ function TextNumberInput({
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
       disabled={disabled}
-      className={`h-10 text-sm ${className}`}
+      className={`h-9 text-sm ${className}`}
     />
   );
 }
 
-function ReadOnlyMoney({ value, placeholder = "Calculado" }: { value: number; placeholder?: string }) {
+function ReadOnlyMoney({
+  value,
+  placeholder = "Calculado",
+}: {
+  value: number;
+  placeholder?: string;
+}) {
   return (
     <Input
       value={displayMoneyOrEmpty(value)}
       readOnly
       disabled
       placeholder={placeholder}
-      className="h-10 bg-muted/40 text-sm font-semibold"
+      className="h-9 bg-muted/40 text-sm font-semibold"
     />
   );
 }
@@ -262,10 +275,40 @@ function SummaryBox({
   hint?: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-bold text-foreground">{value}</p>
+    <div className="rounded-lg border border-border bg-card p-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-0.5 text-lg font-bold text-foreground">{value}</p>
       {hint && <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function MiniMetric({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "strong" | "success" | "warning";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
+      : tone === "warning"
+        ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300"
+        : tone === "strong"
+          ? "border-primary/30 bg-primary/5 text-foreground"
+          : "border-border bg-muted/20 text-foreground";
+
+  return (
+    <div className={`rounded-md border px-2.5 py-1.5 ${toneClass}`}>
+      <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="block truncate text-xs font-bold">{value || "—"}</span>
     </div>
   );
 }
@@ -284,6 +327,9 @@ export default function BatchPricing() {
 
   const [fifoMode, setFifoMode] = useState(true);
   const [items, setItems] = useState<LocalItem[]>([emptyItem()]);
+  const [collapsedItemIds, setCollapsedItemIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const [preview, setPreview] = useState<BatchPricingResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -322,7 +368,7 @@ export default function BatchPricing() {
       utils.products.list.invalidate();
       setFifoResult(data);
       toast.success(
-        `Entrada FIFO processada! ${data.activatedCount} ativado(s), ${data.queuedCount} na fila de espera.`
+        `Entrada FIFO processada! ${data.activatedCount} ativado(s), ${data.queuedCount} na fila de espera.`,
       );
     },
     onError: (err) => toast.error(err.message),
@@ -330,13 +376,18 @@ export default function BatchPricing() {
 
   const totals = useMemo(() => {
     const normalized = items.map(normalizeItem);
-    const totalQuantity = normalized.reduce((sum, item) => sum + item.quantityNumber, 0);
+    const totalQuantity = normalized.reduce(
+      (sum, item) => sum + item.quantityNumber,
+      0,
+    );
     const goodsTotal = normalized.reduce(
       (sum, item) => sum + item.unitCostBrl * item.quantityNumber,
-      0
+      0,
     );
     const additionalTotal =
-      toMoney(totalOperationalCost) + toMoney(totalTaxCost) + toMoney(totalOtherCost);
+      toMoney(totalOperationalCost) +
+      toMoney(totalTaxCost) +
+      toMoney(totalOtherCost);
     return {
       totalQuantity,
       goodsTotal,
@@ -346,32 +397,65 @@ export default function BatchPricing() {
     };
   }, [items, totalOperationalCost, totalTaxCost, totalOtherCost]);
 
-  const addItem = () => setItems((prev) => [...prev, emptyItem()]);
+  const addItem = () => {
+    const newItem = emptyItem();
+    setItems((prev) => [...prev, newItem]);
+    setCollapsedItemIds((prev) => {
+      const next = new Set(prev);
+      next.delete(newItem._id);
+      return next;
+    });
+  };
 
-  const removeItem = (id: string) =>
-    setItems((prev) => (prev.length === 1 ? prev : prev.filter((item) => item._id !== id)));
+  const removeItem = (id: string) => {
+    setItems((prev) =>
+      prev.length === 1 ? prev : prev.filter((item) => item._id !== id),
+    );
+    setCollapsedItemIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleCollapsed = (id: string) => {
+    setCollapsedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const updateItem = useCallback(
     <K extends keyof LocalItem>(id: string, field: K, value: LocalItem[K]) => {
       setItems((prev) =>
-        prev.map((item) => (item._id === id ? { ...item, [field]: value } : item))
+        prev.map((item) =>
+          item._id === id ? { ...item, [field]: value } : item,
+        ),
       );
     },
-    []
+    [],
   );
 
   const applyExistingProduct = useCallback(
     (itemId: string, rawProductId: string) => {
       const selectedId = rawProductId ? Number(rawProductId) : undefined;
-      const selected = productsQuery.data?.find((product: any) => product.id === selectedId) as any;
+      const selected = productsQuery.data?.find(
+        (product: any) => product.id === selectedId,
+      ) as any;
 
       setItems((prev) =>
         prev.map((item) => {
           if (item._id !== itemId) return item;
-          if (!selected) return { ...item, productId: undefined, entryMode: "EXISTING" };
+          if (!selected)
+            return { ...item, productId: undefined, entryMode: "EXISTING" };
 
           const fallbackCost = Number(
-            selected.finalUnitCostBrl ?? selected.averageCostBrl ?? selected.costPrice ?? 0
+            selected.finalUnitCostBrl ??
+              selected.averageCostBrl ??
+              selected.costPrice ??
+              0,
           );
 
           return {
@@ -382,12 +466,13 @@ export default function BatchPricing() {
             category: (selected.category as ProductCategory) ?? item.category,
             currency: "BRL",
             unitCostOriginal:
-              item.unitCostOriginal.trim() || (fallbackCost > 0 ? String(fallbackCost) : ""),
+              item.unitCostOriginal.trim() ||
+              (fallbackCost > 0 ? String(fallbackCost) : ""),
           };
-        })
+        }),
       );
     },
-    [productsQuery.data]
+    [productsQuery.data],
   );
 
   function validateEntry(): BatchItemInput[] | null {
@@ -462,9 +547,13 @@ export default function BatchPricing() {
     }
 
     const batchItems = validLocalItems.map((item) => toBatchItem(item));
-    const goodsTotal = batchItems.reduce((sum, item) => sum + item.unitCostBrl * item.quantity, 0);
+    const goodsTotal = batchItems.reduce(
+      (sum, item) => sum + item.unitCostBrl * item.quantity,
+      0,
+    );
     if (goodsTotal <= 0) {
-      const message = "O custo total das mercadorias precisa ser maior que zero.";
+      const message =
+        "O custo total das mercadorias precisa ser maior que zero.";
       setPreviewError(message);
       toast.error(message);
       return null;
@@ -497,7 +586,7 @@ export default function BatchPricing() {
       if (showToast) toast.success("Rateio atualizado.");
       return result;
     },
-    [items, totalOperationalCost, totalTaxCost, totalOtherCost, batchName]
+    [items, totalOperationalCost, totalTaxCost, totalOtherCost, batchName],
   );
 
   const handlePreview = () => calculatePreview(true);
@@ -519,7 +608,10 @@ export default function BatchPricing() {
         ["Outros custos total", currentPreview.totalOtherCost],
         ["Custo total das mercadorias", currentPreview.totalCostOfGoods],
         ["Custo total da entrada", currentPreview.grandTotal],
-        ["Quantidade total de unidades", currentPreview.items.reduce((sum, item) => sum + item.quantity, 0)],
+        [
+          "Quantidade total de unidades",
+          currentPreview.items.reduce((sum, item) => sum + item.quantity, 0),
+        ],
         ["Quantidade de tipos de produto", currentPreview.items.length],
         ["Modo FIFO ativo", fifoMode ? "Sim" : "Não"],
         ["Status", "Preview exportado"],
@@ -530,14 +622,17 @@ export default function BatchPricing() {
         "ID do produto": item.productId ?? "Novo",
         Produto: item.productName,
         Categoria:
-          normalizedItems.find((localItem) => localItem.productName === item.productName)?.category ?? "",
+          normalizedItems.find(
+            (localItem) => localItem.productName === item.productName,
+          )?.category ?? "",
         Quantidade: item.quantity,
         Moeda: item.costCurrency ?? "BRL",
         "Custo original": item.unitCostOriginal ?? item.unitCostBrl,
         Cotação: item.exchangeRate ?? 0,
         "Custo unitário BRL": item.unitCostBrl,
         "Custo base total": item.totalItemCost,
-        "Forma de pagamento da compra": item.acquisitionPaymentMethod ?? "OUTRO",
+        "Forma de pagamento da compra":
+          item.acquisitionPaymentMethod ?? "OUTRO",
       }));
 
       const allocationRows = currentPreview.items.map((item) => ({
@@ -578,15 +673,29 @@ export default function BatchPricing() {
 
       setWidths(summarySheet, [32, 42]);
       setWidths(productsSheet, [14, 36, 18, 12, 10, 16, 10, 18, 18, 26]);
-      setWidths(allocationSheet, [14, 36, 12, 18, 24, 18, 22, 26, 20, 24, 20, 18]);
+      setWidths(
+        allocationSheet,
+        [14, 36, 12, 18, 24, 18, 22, 26, 20, 24, 20, 18],
+      );
       setWidths(projectionSheet, [14, 36, 20, 16, 14, 18, 16, 20]);
 
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumo da Entrada");
-      XLSX.utils.book_append_sheet(workbook, productsSheet, "Produtos da Entrada");
-      XLSX.utils.book_append_sheet(workbook, allocationSheet, "Rateio e Custos");
+      XLSX.utils.book_append_sheet(
+        workbook,
+        productsSheet,
+        "Produtos da Entrada",
+      );
+      XLSX.utils.book_append_sheet(
+        workbook,
+        allocationSheet,
+        "Rateio e Custos",
+      );
       XLSX.utils.book_append_sheet(workbook, projectionSheet, "Margem e Lucro");
 
-      XLSX.writeFile(workbook, `${cleanFileName(batchName)}-${Date.now()}.xlsx`);
+      XLSX.writeFile(
+        workbook,
+        `${cleanFileName(batchName)}-${Date.now()}.xlsx`,
+      );
       toast.success("Planilha exportada com sucesso.");
     } catch (error: any) {
       toast.error(error?.message ?? "Não foi possível exportar a planilha.");
@@ -615,7 +724,7 @@ export default function BatchPricing() {
 
         if (item.entryMode !== "NEW") {
           throw new Error(
-            `Selecione um produto existente ou marque como produto novo: ${item.productName}.`
+            `Selecione um produto existente ou marque como produto novo: ${item.productName}.`,
           );
         }
 
@@ -634,8 +743,10 @@ export default function BatchPricing() {
           active: true,
           published: false,
           costCurrency: item.currency,
-          costPriceUsd: item.currency === "USD" ? item.unitCostOriginalNumber : 0,
-          usdExchangeRate: item.currency === "USD" ? item.exchangeRateNumber : 0,
+          costPriceUsd:
+            item.currency === "USD" ? item.unitCostOriginalNumber : 0,
+          usdExchangeRate:
+            item.currency === "USD" ? item.exchangeRateNumber : 0,
           stockQuantity: 0,
           minimumStock: 0,
           shortDescription: "",
@@ -649,7 +760,9 @@ export default function BatchPricing() {
 
       setItems((prev) =>
         prev.map((current) => {
-          const prepared = preparedItems.find((item) => item._id === current._id);
+          const prepared = preparedItems.find(
+            (item) => item._id === current._id,
+          );
           return prepared
             ? {
                 ...current,
@@ -657,7 +770,7 @@ export default function BatchPricing() {
                 productName: prepared.productName,
               }
             : current;
-        })
+        }),
       );
 
       const validItems = preparedItems.map(toBatchItem);
@@ -698,33 +811,31 @@ export default function BatchPricing() {
   };
 
   const isLoading =
-    createProduct.isPending || createBatch.isPending || processBatch.isPending || processFIFO.isPending;
+    createProduct.isPending ||
+    createBatch.isPending ||
+    processBatch.isPending ||
+    processFIFO.isPending;
 
   return (
     <div className="container mx-auto max-w-7xl px-4 py-8 space-y-6">
       {/* Cabeçalho */}
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex items-start gap-3">
-          <Button variant="ghost" size="icon" onClick={() => setLocation("/entrada-produtos")}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setLocation("/entrada-produtos")}
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div>
             <h1 className="text-2xl font-bold">Nova Entrada de Produtos</h1>
             <p className="text-sm text-muted-foreground max-w-2xl">
-              Registre produto novo ou existente, calcule custo real com rateio proporcional,
-              alimente estoque/FIFO e exporte a planilha da entrada.
+              Registre produto novo ou existente, calcule custo real com rateio
+              proporcional, alimente estoque e fila e exporte a planilha da
+              entrada.
             </p>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => calculatePreview(true)}>
-            <Calculator className="mr-2 h-4 w-4" />
-            Calcular Rateio
-          </Button>
-          <Button variant="outline" onClick={exportSpreadsheet}>
-            <Download className="mr-2 h-4 w-4" />
-            Exportar Planilha
-          </Button>
         </div>
       </div>
 
@@ -741,7 +852,8 @@ export default function BatchPricing() {
               <div className="flex gap-4 text-sm">
                 <span className="flex items-center gap-1.5">
                   <Zap className="h-3.5 w-3.5 text-emerald-600" />
-                  <strong>{fifoResult.activatedCount}</strong> produto(s) ativados
+                  <strong>{fifoResult.activatedCount}</strong> produto(s)
+                  ativados
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Clock className="h-3.5 w-3.5 text-amber-600" />
@@ -758,7 +870,8 @@ export default function BatchPricing() {
         <CardHeader>
           <CardTitle className="text-base">Dados da Entrada</CardTitle>
           <CardDescription>
-            Informe os custos totais da compra. Eles serão distribuídos proporcionalmente pelo valor financeiro de cada produto.
+            Informe os custos totais da compra. Eles serão distribuídos
+            proporcionalmente pelo valor financeiro de cada produto.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -771,7 +884,10 @@ export default function BatchPricing() {
                 className="h-10"
               />
             </Field>
-            <Field label="Custo operacional total" hint="Frete, despachante, armazenamento.">
+            <Field
+              label="Custo operacional total"
+              hint="Frete, despachante, armazenamento."
+            >
               <TextNumberInput
                 value={totalOperationalCost}
                 onChange={setTotalOperationalCost}
@@ -810,29 +926,43 @@ export default function BatchPricing() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Clock className="h-4 w-4" />
-            Configuração FIFO
+            Fila de estoque
           </CardTitle>
           <CardDescription>
-            Mantém histórico de entrada e coloca estoque novo em fila quando já houver saldo ativo do mesmo produto.
+            Mantém histórico de entrada e coloca estoque novo em fila quando já
+            houver saldo ativo do mesmo produto.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className={`rounded-xl border p-4 ${fifoMode ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+          <div
+            className={`rounded-xl border p-4 ${fifoMode ? "border-primary/40 bg-primary/5" : "border-border"}`}
+          >
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Label className="text-sm font-semibold" htmlFor="fifo-toggle">
-                    Processar com fila FIFO
+                  <Label
+                    className="text-sm font-semibold"
+                    htmlFor="fifo-toggle"
+                  >
+                    Usar fila automática
                   </Label>
-                  <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] uppercase tracking-wide"
+                  >
                     Recomendado
                   </Badge>
                 </div>
                 <p className="text-xs leading-relaxed text-muted-foreground max-w-3xl">
-                  Produto sem estoque entra como ativo. Produto com estoque entra em espera e será promovido quando o estoque atual zerar.
+                  Produto sem estoque entra como ativo. Produto com estoque
+                  entra em espera e será promovido quando o estoque atual zerar.
                 </p>
               </div>
-              <Switch id="fifo-toggle" checked={fifoMode} onCheckedChange={setFifoMode} />
+              <Switch
+                id="fifo-toggle"
+                checked={fifoMode}
+                onCheckedChange={setFifoMode}
+              />
             </div>
           </div>
         </CardContent>
@@ -840,213 +970,369 @@ export default function BatchPricing() {
 
       {/* Produtos */}
       <Card>
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <CardHeader className="pb-3">
           <div>
             <CardTitle className="text-base">Produtos da Entrada</CardTitle>
             <CardDescription>
-              Cada produto fica em um card para evitar rolagem lateral e facilitar preenchimento.
+              Preencha cada item em linhas compactas. Use recolher para
+              trabalhar com vários produtos sem perder espaço.
             </CardDescription>
           </div>
-          <Button size="sm" variant="outline" onClick={addItem}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Adicionar item
-          </Button>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3">
           {items.map((item, index) => {
             const normalized = normalizeItem(item);
-            const baseTotal = normalized.unitCostBrl * normalized.quantityNumber;
-            const selectedProduct = productsQuery.data?.find((product: any) => product.id === item.productId) as any;
+            const baseTotal =
+              normalized.unitCostBrl * normalized.quantityNumber;
+            const selectedProduct = productsQuery.data?.find(
+              (product: any) => product.id === item.productId,
+            ) as any;
+            const previewItem = preview?.items[index];
+            const realUnitCost =
+              previewItem?.finalUnitCost ?? normalized.unitCostBrl;
+            const realTotalCost = previewItem
+              ? ((previewItem as any).realTotalCost ??
+                previewItem.finalUnitCost * previewItem.quantity)
+              : baseTotal;
+            const isCollapsed = collapsedItemIds.has(item._id);
+            const isComplete =
+              Boolean(item.productName.trim() || item.productId) &&
+              normalized.quantityNumber > 0 &&
+              normalized.unitCostBrl > 0 &&
+              (item.currency !== "USD" || normalized.exchangeRateNumber > 0);
 
             return (
-              <div key={item._id} className="rounded-2xl border border-border bg-muted/10 p-4 space-y-5">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
+              <div
+                key={item._id}
+                className="rounded-xl border border-border bg-card shadow-sm"
+              >
+                <div className="flex flex-col gap-2 border-b border-border px-3 py-2 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">Item {index + 1}</Badge>
-                      {item.productId && <Badge variant="secondary">ID #{item.productId}</Badge>}
-                      <Badge variant={item.entryMode === "NEW" ? "default" : "secondary"}>
-                        {item.entryMode === "NEW" ? "Produto novo" : "Produto existente"}
+                      {item.productId && (
+                        <Badge variant="secondary">#{item.productId}</Badge>
+                      )}
+                      <span className="truncate text-sm font-semibold text-foreground">
+                        {item.productName.trim() ||
+                          selectedProduct?.name ||
+                          "Produto sem nome"}
+                      </span>
+                      <Badge
+                        variant={isComplete ? "default" : "secondary"}
+                        className="text-[10px]"
+                      >
+                        {isComplete ? "Completo" : "Incompleto"}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {item.entryMode === "NEW"
-                        ? "Será criado como rascunho e receberá a entrada de estoque."
-                        : "Usa o ID existente e não duplica produto."}
-                    </p>
+                    <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                      <span>
+                        Qtd:{" "}
+                        <strong className="text-foreground">
+                          {normalized.quantityNumber || "—"}
+                        </strong>
+                      </span>
+                      <span>
+                        Custo unit.:{" "}
+                        <strong className="text-foreground">
+                          {displayMoneyOrEmpty(realUnitCost) || "—"}
+                        </strong>
+                      </span>
+                      <span>
+                        Total:{" "}
+                        <strong className="text-foreground">
+                          {displayMoneyOrEmpty(realTotalCost) || "—"}
+                        </strong>
+                      </span>
+                      <span>
+                        Moeda:{" "}
+                        <strong className="text-foreground">
+                          {item.currency}
+                        </strong>
+                      </span>
+                    </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive md:self-start"
-                    onClick={() => removeItem(item._id)}
-                    disabled={items.length === 1}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Remover
-                  </Button>
+
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => toggleCollapsed(item._id)}
+                      className="h-8 px-2 text-xs"
+                    >
+                      {isCollapsed ? (
+                        <ChevronDown className="mr-1 h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronUp className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {isCollapsed ? "Expandir" : "Recolher"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-xs text-destructive hover:text-destructive"
+                      onClick={() => removeItem(item._id)}
+                      disabled={items.length === 1}
+                    >
+                      <Trash2 className="mr-1 h-3.5 w-3.5" />
+                      Remover
+                    </Button>
+                  </div>
                 </div>
 
-                {/* Linha 1 */}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <Field label="Tipo" required>
-                    <select
-                      value={item.entryMode}
-                      onChange={(event) => {
-                        const mode = event.target.value as EntryMode;
-                        updateItem(item._id, "entryMode", mode);
-                        if (mode === "NEW") updateItem(item._id, "productId", undefined);
-                      }}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="EXISTING">Produto existente</option>
-                      <option value="NEW">Produto novo</option>
-                    </select>
-                  </Field>
+                {!isCollapsed && (
+                  <div className="space-y-3 p-3">
+                    {/* Linha 1 — identificação */}
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-[160px_240px_minmax(240px,1fr)_160px]">
+                      <Field label="Tipo" required>
+                        <select
+                          value={item.entryMode}
+                          onChange={(event) => {
+                            const mode = event.target.value as EntryMode;
+                            updateItem(item._id, "entryMode", mode);
+                            if (mode === "NEW")
+                              updateItem(item._id, "productId", undefined);
+                          }}
+                          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          <option value="EXISTING">Existente</option>
+                          <option value="NEW">Novo</option>
+                        </select>
+                      </Field>
 
-                  <Field label="Produto existente" hint="Use para não duplicar cadastro.">
-                    <select
-                      value={item.productId ?? ""}
-                      onChange={(event) => applyExistingProduct(item._id, event.target.value)}
-                      disabled={item.entryMode === "NEW" || productsQuery.isLoading}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
-                    >
-                      <option value="">
-                        {productsQuery.isLoading ? "Carregando produtos..." : "Selecionar produto"}
-                      </option>
-                      {productsQuery.data?.map((product: any) => (
-                        <option key={product.id} value={product.id}>
-                          #{product.id} — {product.name}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
+                      <Field label="Produto existente">
+                        <select
+                          value={item.productId ?? ""}
+                          onChange={(event) =>
+                            applyExistingProduct(item._id, event.target.value)
+                          }
+                          disabled={
+                            item.entryMode === "NEW" || productsQuery.isLoading
+                          }
+                          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+                        >
+                          <option value="">
+                            {productsQuery.isLoading
+                              ? "Carregando..."
+                              : "Selecionar produto"}
+                          </option>
+                          {productsQuery.data?.map((product: any) => (
+                            <option key={product.id} value={product.id}>
+                              #{product.id} — {product.name}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
 
-                  <div className="md:col-span-2">
-                    <Field label="Nome do produto" required>
-                      <Input
-                        value={item.productName}
-                        onChange={(event) => updateItem(item._id, "productName", event.target.value)}
-                        placeholder={item.entryMode === "NEW" ? "Ex: ONE MILLION ELIXIR 100ML" : "Produto selecionado"}
-                        className="h-10 text-sm"
+                      <Field label="Nome do produto" required>
+                        <Input
+                          value={item.productName}
+                          onChange={(event) =>
+                            updateItem(
+                              item._id,
+                              "productName",
+                              event.target.value,
+                            )
+                          }
+                          placeholder={
+                            item.entryMode === "NEW"
+                              ? "Ex: ONE MILLION ELIXIR 100ML"
+                              : "Produto selecionado"
+                          }
+                          className="h-9 text-sm"
+                        />
+                      </Field>
+
+                      <Field label="Categoria" required>
+                        <select
+                          value={item.category}
+                          onChange={(event) =>
+                            updateItem(
+                              item._id,
+                              "category",
+                              event.target.value as ProductCategory,
+                            )
+                          }
+                          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          {CATEGORY_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+
+                    {/* Linha 2 — custo, moeda e quantidade */}
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-[110px_130px_105px_135px_100px_135px_95px_105px]">
+                      <Field label="Moeda" required>
+                        <select
+                          value={item.currency}
+                          onChange={(event) =>
+                            updateItem(
+                              item._id,
+                              "currency",
+                              event.target.value as AcquisitionCurrency,
+                            )
+                          }
+                          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          <option value="BRL">BRL</option>
+                          <option value="USD">USD</option>
+                        </select>
+                      </Field>
+
+                      <Field label="Custo orig." required>
+                        <TextNumberInput
+                          value={item.unitCostOriginal}
+                          onChange={(value) =>
+                            updateItem(item._id, "unitCostOriginal", value)
+                          }
+                          placeholder={
+                            item.currency === "USD" ? "Ex: 20,00" : "Ex: 110,00"
+                          }
+                        />
+                      </Field>
+
+                      <Field label="Cotação">
+                        <TextNumberInput
+                          value={
+                            item.currency === "USD" ? item.exchangeRate : ""
+                          }
+                          onChange={(value) =>
+                            updateItem(item._id, "exchangeRate", value)
+                          }
+                          placeholder="Ex: 5,50"
+                          disabled={item.currency !== "USD"}
+                        />
+                      </Field>
+
+                      <Field label="Custo BRL">
+                        <ReadOnlyMoney value={normalized.unitCostBrl} />
+                      </Field>
+
+                      <Field label="Qtd" required>
+                        <TextNumberInput
+                          value={item.quantity}
+                          onChange={(value) =>
+                            updateItem(item._id, "quantity", value)
+                          }
+                          placeholder="Ex: 80"
+                          integer
+                          className="font-semibold"
+                        />
+                      </Field>
+
+                      <Field label="Pagto compra">
+                        <select
+                          value={item.acquisitionPaymentMethod}
+                          onChange={(event) =>
+                            updateItem(
+                              item._id,
+                              "acquisitionPaymentMethod",
+                              event.target.value as AcquisitionPaymentMethod,
+                            )
+                          }
+                          className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          {PAYMENT_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+
+                      <Field label="Margem %">
+                        <TextNumberInput
+                          value={item.desiredMarginRate}
+                          onChange={(value) =>
+                            updateItem(item._id, "desiredMarginRate", value)
+                          }
+                          placeholder="Ex: 30"
+                        />
+                      </Field>
+
+                      <Field label="Imposto %">
+                        <TextNumberInput
+                          value={item.estimatedTaxRate}
+                          onChange={(value) =>
+                            updateItem(item._id, "estimatedTaxRate", value)
+                          }
+                          placeholder="Ex: 6"
+                        />
+                      </Field>
+                    </div>
+
+                    {/* Resumo compacto do item */}
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+                      <MiniMetric
+                        label="Base"
+                        value={formatCurrency(baseTotal)}
                       />
-                    </Field>
+                      <MiniMetric
+                        label="Unit. BRL"
+                        value={
+                          displayMoneyOrEmpty(normalized.unitCostBrl) || "—"
+                        }
+                      />
+                      <MiniMetric
+                        label="Qtd"
+                        value={
+                          normalized.quantityNumber > 0
+                            ? String(normalized.quantityNumber)
+                            : "—"
+                        }
+                      />
+                      <MiniMetric
+                        label="Pagto"
+                        value={
+                          PAYMENT_OPTIONS.find(
+                            (option) =>
+                              option.value === item.acquisitionPaymentMethod,
+                          )?.label ?? "—"
+                        }
+                      />
+                      <MiniMetric
+                        label="Produto"
+                        value={
+                          selectedProduct
+                            ? `#${selectedProduct.id}`
+                            : item.entryMode === "NEW"
+                              ? "Novo"
+                              : "—"
+                        }
+                      />
+                      <MiniMetric label="Moeda" value={item.currency} />
+                      <MiniMetric
+                        label="Custo real"
+                        value={displayMoneyOrEmpty(realUnitCost) || "—"}
+                        tone="strong"
+                      />
+                      <MiniMetric
+                        label="Total real"
+                        value={displayMoneyOrEmpty(realTotalCost) || "—"}
+                        tone="success"
+                      />
+                    </div>
                   </div>
-
-                  <Field label="Categoria" required>
-                    <select
-                      value={item.category}
-                      onChange={(event) => updateItem(item._id, "category", event.target.value as ProductCategory)}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      {CATEGORY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
-
-                {/* Linha 2 */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                  <Field label="Moeda" required>
-                    <select
-                      value={item.currency}
-                      onChange={(event) => updateItem(item._id, "currency", event.target.value as AcquisitionCurrency)}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="BRL">Real (BRL)</option>
-                      <option value="USD">Dólar (USD)</option>
-                    </select>
-                  </Field>
-
-                  <Field label="Custo original" required>
-                    <TextNumberInput
-                      value={item.unitCostOriginal}
-                      onChange={(value) => updateItem(item._id, "unitCostOriginal", value)}
-                      placeholder={item.currency === "USD" ? "Ex: 20,00" : "Ex: 110,00"}
-                    />
-                  </Field>
-
-                  <Field label="Cotação" hint={item.currency === "USD" ? "Obrigatória para dólar." : "Usada somente em USD."}>
-                    <TextNumberInput
-                      value={item.currency === "USD" ? item.exchangeRate : ""}
-                      onChange={(value) => updateItem(item._id, "exchangeRate", value)}
-                      placeholder="Ex: 5,50"
-                      disabled={item.currency !== "USD"}
-                    />
-                  </Field>
-
-                  <Field label="Custo unitário BRL">
-                    <ReadOnlyMoney value={normalized.unitCostBrl} />
-                  </Field>
-
-                  <Field label="Quantidade" required>
-                    <TextNumberInput
-                      value={item.quantity}
-                      onChange={(value) => updateItem(item._id, "quantity", value)}
-                      placeholder="Ex: 80"
-                      integer
-                      className="min-w-[120px] font-semibold"
-                    />
-                  </Field>
-                </div>
-
-                {/* Linha 3 */}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <Field label="Pagamento da compra" hint="Não altera pagamento da venda ao cliente.">
-                    <select
-                      value={item.acquisitionPaymentMethod}
-                      onChange={(event) =>
-                        updateItem(
-                          item._id,
-                          "acquisitionPaymentMethod",
-                          event.target.value as AcquisitionPaymentMethod
-                        )
-                      }
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      {PAYMENT_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-
-                  <Field label="Margem % para projeção">
-                    <TextNumberInput
-                      value={item.desiredMarginRate}
-                      onChange={(value) => updateItem(item._id, "desiredMarginRate", value)}
-                      placeholder="Ex: 30"
-                    />
-                  </Field>
-
-                  <Field label="Imposto % venda sugerida">
-                    <TextNumberInput
-                      value={item.estimatedTaxRate}
-                      onChange={(value) => updateItem(item._id, "estimatedTaxRate", value)}
-                      placeholder="Ex: 6"
-                    />
-                  </Field>
-                </div>
-
-                {/* Resumo calculado do item */}
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
-                  <SummaryBox label="Custo base" value={formatCurrency(baseTotal)} />
-                  <SummaryBox label="Custo unit. BRL" value={displayMoneyOrEmpty(normalized.unitCostBrl) || "—"} />
-                  <SummaryBox label="Quantidade" value={normalized.quantityNumber > 0 ? String(normalized.quantityNumber) : "—"} />
-                  <SummaryBox
-                    label="Pagamento"
-                    value={PAYMENT_OPTIONS.find((option) => option.value === item.acquisitionPaymentMethod)?.label ?? "—"}
-                  />
-                  <SummaryBox label="Produto" value={selectedProduct ? `#${selectedProduct.id}` : item.entryMode === "NEW" ? "Novo" : "—"} />
-                  <SummaryBox label="Moeda" value={item.currency} />
-                </div>
+                )}
               </div>
             );
           })}
+
+          <div className="flex justify-start pt-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={addItem}
+              className="h-9"
+            >
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Adicionar item
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -1057,15 +1343,32 @@ export default function BatchPricing() {
             <WalletCards className="h-4 w-4" />
             Resumo Financeiro da Entrada
           </CardTitle>
-          <CardDescription>Resumo rápido antes do rateio final.</CardDescription>
+          <CardDescription>
+            Resumo rápido antes do rateio final.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <SummaryBox label="Tipos de produto" value={String(totals.productTypes)} />
-            <SummaryBox label="Unidades totais" value={String(totals.totalQuantity || "—")} />
-            <SummaryBox label="Mercadorias" value={formatCurrency(totals.goodsTotal)} />
-            <SummaryBox label="Custos adicionais" value={formatCurrency(totals.additionalTotal)} />
-            <SummaryBox label="Total da entrada" value={formatCurrency(totals.grandTotal)} />
+            <SummaryBox
+              label="Tipos de produto"
+              value={String(totals.productTypes)}
+            />
+            <SummaryBox
+              label="Unidades totais"
+              value={String(totals.totalQuantity || "—")}
+            />
+            <SummaryBox
+              label="Mercadorias"
+              value={formatCurrency(totals.goodsTotal)}
+            />
+            <SummaryBox
+              label="Custos adicionais"
+              value={formatCurrency(totals.additionalTotal)}
+            />
+            <SummaryBox
+              label="Total da entrada"
+              value={formatCurrency(totals.grandTotal)}
+            />
           </div>
         </CardContent>
       </Card>
@@ -1083,25 +1386,35 @@ export default function BatchPricing() {
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
         <Button variant="outline" onClick={exportSpreadsheet}>
           <Download className="mr-2 h-4 w-4" />
-          Exportar Planilha
+          Exportar planilha
         </Button>
         <Button variant="outline" onClick={() => calculatePreview(true)}>
           <Calculator className="mr-2 h-4 w-4" />
-          Atualizar Preview
+          Calcular custos
         </Button>
         {fifoMode ? (
-          <Button onClick={() => setShowCommitDialog(true)} disabled={isLoading}>
+          <Button
+            onClick={() => setShowCommitDialog(true)}
+            disabled={isLoading}
+          >
             <Clock className="mr-2 h-4 w-4" />
-            Processar Entrada com Fila FIFO
+            Enviar entrada para fila
           </Button>
         ) : (
           <>
-            <Button variant="outline" onClick={() => handleSaveAndProcess(false)} disabled={isLoading}>
-              Salvar Entrada sem Estoque
+            <Button
+              variant="outline"
+              onClick={() => handleSaveAndProcess(false)}
+              disabled={isLoading}
+            >
+              Salvar entrada sem estoque
             </Button>
-            <Button onClick={() => setShowCommitDialog(true)} disabled={isLoading}>
+            <Button
+              onClick={() => setShowCommitDialog(true)}
+              disabled={isLoading}
+            >
               <PackageCheck className="mr-2 h-4 w-4" />
-              Processar e Dar Entrada no Estoque
+              Processar entrada no estoque
             </Button>
           </>
         )}
@@ -1111,23 +1424,28 @@ export default function BatchPricing() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {fifoMode ? "Confirmar processamento FIFO" : "Confirmar entrada de estoque"}
+              {fifoMode
+                ? "Confirmar envio para fila"
+                : "Confirmar entrada de estoque"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm text-muted-foreground">
                 {fifoMode ? (
                   <>
                     <p>
-                      A entrada será processada com <strong>Fila FIFO</strong>. Produto com estoque atual entra na fila; produto sem estoque entra ativo.
+                      A entrada será processada com <strong>Fila FIFO</strong>.
+                      Produto com estoque atual entra na fila; produto sem
+                      estoque entra ativo.
                     </p>
                     <p className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      A entrada será fechada após o processamento.
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />A
+                      entrada será fechada após o processamento.
                     </p>
                   </>
                 ) : (
                   <p>
-                    Isso atualiza estoque dos produtos vinculados e calcula custo médio ponderado.
+                    Isso atualiza estoque dos produtos vinculados e calcula
+                    custo médio ponderado.
                   </p>
                 )}
               </div>
@@ -1141,7 +1459,7 @@ export default function BatchPricing() {
                 handleSaveAndProcess(true);
               }}
             >
-              {fifoMode ? "Confirmar FIFO" : "Confirmar Entrada"}
+              {fifoMode ? "Confirmar envio" : "Confirmar entrada"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1155,37 +1473,75 @@ export default function BatchPricing() {
 function BatchPreviewCards({ preview }: { preview: BatchPricingResult }) {
   const totalSuggestedRevenue = preview.items.reduce(
     (sum, item) => sum + item.suggestedPrice * item.quantity,
-    0
+    0,
   );
   const totalProjectedProfit = preview.items.reduce(
     (sum, item) => sum + item.contributionMargin * item.quantity,
-    0
+    0,
   );
 
   return (
     <div className="space-y-6">
       <Card className="border-primary/30">
         <CardHeader>
-          <CardTitle className="text-base text-primary">Resultado do Rateio Proporcional</CardTitle>
+          <CardTitle className="text-base text-primary">
+            Resultado do Rateio Proporcional
+          </CardTitle>
           <CardDescription>
-            Custos adicionais de <strong>{formatCurrency(preview.totalOperationalCost + preview.totalTaxCost + preview.totalOtherCost)}</strong> rateados sobre <strong>{formatCurrency(preview.totalCostOfGoods)}</strong> em mercadorias.
+            Custos adicionais de{" "}
+            <strong>
+              {formatCurrency(
+                preview.totalOperationalCost +
+                  preview.totalTaxCost +
+                  preview.totalOtherCost,
+              )}
+            </strong>{" "}
+            rateados sobre{" "}
+            <strong>{formatCurrency(preview.totalCostOfGoods)}</strong> em
+            mercadorias.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryBox label="Mercadorias" value={formatCurrency(preview.totalCostOfGoods)} />
-            <SummaryBox label="Operacional" value={formatCurrency(preview.totalOperationalCost)} />
-            <SummaryBox label="Impostos/taxas" value={formatCurrency(preview.totalTaxCost)} />
-            <SummaryBox label="Outros custos" value={formatCurrency(preview.totalOtherCost)} />
-            <SummaryBox label="Total da entrada" value={formatCurrency(preview.grandTotal)} />
-            <SummaryBox label="Receita projetada" value={formatCurrency(totalSuggestedRevenue)} />
-            <SummaryBox label="Lucro projetado" value={formatCurrency(totalProjectedProfit)} />
+            <SummaryBox
+              label="Mercadorias"
+              value={formatCurrency(preview.totalCostOfGoods)}
+            />
+            <SummaryBox
+              label="Operacional"
+              value={formatCurrency(preview.totalOperationalCost)}
+            />
+            <SummaryBox
+              label="Impostos/taxas"
+              value={formatCurrency(preview.totalTaxCost)}
+            />
+            <SummaryBox
+              label="Outros custos"
+              value={formatCurrency(preview.totalOtherCost)}
+            />
+            <SummaryBox
+              label="Total da entrada"
+              value={formatCurrency(preview.grandTotal)}
+            />
+            <SummaryBox
+              label="Receita projetada"
+              value={formatCurrency(totalSuggestedRevenue)}
+            />
+            <SummaryBox
+              label="Lucro projetado"
+              value={formatCurrency(totalProjectedProfit)}
+            />
             <SummaryBox
               label="Conferência do rateio"
               value={
-                Math.abs(preview.allocationCheck - preview.totalOperationalCost) < 0.01 &&
-                Math.abs(preview.taxAllocationCheck - preview.totalTaxCost) < 0.01 &&
-                Math.abs(preview.otherAllocationCheck - preview.totalOtherCost) < 0.01
+                Math.abs(
+                  preview.allocationCheck - preview.totalOperationalCost,
+                ) < 0.01 &&
+                Math.abs(preview.taxAllocationCheck - preview.totalTaxCost) <
+                  0.01 &&
+                Math.abs(
+                  preview.otherAllocationCheck - preview.totalOtherCost,
+                ) < 0.01
                   ? "OK"
                   : "Verificar"
               }
@@ -1196,22 +1552,31 @@ function BatchPreviewCards({ preview }: { preview: BatchPricingResult }) {
 
       <div className="space-y-4">
         {preview.items.map((item, index) => (
-          <Card key={`${item.productId ?? "novo"}-${item.productName}-${index}`}>
+          <Card
+            key={`${item.productId ?? "novo"}-${item.productName}-${index}`}
+          >
             <CardHeader>
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                     <Badge variant="outline">#{index + 1}</Badge>
-                    {item.productId && <Badge variant="secondary">ID {item.productId}</Badge>}
+                    {item.productId && (
+                      <Badge variant="secondary">ID {item.productId}</Badge>
+                    )}
                     <span>{item.productName}</span>
                   </CardTitle>
                   <CardDescription>
-                    Proporção na entrada: <strong>{formatPercent(item.costProportion * 100)}</strong>
+                    Proporção na entrada:{" "}
+                    <strong>{formatPercent(item.costProportion * 100)}</strong>
                   </CardDescription>
                 </div>
                 <div className="text-left md:text-right">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Custo real unitário</p>
-                  <p className="text-2xl font-bold text-primary">{formatCurrency(item.finalUnitCost)}</p>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Custo real unitário
+                  </p>
+                  <p className="text-2xl font-bold text-primary">
+                    {formatCurrency(item.finalUnitCost)}
+                  </p>
                 </div>
               </div>
             </CardHeader>
@@ -1219,10 +1584,26 @@ function BatchPreviewCards({ preview }: { preview: BatchPricingResult }) {
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
                 <SummaryBox label="Quantidade" value={String(item.quantity)} />
                 <SummaryBox label="Moeda" value={item.costCurrency ?? "BRL"} />
-                <SummaryBox label="Custo original" value={formatCurrency(item.unitCostOriginal ?? item.unitCostBrl)} />
-                <SummaryBox label="Cotação" value={item.exchangeRate ? String(item.exchangeRate) : "—"} />
-                <SummaryBox label="Custo unit. BRL" value={formatCurrency(item.unitCostBrl)} />
-                <SummaryBox label="Custo base total" value={formatCurrency(item.baseTotalCost ?? item.totalItemCost)} />
+                <SummaryBox
+                  label="Custo original"
+                  value={formatCurrency(
+                    item.unitCostOriginal ?? item.unitCostBrl,
+                  )}
+                />
+                <SummaryBox
+                  label="Cotação"
+                  value={item.exchangeRate ? String(item.exchangeRate) : "—"}
+                />
+                <SummaryBox
+                  label="Custo unit. BRL"
+                  value={formatCurrency(item.unitCostBrl)}
+                />
+                <SummaryBox
+                  label="Custo base total"
+                  value={formatCurrency(
+                    item.baseTotalCost ?? item.totalItemCost,
+                  )}
+                />
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1244,12 +1625,23 @@ function BatchPreviewCards({ preview }: { preview: BatchPricingResult }) {
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                <SummaryBox label="Custo real total" value={formatCurrency(item.realTotalCost)} />
-                <SummaryBox label="Preço sugerido" value={formatCurrency(item.suggestedPrice)} />
-                <SummaryBox label="Lucro unitário proj." value={formatCurrency(item.contributionMargin)} />
+                <SummaryBox
+                  label="Custo real total"
+                  value={formatCurrency(item.realTotalCost)}
+                />
+                <SummaryBox
+                  label="Preço sugerido"
+                  value={formatCurrency(item.suggestedPrice)}
+                />
+                <SummaryBox
+                  label="Lucro unitário proj."
+                  value={formatCurrency(item.contributionMargin)}
+                />
                 <SummaryBox
                   label="Lucro total proj."
-                  value={formatCurrency(item.contributionMargin * item.quantity)}
+                  value={formatCurrency(
+                    item.contributionMargin * item.quantity,
+                  )}
                 />
               </div>
             </CardContent>
