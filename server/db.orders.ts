@@ -128,17 +128,22 @@ export async function confirmOrder(
   if (!db) throw new Error("Database not available");
 
   return await db.transaction(async (tx) => {
-    // 1. Buscar pedido
-    const existingRows = await tx
-      .select()
-      .from(orders)
-      .where(eq(orders.id, orderId))
-      .limit(1);
+    // 1. Buscar pedido com lock para impedir confirmação dupla.
+    const orderResult = await tx.execute(
+      sql`SELECT id,
+                 product_id AS "productId",
+                 quantity,
+                 status,
+                 admin_notes AS "adminNotes"
+          FROM permupay_orders
+          WHERE id = ${orderId}
+          FOR UPDATE`
+    ) as any;
+    const existing = orderResult?.rows?.[0] as Order | undefined;
 
-    if (!existingRows[0]) throw new Error("Pedido não encontrado");
-    const existing = existingRows[0];
+    if (!existing) throw new Error("Pedido não encontrado");
 
-    // 2. Validar status permitido
+    // 2. Validar status permitido.
     const confirmable = ["AGUARDANDO_PAGAMENTO", "RESERVADO"];
     if (!confirmable.includes(existing.status)) {
       throw new Error(
@@ -146,45 +151,143 @@ export async function confirmOrder(
       );
     }
 
-    // 3. Buscar produto
-    const productRows = await tx
-      .select()
-      .from(products)
-      .where(eq(products.id, existing.productId))
-      .limit(1);
+    // 3. Buscar produto com lock.
+    const productResult = await tx.execute(
+      sql`SELECT *
+          FROM permupay_products
+          WHERE id = ${existing.productId}
+          FOR UPDATE`
+    ) as any;
+    const product = productResult?.rows?.[0];
 
-    if (!productRows[0]) throw new Error("Produto não encontrado ao confirmar");
-    const product = productRows[0];
+    if (!product) throw new Error("Produto não encontrado ao confirmar");
 
-    // 4. Validar estoque suficiente — erro explícito, sem Math.max silencioso
-    const currentStock = product.stockQuantity ?? 0;
-    if (currentStock < existing.quantity) {
+    // 4. Validar estoque suficiente — erro explícito, sem Math.max silencioso.
+    const currentStock = Number(product.stock_quantity ?? 0);
+    const quantitySold = Number(existing.quantity ?? 0);
+    if (currentStock < quantitySold) {
       throw new Error(
-        `Estoque insuficiente: disponível ${currentStock}, necessário ${existing.quantity}`
+        `Estoque insuficiente: disponível ${currentStock}, necessário ${quantitySold}`
       );
     }
 
-    const newStock = currentStock - existing.quantity;
+    const newStock = currentStock - quantitySold;
 
-    // 5. Debitar estoque do produto
-    await tx
-      .update(products)
-      .set({
-        stockQuantity: newStock,
-        updatedAt: new Date(),
-      })
-      .where(eq(products.id, existing.productId));
+    // 5. Debitar estoque do produto.
+    await tx.execute(
+      sql`UPDATE permupay_products
+          SET stock_quantity = ${newStock}, updated_at = NOW()
+          WHERE id = ${existing.productId}`
+    );
 
-    // 6. Registrar saída em stock_entries (quantity negativo = saída)
+    // 6. Registrar saída em stock_entries (quantity negativo = saída).
     await tx.insert(stockEntries).values({
       productId: existing.productId,
       userId: adminUserId,
-      quantity: -existing.quantity,          // negativo = saída
-      unitCost: product.finalUnitCostBrl ?? product.averageCostBrl ?? 0,
+      quantity: -quantitySold,
+      unitCost: Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0),
       notes: `Saída por venda — Pedido #${orderId}${adminNotes ? ` | ${adminNotes}` : ""}`,
     });
 
-    // 7. Marcar pedido como PAGO
+    // 7. Atualizar a fila FIFO dentro da MESMA transação.
+    // Importante: não chamamos triggerStockTransition aqui, porque ela também debita estoque.
+    // O estoque já foi debitado acima; aqui apenas sincronizamos quantity_remaining e promovemos próximo lote se zerar.
+    const activeQueueResult = await tx.execute(
+      sql`SELECT id, quantity_remaining
+          FROM permupay_stock_queue
+          WHERE product_id = ${existing.productId}
+            AND status = 'ATIVO'
+          ORDER BY activated_at ASC NULLS LAST, created_at ASC
+          LIMIT 1
+          FOR UPDATE`
+    ) as any;
+    const activeQueue = activeQueueResult?.rows?.[0];
+
+    if (activeQueue) {
+      const remainingBefore = Number(activeQueue.quantity_remaining ?? 0);
+      const remainingAfter = Math.max(0, remainingBefore - quantitySold);
+
+      await tx.execute(
+        sql`UPDATE permupay_stock_queue
+            SET quantity_remaining = ${remainingAfter},
+                updated_at = NOW()
+            WHERE id = ${activeQueue.id}`
+      );
+
+      if (remainingAfter <= 0 || newStock <= 0) {
+        // Marcar lote atual como esgotado.
+        await tx.execute(
+          sql`UPDATE permupay_stock_queue
+              SET status = 'ESGOTADO',
+                  quantity_remaining = 0,
+                  exhausted_at = NOW(),
+                  updated_at = NOW()
+              WHERE id = ${activeQueue.id}`
+        );
+
+        await tx.execute(
+          sql`UPDATE permupay_batch_items
+              SET queue_status = 'ESGOTADO'
+              WHERE queue_id = ${activeQueue.id}`
+        );
+
+        // Buscar próximo lote em espera.
+        const nextQueueResult = await tx.execute(
+          sql`SELECT id, quantity, quantity_remaining, unit_cost,
+                     suggested_price_pix, suggested_price_card, suggested_price_boleto,
+                     batch_id
+              FROM permupay_stock_queue
+              WHERE product_id = ${existing.productId}
+                AND status = 'EM_ESPERA'
+              ORDER BY position ASC, created_at ASC
+              LIMIT 1
+              FOR UPDATE`
+        ) as any;
+        const nextQueue = nextQueueResult?.rows?.[0];
+
+        if (nextQueue) {
+          const nextQty = Number(nextQueue.quantity_remaining ?? nextQueue.quantity ?? 0);
+
+          await tx.execute(
+            sql`UPDATE permupay_stock_queue
+                SET status = 'ATIVO',
+                    quantity_remaining = ${nextQty},
+                    activated_at = COALESCE(activated_at, NOW()),
+                    updated_at = NOW()
+                WHERE id = ${nextQueue.id}`
+          );
+
+          await tx.execute(
+            sql`UPDATE permupay_products SET
+                  stock_quantity         = ${nextQty},
+                  average_cost_brl       = ${Number(nextQueue.unit_cost ?? 0)},
+                  final_unit_cost_brl    = ${Number(nextQueue.unit_cost ?? 0)},
+                  suggested_price_pix    = ${Number(nextQueue.suggested_price_pix ?? 0)},
+                  suggested_price_card   = ${Number(nextQueue.suggested_price_card ?? 0)},
+                  suggested_price_boleto = ${Number(nextQueue.suggested_price_boleto ?? 0)},
+                  updated_at             = NOW()
+                WHERE id = ${existing.productId}`
+          );
+
+          await tx.insert(stockEntries).values({
+            productId: existing.productId,
+            batchId: nextQueue.batch_id ?? null,
+            userId: adminUserId,
+            quantity: nextQty,
+            unitCost: Number(nextQueue.unit_cost ?? 0),
+            notes: `[VIRADA FIFO] Lote fila #${nextQueue.id} promovido para ATIVO após confirmação do pedido #${orderId}`,
+          });
+
+          await tx.execute(
+            sql`UPDATE permupay_batch_items
+                SET queue_status = 'ATIVO'
+                WHERE queue_id = ${nextQueue.id}`
+          );
+        }
+      }
+    }
+
+    // 8. Marcar pedido como PAGO / liberado.
     const [updated] = await tx
       .update(orders)
       .set({
@@ -196,22 +299,6 @@ export async function confirmOrder(
       })
       .where(eq(orders.id, orderId))
       .returning();
-
-    // 8. Gatilho FIFO: se o estoque zerou, promover o próximo lote
-    if (newStock === 0) {
-      // Import dinâmico para evitar dependência circular se houver
-      const { triggerStockTransition } = await import("./db.batches");
-      await triggerStockTransition(existing.productId, existing.quantity, adminUserId);
-    } else {
-      // Se não zerou, precisamos pelo menos decrementar o quantity_remaining do lote ATIVO
-      await tx.execute(
-        sql`UPDATE permupay_stock_queue
-            SET quantity_remaining = GREATEST(0, quantity_remaining - ${existing.quantity}),
-                updated_at = NOW()
-            WHERE product_id = ${existing.productId}
-              AND status = 'ATIVO'`
-      );
-    }
 
     return updated;
   });
