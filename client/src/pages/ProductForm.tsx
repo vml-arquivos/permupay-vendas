@@ -9,6 +9,11 @@
  * - Inputs usam classes padrão do sistema (h-9 text-sm border-input bg-background)
  * - Botões primários: variant padrão do Button; secundários: variant="outline"
  * - Lógica de negócio 100% intacta.
+ *
+ * AJUSTE DE TRANSIÇÃO — Entrada de Produtos:
+ * - Mantém produtos antigos editáveis.
+ * - Marca custo operacional como campo legado.
+ * - Orienta que novas entradas/custos operacionais devem ser registradas em Entrada de Produtos.
  */
 
 import { useEffect, useMemo, useState, useCallback, type ChangeEvent } from "react";
@@ -750,8 +755,22 @@ export default function ProductForm() {
               <SectionHeader
                 icon={<DollarSign className="w-4 h-4" />}
                 title="Custos & Estoque"
-                subtitle="Preço de custo, despesas adicionais e controle de estoque"
+                subtitle="Preço de custo, compatibilidade com produtos antigos e controle de estoque"
               />
+
+              <div className="flex items-start gap-2.5 p-3 rounded-md border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 mb-4">
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                    Compatibilidade com produtos antigos
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                    Para novos produtos, cadastre custo, quantidade e custo operacional em
+                    <strong> Entrada de Produtos</strong>. Estes campos continuam ativos aqui
+                    para produtos antigos e para não quebrar edições já existentes.
+                  </p>
+                </div>
+              </div>
 
               {/* Seletor de moeda */}
               <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-muted/20 mb-4">
@@ -795,7 +814,11 @@ export default function ProductForm() {
                 <Field label="Frete de entrada">
                   <NI value={form.inboundShippingCost} onChange={set("inboundShippingCost") as any} prefix="R$" placeholder="0,00" />
                 </Field>
-                <Field label="Custo operacional">
+                <Field
+                  label="Custo operacional legado"
+                  tooltip="Campo mantido para produtos antigos. Para novas compras, informe o custo operacional na Entrada de Produtos."
+                  hint="Para novos produtos, use Entrada de Produtos. Este campo permanece para compatibilidade."
+                >
                   <NI value={form.operationalCost} onChange={set("operationalCost") as any} prefix="R$" placeholder="0,00" />
                 </Field>
               </div>
