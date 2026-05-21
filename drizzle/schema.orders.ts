@@ -28,6 +28,7 @@ export const orderStatusEnum = pgEnum("permupay_order_status", [
 
 export const paymentMethodEnum = pgEnum("permupay_payment_method", [
   "PIX",
+  "DINHEIRO",
   "CARTAO",
   "BOLETO",
 ]);
