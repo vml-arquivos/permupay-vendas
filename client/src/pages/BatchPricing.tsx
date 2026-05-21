@@ -399,9 +399,11 @@ export default function BatchPricing() {
 
   const addItem = () => {
     const newItem = emptyItem();
-    setItems((prev) => {
-      setCollapsedItemIds(new Set(prev.map((item) => item._id)));
-      return [...prev, newItem];
+    setItems((prev) => [...prev, newItem]);
+    setCollapsedItemIds((prev) => {
+      const next = new Set(prev);
+      next.delete(newItem._id);
+      return next;
     });
   };
 
@@ -581,7 +583,7 @@ export default function BatchPricing() {
 
       setPreview(result);
       setPreviewError(null);
-      if (showToast) toast.success("Custos calculados.");
+      if (showToast) toast.success("Rateio atualizado.");
       return result;
     },
     [items, totalOperationalCost, totalTaxCost, totalOtherCost, batchName],
@@ -1263,7 +1265,7 @@ export default function BatchPricing() {
                       </Field>
                     </div>
 
-                    {/* Resumo compacto do item — inclui o resultado calculado deste produto */}
+                    {/* Resumo compacto do item */}
                     <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
                       <MiniMetric
                         label="Base"
@@ -1284,6 +1286,15 @@ export default function BatchPricing() {
                         }
                       />
                       <MiniMetric
+                        label="Pagto"
+                        value={
+                          PAYMENT_OPTIONS.find(
+                            (option) =>
+                              option.value === item.acquisitionPaymentMethod,
+                          )?.label ?? "—"
+                        }
+                      />
+                      <MiniMetric
                         label="Produto"
                         value={
                           selectedProduct
@@ -1295,37 +1306,6 @@ export default function BatchPricing() {
                       />
                       <MiniMetric label="Moeda" value={item.currency} />
                       <MiniMetric
-                        label="Operac./un."
-                        value={
-                          previewItem
-                            ? formatCurrency(
-                                (previewItem as any).operationalCostPerUnit ??
-                                  0,
-                              )
-                            : "—"
-                        }
-                      />
-                      <MiniMetric
-                        label="Imp./un."
-                        value={
-                          previewItem
-                            ? formatCurrency(
-                                (previewItem as any).taxCostPerUnit ?? 0,
-                              )
-                            : "—"
-                        }
-                      />
-                      <MiniMetric
-                        label="Outros/un."
-                        value={
-                          previewItem
-                            ? formatCurrency(
-                                (previewItem as any).otherCostPerUnit ?? 0,
-                              )
-                            : "—"
-                        }
-                      />
-                      <MiniMetric
                         label="Custo real"
                         value={displayMoneyOrEmpty(realUnitCost) || "—"}
                         tone="strong"
@@ -1334,30 +1314,6 @@ export default function BatchPricing() {
                         label="Total real"
                         value={displayMoneyOrEmpty(realTotalCost) || "—"}
                         tone="success"
-                      />
-                      <MiniMetric
-                        label="Preço sugerido"
-                        value={
-                          previewItem
-                            ? formatCurrency(previewItem.suggestedPrice)
-                            : "—"
-                        }
-                      />
-                      <MiniMetric
-                        label="Lucro total"
-                        value={
-                          previewItem
-                            ? formatCurrency(
-                                previewItem.contributionMargin *
-                                  previewItem.quantity,
-                              )
-                            : "—"
-                        }
-                        tone={
-                          previewItem && previewItem.contributionMargin >= 0
-                            ? "success"
-                            : "warning"
-                        }
                       />
                     </div>
                   </div>
@@ -1423,7 +1379,7 @@ export default function BatchPricing() {
         </div>
       )}
 
-      {preview && <BatchPreviewSummary preview={preview} />}
+      {preview && <BatchPreviewCards preview={preview} />}
 
       <Separator />
 
@@ -1512,9 +1468,9 @@ export default function BatchPricing() {
   );
 }
 
-// ─── Resumo geral dos cálculos — sem duplicar resultado por produto ────────────
+// ─── Resultado do rateio em cards ─────────────────────────────────────────────
 
-function BatchPreviewSummary({ preview }: { preview: BatchPricingResult }) {
+function BatchPreviewCards({ preview }: { preview: BatchPricingResult }) {
   const totalSuggestedRevenue = preview.items.reduce(
     (sum, item) => sum + item.suggestedPrice * item.quantity,
     0,
@@ -1523,61 +1479,175 @@ function BatchPreviewSummary({ preview }: { preview: BatchPricingResult }) {
     (sum, item) => sum + item.contributionMargin * item.quantity,
     0,
   );
-  const allocationOk =
-    Math.abs(preview.allocationCheck - preview.totalOperationalCost) < 0.01 &&
-    Math.abs(preview.taxAllocationCheck - preview.totalTaxCost) < 0.01 &&
-    Math.abs(preview.otherAllocationCheck - preview.totalOtherCost) < 0.01;
 
   return (
-    <Card className="border-primary/30 bg-primary/5">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base text-primary">
-          Resumo dos cálculos
-        </CardTitle>
-        <CardDescription>
-          O resultado detalhado de cada produto aparece dentro do próprio card
-          do item.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-          <MiniMetric
-            label="Mercadorias"
-            value={formatCurrency(preview.totalCostOfGoods)}
-          />
-          <MiniMetric
-            label="Operacional"
-            value={formatCurrency(preview.totalOperationalCost)}
-          />
-          <MiniMetric
-            label="Impostos"
-            value={formatCurrency(preview.totalTaxCost)}
-          />
-          <MiniMetric
-            label="Outros"
-            value={formatCurrency(preview.totalOtherCost)}
-          />
-          <MiniMetric
-            label="Total entrada"
-            value={formatCurrency(preview.grandTotal)}
-            tone="strong"
-          />
-          <MiniMetric
-            label="Receita proj."
-            value={formatCurrency(totalSuggestedRevenue)}
-          />
-          <MiniMetric
-            label="Lucro proj."
-            value={formatCurrency(totalProjectedProfit)}
-            tone={totalProjectedProfit >= 0 ? "success" : "warning"}
-          />
-          <MiniMetric
-            label="Conferência"
-            value={allocationOk ? "OK" : "Verificar"}
-            tone={allocationOk ? "success" : "warning"}
-          />
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <Card className="border-primary/30">
+        <CardHeader>
+          <CardTitle className="text-base text-primary">
+            Resultado do Rateio Proporcional
+          </CardTitle>
+          <CardDescription>
+            Custos adicionais de{" "}
+            <strong>
+              {formatCurrency(
+                preview.totalOperationalCost +
+                  preview.totalTaxCost +
+                  preview.totalOtherCost,
+              )}
+            </strong>{" "}
+            rateados sobre{" "}
+            <strong>{formatCurrency(preview.totalCostOfGoods)}</strong> em
+            mercadorias.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <SummaryBox
+              label="Mercadorias"
+              value={formatCurrency(preview.totalCostOfGoods)}
+            />
+            <SummaryBox
+              label="Operacional"
+              value={formatCurrency(preview.totalOperationalCost)}
+            />
+            <SummaryBox
+              label="Impostos/taxas"
+              value={formatCurrency(preview.totalTaxCost)}
+            />
+            <SummaryBox
+              label="Outros custos"
+              value={formatCurrency(preview.totalOtherCost)}
+            />
+            <SummaryBox
+              label="Total da entrada"
+              value={formatCurrency(preview.grandTotal)}
+            />
+            <SummaryBox
+              label="Receita projetada"
+              value={formatCurrency(totalSuggestedRevenue)}
+            />
+            <SummaryBox
+              label="Lucro projetado"
+              value={formatCurrency(totalProjectedProfit)}
+            />
+            <SummaryBox
+              label="Conferência do rateio"
+              value={
+                Math.abs(
+                  preview.allocationCheck - preview.totalOperationalCost,
+                ) < 0.01 &&
+                Math.abs(preview.taxAllocationCheck - preview.totalTaxCost) <
+                  0.01 &&
+                Math.abs(
+                  preview.otherAllocationCheck - preview.totalOtherCost,
+                ) < 0.01
+                  ? "OK"
+                  : "Verificar"
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="space-y-4">
+        {preview.items.map((item, index) => (
+          <Card
+            key={`${item.productId ?? "novo"}-${item.productName}-${index}`}
+          >
+            <CardHeader>
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                    <Badge variant="outline">#{index + 1}</Badge>
+                    {item.productId && (
+                      <Badge variant="secondary">ID {item.productId}</Badge>
+                    )}
+                    <span>{item.productName}</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Proporção na entrada:{" "}
+                    <strong>{formatPercent(item.costProportion * 100)}</strong>
+                  </CardDescription>
+                </div>
+                <div className="text-left md:text-right">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Custo real unitário
+                  </p>
+                  <p className="text-2xl font-bold text-primary">
+                    {formatCurrency(item.finalUnitCost)}
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+                <SummaryBox label="Quantidade" value={String(item.quantity)} />
+                <SummaryBox label="Moeda" value={item.costCurrency ?? "BRL"} />
+                <SummaryBox
+                  label="Custo original"
+                  value={formatCurrency(
+                    item.unitCostOriginal ?? item.unitCostBrl,
+                  )}
+                />
+                <SummaryBox
+                  label="Cotação"
+                  value={item.exchangeRate ? String(item.exchangeRate) : "—"}
+                />
+                <SummaryBox
+                  label="Custo unit. BRL"
+                  value={formatCurrency(item.unitCostBrl)}
+                />
+                <SummaryBox
+                  label="Custo base total"
+                  value={formatCurrency(
+                    item.baseTotalCost ?? item.totalItemCost,
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <SummaryBox
+                  label="Operacional rateado"
+                  value={formatCurrency(item.allocatedOperationalCost)}
+                  hint={`${formatCurrency(item.operationalCostPerUnit)} por unidade`}
+                />
+                <SummaryBox
+                  label="Imposto rateado"
+                  value={formatCurrency(item.allocatedTaxCost)}
+                  hint={`${formatCurrency(item.taxCostPerUnit)} por unidade`}
+                />
+                <SummaryBox
+                  label="Outros custos rateados"
+                  value={formatCurrency(item.allocatedOtherCost)}
+                  hint={`${formatCurrency(item.otherCostPerUnit)} por unidade`}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <SummaryBox
+                  label="Custo real total"
+                  value={formatCurrency(item.realTotalCost)}
+                />
+                <SummaryBox
+                  label="Preço sugerido"
+                  value={formatCurrency(item.suggestedPrice)}
+                />
+                <SummaryBox
+                  label="Lucro unitário proj."
+                  value={formatCurrency(item.contributionMargin)}
+                />
+                <SummaryBox
+                  label="Lucro total proj."
+                  value={formatCurrency(
+                    item.contributionMargin * item.quantity,
+                  )}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }
