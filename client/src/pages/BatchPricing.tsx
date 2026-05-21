@@ -49,6 +49,8 @@ import {
   PackagePlus,
   Download,
   WalletCards,
+  Eye,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -389,6 +391,8 @@ export default function BatchPricing() {
     queuedCount: number;
     activatedCount: number;
   } | null>(null);
+  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
+  const [deleteBatchTarget, setDeleteBatchTarget] = useState<any | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -400,14 +404,30 @@ export default function BatchPricing() {
     staleTime: 60_000,
   });
 
+  const selectedBatchQuery = trpc.batches.byId.useQuery(
+    { id: selectedBatchId! },
+    { enabled: !!selectedBatchId }
+  );
+
   const latestBatches = useMemo(() => {
-    return ((batchesQuery.data ?? []) as any[]).slice(0, 8);
+    return ((batchesQuery.data ?? []) as any[]).slice(0, 5);
   }, [batchesQuery.data]);
 
   const createProduct = trpc.products.create.useMutation();
 
   const createBatch = trpc.batches.create.useMutation({
     onSuccess: (batch) => setSavedBatchId(batch.id),
+  });
+
+  const deleteBatchMutation = trpc.batches.delete.useMutation({
+    onSuccess: () => {
+      utils.batches.list.invalidate();
+      utils.products.list.invalidate();
+      setSelectedBatchId(null);
+      setDeleteBatchTarget(null);
+      toast.success("Entrada apagada com segurança.");
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const processBatch = trpc.batches.process.useMutation({
@@ -536,6 +556,46 @@ export default function BatchPricing() {
     },
     [],
   );
+
+  const loadBatchForEdit = useCallback((batch: any) => {
+    if (!batch) return;
+
+    if (String(batch.status ?? "").toUpperCase() === "CLOSED") {
+      toast.warning("Entrada fechada não pode ser editada diretamente por segurança. Visualize os detalhes ou apague entradas de teste.");
+      return;
+    }
+
+    setSavedBatchId(Number(batch.id));
+    setBatchName(batch.name ?? "");
+    setBatchDescription(batch.description ?? "");
+    setTotalOperationalCost(String(batch.totalOperationalCost ?? 0));
+    setTotalTaxCost(String((batch as any).totalTaxCost ?? 0));
+    setTotalOtherCost(String((batch as any).totalOtherCost ?? 0));
+
+    const loadedItems = Array.isArray(batch.items) && batch.items.length > 0
+      ? batch.items.map((entry: any) => ({
+          _id: crypto.randomUUID(),
+          entryMode: entry.productId ? "EXISTING" : "NEW",
+          productId: entry.productId ?? undefined,
+          productName: entry.productName ?? "",
+          category: "OUTRO" as ProductCategory,
+          currency: (entry.costCurrency === "USD" ? "USD" : "BRL") as AcquisitionCurrency,
+          unitCostOriginal: String(entry.unitCostOriginal ?? entry.unitCostBrl ?? ""),
+          exchangeRate: entry.exchangeRate ? String(entry.exchangeRate) : "",
+          quantity: String(entry.quantity ?? ""),
+          acquisitionPaymentMethod: (entry.acquisitionPaymentMethod ?? "OUTRO") as AcquisitionPaymentMethod,
+          desiredMarginRate: entry.desiredMarginRate ? String(entry.desiredMarginRate) : "",
+          estimatedTaxRate: "",
+        }))
+      : [emptyItem()];
+
+    setItems(loadedItems);
+    setCollapsedItemIds(new Set());
+    setPreview(null);
+    setPreviewError(null);
+    setSelectedBatchId(null);
+    toast.success(`Entrada #${batch.id} carregada para edição.`);
+  }, []);
 
   const applyExistingProduct = useCallback(
     (itemId: string, rawProductId: string) => {
@@ -1602,7 +1662,7 @@ export default function BatchPricing() {
             Últimas entradas de produtos
           </CardTitle>
           <CardDescription>
-            Histórico rápido das entradas processadas ou salvas recentemente.
+            Histórico dos últimos 5 lotes/entradas. Cada linha representa uma entrada inteira, não produtos separados.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -1631,19 +1691,23 @@ export default function BatchPricing() {
               return (
                 <div
                   key={batch.id ?? `${batch.name}-${batch.createdAt}`}
-                  className="grid grid-cols-2 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs md:grid-cols-[80px_minmax(180px,1fr)_90px_90px_120px_120px_120px_110px_100px]"
+                  className="grid grid-cols-2 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs md:grid-cols-[72px_minmax(180px,1fr)_90px_90px_120px_120px_120px_110px_100px_210px]"
                 >
                   <div className="font-mono text-muted-foreground">
                     #{batch.id ?? "—"}
                   </div>
-                  <div className="min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBatchId(Number(batch.id))}
+                    className="min-w-0 text-left hover:underline"
+                  >
                     <p className="truncate font-semibold text-foreground">
                       {batch.name ?? "Entrada sem nome"}
                     </p>
                     <p className="text-[10px] text-muted-foreground">
                       {formatBatchDate(batch.createdAt ?? batch.created_at)} · {statusLabel(batch.status)}
                     </p>
-                  </div>
+                  </button>
                   <div>
                     <span className="block text-[10px] uppercase text-muted-foreground">Produtos</span>
                     <strong>{productsCount}</strong>
@@ -1671,12 +1735,107 @@ export default function BatchPricing() {
                   <Badge variant={String(batch.status ?? "").toUpperCase() === "CLOSED" ? "default" : "secondary"} className="w-fit">
                     {statusLabel(batch.status)}
                   </Badge>
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setSelectedBatchId(Number(batch.id))}>
+                      <Eye className="mr-1 h-3.5 w-3.5" /> Visualizar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 px-2 text-xs"
+                      onClick={() => {
+                        setSelectedBatchId(Number(batch.id));
+                        toast.info("Abrindo detalhes. Use Editar entrada dentro do lote.");
+                      }}
+                    >
+                      <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 px-2 text-xs text-destructive hover:text-destructive" onClick={() => setDeleteBatchTarget(batch)}>
+                      <Trash2 className="mr-1 h-3.5 w-3.5" /> Apagar
+                    </Button>
+                  </div>
                 </div>
               );
             })
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!selectedBatchId} onOpenChange={(open) => !open && setSelectedBatchId(null)}>
+        <AlertDialogContent className="max-w-6xl max-h-[88vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedBatchQuery.data ? `Entrada #${selectedBatchQuery.data.id} — ${selectedBatchQuery.data.name}` : "Detalhes da entrada"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Visualização completa do lote: custos gerais, produtos, rateios, preço sugerido e lucro projetado.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {selectedBatchQuery.isLoading ? (
+            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+              Carregando detalhes da entrada...
+            </div>
+          ) : selectedBatchQuery.data ? (
+            <BatchDetailsContent batch={selectedBatchQuery.data as any} />
+          ) : (
+            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+              Entrada não encontrada.
+            </div>
+          )}
+
+          <AlertDialogFooter className="gap-2 sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {selectedBatchQuery.data && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => loadBatchForEdit(selectedBatchQuery.data as any)}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" /> Editar entrada
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setDeleteBatchTarget(selectedBatchQuery.data as any)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Apagar entrada
+                  </Button>
+                </>
+              )}
+            </div>
+            <AlertDialogCancel>Fechar</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteBatchTarget} onOpenChange={(open) => !open && setDeleteBatchTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar entrada?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  Tem certeza que deseja apagar a entrada <strong>#{deleteBatchTarget?.id} — {deleteBatchTarget?.name}</strong>?
+                </p>
+                <p>Os produtos base não serão apagados. A exclusão remove o lote/entrada e seus itens.</p>
+                <p className="text-amber-700 dark:text-amber-400">
+                  Se a entrada já teve venda ou movimentação crítica, o backend deve bloquear a exclusão por segurança.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteBatchTarget?.id && deleteBatchMutation.mutate({ id: Number(deleteBatchTarget.id) })}
+            >
+              Apagar entrada
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={showCommitDialog} onOpenChange={setShowCommitDialog}>
         <AlertDialogContent>
@@ -1722,6 +1881,93 @@ export default function BatchPricing() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// ─── Detalhes do lote/entrada ────────────────────────────────────────────────
+
+function BatchDetailsContent({ batch }: { batch: any }) {
+  const items = Array.isArray(batch.items) ? batch.items : [];
+  const totalQuantity = items.reduce((sum: number, item: any) => sum + Number(item.quantity ?? 0), 0);
+  const goodsTotal = Number(batch.totalCostOfGoods ?? 0);
+  const operationalTotal = Number(batch.totalOperationalCost ?? 0);
+  const taxTotal = Number(batch.totalTaxCost ?? 0);
+  const otherTotal = Number(batch.totalOtherCost ?? 0);
+  const grandTotal = goodsTotal + operationalTotal + taxTotal + otherTotal;
+  const revenue = items.reduce((sum: number, item: any) => sum + Number(item.suggestedPrice ?? 0) * Number(item.quantity ?? 0), 0);
+  const profit = items.reduce((sum: number, item: any) => sum + (Number(item.suggestedPrice ?? 0) - Number(item.finalUnitCost ?? 0)) * Number(item.quantity ?? 0), 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
+        <SummaryBox label="Status" value={statusLabel(batch.status)} />
+        <SummaryBox label="Data" value={formatBatchDate(batch.createdAt)} />
+        <SummaryBox label="Produtos" value={String(items.length)} />
+        <SummaryBox label="Unidades" value={String(totalQuantity || "—")} />
+        <SummaryBox label="Mercadorias" value={formatCurrency(goodsTotal)} />
+        <SummaryBox label="Custos adicionais" value={formatCurrency(operationalTotal + taxTotal + otherTotal)} />
+        <SummaryBox label="Total entrada" value={formatCurrency(grandTotal)} />
+      </div>
+
+      <div className="rounded-lg border border-border overflow-hidden">
+        <div className="grid grid-cols-[minmax(220px,1.4fr)_70px_95px_110px_110px_110px_110px_110px_110px] gap-2 bg-muted/50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground overflow-x-auto">
+          <span>Produto</span>
+          <span>Qtd</span>
+          <span>Custo BRL</span>
+          <span>Base</span>
+          <span>Rateio</span>
+          <span>Custo real</span>
+          <span>Total real</span>
+          <span>Preço final</span>
+          <span>Lucro total</span>
+        </div>
+        <div className="divide-y divide-border">
+          {items.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">Nenhum produto encontrado nesta entrada.</div>
+          ) : (
+            items.map((item: any, index: number) => {
+              const qty = Number(item.quantity ?? 0);
+              const unitBrl = Number(item.unitCostBrl ?? 0);
+              const baseTotal = Number(item.totalItemCost ?? item.baseTotalCost ?? unitBrl * qty);
+              const finalUnit = Number(item.finalUnitCost ?? 0);
+              const realTotal = Number(item.realTotalCost ?? finalUnit * qty);
+              const price = Number(item.suggestedPrice ?? 0);
+              const profitUnit = price > 0 ? price - finalUnit : 0;
+              const profitTotal = price > 0 ? profitUnit * qty : 0;
+              const allocated = Number(item.allocatedOperationalCost ?? 0) + Number(item.allocatedTaxCost ?? 0) + Number(item.allocatedOtherCost ?? 0);
+
+              return (
+                <div key={item.id ?? `${item.productName}-${index}`} className="grid grid-cols-[minmax(220px,1.4fr)_70px_95px_110px_110px_110px_110px_110px_110px] gap-2 px-3 py-2 text-xs overflow-x-auto">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-foreground">{item.productName}</p>
+                    <p className="text-[10px] text-muted-foreground">{item.productId ? `Produto #${item.productId}` : "Produto novo/sem vínculo"} · {item.costCurrency ?? "BRL"}</p>
+                  </div>
+                  <strong>{qty || "—"}</strong>
+                  <strong>{formatCurrency(unitBrl)}</strong>
+                  <span>{formatCurrency(baseTotal)}</span>
+                  <span>{formatCurrency(allocated)}</span>
+                  <strong className="text-primary">{formatCurrency(finalUnit)}</strong>
+                  <strong>{formatCurrency(realTotal)}</strong>
+                  <span>{price > 0 ? formatCurrency(price) : "Sem preço"}</span>
+                  <span className={profitTotal >= 0 ? "text-emerald-600 font-semibold" : "text-destructive font-semibold"}>
+                    {price > 0 ? formatCurrency(profitTotal) : "—"}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+        <SummaryBox label="Receita projetada" value={formatCurrency(revenue)} />
+        <SummaryBox label="Lucro projetado" value={revenue > 0 ? formatCurrency(profit) : "Sem preço final"} />
+        <SummaryBox
+          label="Conferência"
+          value={Math.abs(items.reduce((sum: number, item: any) => sum + Number(item.allocatedOperationalCost ?? 0), 0) - operationalTotal) < 0.05 ? "OK" : "Verificar"}
+        />
+      </div>
     </div>
   );
 }
