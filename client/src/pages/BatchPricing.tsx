@@ -313,6 +313,56 @@ function MiniMetric({
   );
 }
 
+function getBatchNumber(batch: any, keys: string[], fallback = 0): number {
+  for (const key of keys) {
+    const value = batch?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = toNumber(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return fallback;
+}
+
+function getBatchCount(batch: any, keys: string[]): string {
+  for (const key of keys) {
+    const value = batch?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "string" && value.trim()) return value;
+  }
+
+  if (Array.isArray(batch?.items)) {
+    if (keys.some((key) => key.toLowerCase().includes("unit") || key.toLowerCase().includes("quantity"))) {
+      const total = batch.items.reduce((sum: number, item: any) => sum + Number(item?.quantity ?? 0), 0);
+      return total > 0 ? String(total) : "—";
+    }
+    return String(batch.items.length);
+  }
+
+  return "—";
+}
+
+function formatBatchDate(value: unknown): string {
+  if (!value) return "—";
+  const date = new Date(value as any);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+function statusLabel(status: unknown): string {
+  switch (String(status ?? "").toUpperCase()) {
+    case "CLOSED":
+      return "Fechada";
+    case "OPEN":
+      return "Aberta";
+    case "PROCESSING":
+      return "Processando";
+    default:
+      return status ? String(status) : "—";
+  }
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function BatchPricing() {
@@ -345,6 +395,14 @@ export default function BatchPricing() {
   const productsQuery = trpc.products.list.useQuery(undefined, {
     staleTime: 60_000,
   });
+
+  const batchesQuery = trpc.batches.list.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+
+  const latestBatches = useMemo(() => {
+    return ((batchesQuery.data ?? []) as any[]).slice(0, 8);
+  }, [batchesQuery.data]);
 
   const createProduct = trpc.products.create.useMutation();
 
@@ -1536,6 +1594,89 @@ export default function BatchPricing() {
           </>
         )}
       </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4" />
+            Últimas entradas de produtos
+          </CardTitle>
+          <CardDescription>
+            Histórico rápido das entradas processadas ou salvas recentemente.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {batchesQuery.isLoading ? (
+            <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              Carregando histórico de entradas...
+            </div>
+          ) : latestBatches.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              Nenhuma entrada registrada ainda.
+            </div>
+          ) : (
+            latestBatches.map((batch: any) => {
+              const goodsTotal = getBatchNumber(batch, ["totalCostOfGoods", "total_cost_of_goods", "goodsTotal"]);
+              const operationalTotal = getBatchNumber(batch, ["totalOperationalCost", "total_operational_cost", "operationalTotal"]);
+              const taxTotal = getBatchNumber(batch, ["totalTaxCost", "total_tax_cost"]);
+              const otherTotal = getBatchNumber(batch, ["totalOtherCost", "total_other_cost"]);
+              const totalCost = getBatchNumber(
+                batch,
+                ["grandTotal", "grand_total", "totalCost", "total_cost"],
+                goodsTotal + operationalTotal + taxTotal + otherTotal,
+              );
+              const productsCount = getBatchCount(batch, ["productCount", "productsCount", "productTypes", "itemsCount", "itemCount"]);
+              const unitsCount = getBatchCount(batch, ["totalQuantity", "totalUnits", "unitsCount", "quantityTotal"]);
+
+              return (
+                <div
+                  key={batch.id ?? `${batch.name}-${batch.createdAt}`}
+                  className="grid grid-cols-2 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs md:grid-cols-[80px_minmax(180px,1fr)_90px_90px_120px_120px_120px_110px_100px]"
+                >
+                  <div className="font-mono text-muted-foreground">
+                    #{batch.id ?? "—"}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-foreground">
+                      {batch.name ?? "Entrada sem nome"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {formatBatchDate(batch.createdAt ?? batch.created_at)} · {statusLabel(batch.status)}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase text-muted-foreground">Produtos</span>
+                    <strong>{productsCount}</strong>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase text-muted-foreground">Itens</span>
+                    <strong>{unitsCount}</strong>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase text-muted-foreground">Mercadorias</span>
+                    <strong>{formatCurrency(goodsTotal)}</strong>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase text-muted-foreground">Operacional</span>
+                    <strong>{formatCurrency(operationalTotal)}</strong>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase text-muted-foreground">Imp./Outros</span>
+                    <strong>{formatCurrency(taxTotal + otherTotal)}</strong>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] uppercase text-muted-foreground">Total lote</span>
+                    <strong className="text-primary">{formatCurrency(totalCost)}</strong>
+                  </div>
+                  <Badge variant={String(batch.status ?? "").toUpperCase() === "CLOSED" ? "default" : "secondary"} className="w-fit">
+                    {statusLabel(batch.status)}
+                  </Badge>
+                </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
 
       <AlertDialog open={showCommitDialog} onOpenChange={setShowCommitDialog}>
         <AlertDialogContent>
