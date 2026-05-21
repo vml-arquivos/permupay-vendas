@@ -47,14 +47,42 @@ export async function createBatch(
   return batch!;
 }
 
-export async function listBatches(_userId?: number): Promise<PricingBatch[]> {
+export async function listBatches(_userId?: number): Promise<(PricingBatch & {
+  itemsCount: number;
+  productsCount: number;
+  totalQuantity: number;
+})[]> {
   const db = await getDb();
   if (!db) return [];
 
-  return db
-    .select()
-    .from(pricingBatches)
-    .orderBy(desc(pricingBatches.createdAt));
+  try {
+    const result = await db.execute(sql`
+      SELECT
+        b.id,
+        b.user_id AS "userId",
+        b.name,
+        b.description,
+        b.total_operational_cost AS "totalOperationalCost",
+        b.total_tax_cost AS "totalTaxCost",
+        b.total_other_cost AS "totalOtherCost",
+        b.total_cost_of_goods AS "totalCostOfGoods",
+        b.status,
+        b.created_at AS "createdAt",
+        b.updated_at AS "updatedAt",
+        COUNT(i.id)::int AS "itemsCount",
+        COUNT(DISTINCT i.product_id)::int AS "productsCount",
+        COALESCE(SUM(i.quantity), 0)::int AS "totalQuantity"
+      FROM permupay_pricing_batches b
+      LEFT JOIN permupay_batch_items i ON i.batch_id = b.id
+      GROUP BY b.id
+      ORDER BY b.created_at DESC
+    `);
+
+    return ((result as any).rows ?? result) as any;
+  } catch (error) {
+    console.error("[DB] Erro ao listar histórico de entradas:", error);
+    return [] as any;
+  }
 }
 
 export async function getBatchById(
