@@ -85,6 +85,15 @@ const productInput = z.object({
 const batchItemSchema = z.object({
   productId: z.number().optional(),
   productName: z.string().min(1),
+
+  // Dados da aquisição — opcionais para compatibilidade com chamadas antigas
+  unitCostOriginal: z.number().min(0).optional(),
+  costCurrency: z.enum(["BRL", "USD"]).optional(),
+  exchangeRate: z.number().min(0).optional(),
+  acquisitionPaymentMethod: z
+    .enum(["DINHEIRO", "PIX", "BOLETO", "CARTAO", "DOLAR", "OUTRO"])
+    .optional(),
+
   unitCostBrl: z.number().min(0),
   quantity: z.number().int().min(1),
   desiredMarginRate: z.number().min(0).max(99.9),
@@ -317,6 +326,8 @@ export const appRouter = router({
           name: z.string().min(1),
           description: z.string().optional(),
           totalOperationalCost: z.number().min(0),
+          totalTaxCost: z.number().min(0).optional(),
+          totalOtherCost: z.number().min(0).optional(),
         })
       )
       .mutation(({ input, ctx }) =>
@@ -339,6 +350,8 @@ export const appRouter = router({
           batchId: z.number(),
           items: z.array(batchItemSchema).min(1),
           totalOperationalCost: z.number().min(0),
+          totalTaxCost: z.number().min(0).optional(),
+          totalOtherCost: z.number().min(0).optional(),
           commitToStock: z.boolean().default(false),
         })
       )
@@ -348,6 +361,8 @@ export const appRouter = router({
           ctx.user.id,
           input.items,
           input.totalOperationalCost,
+          input.totalTaxCost ?? 0,
+          input.totalOtherCost ?? 0,
           input.commitToStock
         )
       ),
@@ -359,6 +374,8 @@ export const appRouter = router({
           batchId: z.number(),
           items: z.array(batchItemSchema).min(1),
           totalOperationalCost: z.number().min(0),
+          totalTaxCost: z.number().min(0).optional(),
+          totalOtherCost: z.number().min(0).optional(),
         })
       )
       .mutation(({ input, ctx }) =>
@@ -366,7 +383,9 @@ export const appRouter = router({
           input.batchId,
           ctx.user.id,
           input.items,
-          input.totalOperationalCost
+          input.totalOperationalCost,
+          input.totalTaxCost ?? 0,
+          input.totalOtherCost ?? 0
         )
       ),
 
