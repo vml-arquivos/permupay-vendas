@@ -92,6 +92,8 @@ export async function processBatch(
   userId: number,
   items: BatchItemInput[],
   totalOperationalCost: number,
+  totalTaxCost = 0,
+  totalOtherCost = 0,
   commitToStock = false
 ): Promise<BatchPricingResult> {
   const db = await getDb();
@@ -108,7 +110,7 @@ export async function processBatch(
   if (batch.status === "CLOSED") throw new Error("Este lote já está fechado");
 
   // Calcular rateio
-  const result = calculateBatchPricing({ items, totalOperationalCost });
+  const result = calculateBatchPricing({ items, totalOperationalCost, totalTaxCost, totalOtherCost });
   if (isBatchPricingError(result)) throw new Error(result.message);
 
   // Limpar itens anteriores do lote (re-processamento)
@@ -119,10 +121,20 @@ export async function processBatch(
     batchId,
     productId: item.productId ?? null,
     productName: item.productName,
+    unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+    costCurrency: item.costCurrency ?? "BRL",
+    exchangeRate: item.exchangeRate ?? 0,
+    acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
     unitCostBrl: item.unitCostBrl,
     quantity: item.quantity,
     totalItemCost: item.totalItemCost,
     allocatedOperationalCost: item.allocatedOperationalCost,
+    operationalCostPerUnit: item.operationalCostPerUnit,
+    allocatedTaxCost: item.allocatedTaxCost,
+    taxCostPerUnit: item.taxCostPerUnit,
+    allocatedOtherCost: item.allocatedOtherCost,
+    otherCostPerUnit: item.otherCostPerUnit,
+    realTotalCost: item.realTotalCost,
     finalUnitCost: item.finalUnitCost,
     desiredMarginRate: item.desiredMarginRate,
     suggestedPrice: item.suggestedPrice,
@@ -136,6 +148,8 @@ export async function processBatch(
     .set({
       totalCostOfGoods: result.totalCostOfGoods,
       totalOperationalCost: result.totalOperationalCost,
+      totalTaxCost: result.totalTaxCost,
+      totalOtherCost: result.totalOtherCost,
       updatedAt: new Date(),
     })
     .where(eq(pricingBatches.id, batchId));
@@ -152,7 +166,7 @@ export async function processBatch(
         userId,
         quantity: item.quantity,
         unitCost: item.finalUnitCost,
-        notes: `Entrada via lote #${batchId}`,
+        notes: `Entrada via lote #${batchId} | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
       };
       await db.insert(stockEntries).values(entry);
 
@@ -420,7 +434,9 @@ export async function processBatchFIFO(
   batchId: number,
   userId: number,
   items: BatchItemInput[],
-  totalOperationalCost: number
+  totalOperationalCost: number,
+  totalTaxCost = 0,
+  totalOtherCost = 0
 ): Promise<BatchPricingResult & { queuedCount: number; activatedCount: number }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -436,7 +452,7 @@ export async function processBatchFIFO(
   if (batch.status === "CLOSED") throw new Error("Este lote já está fechado");
 
   // Calcular rateio (motor existente — sem alteração)
-  const result = calculateBatchPricing({ items, totalOperationalCost });
+  const result = calculateBatchPricing({ items, totalOperationalCost, totalTaxCost, totalOtherCost });
   if (isBatchPricingError(result)) throw new Error(result.message);
 
   // Limpar itens anteriores
@@ -454,10 +470,20 @@ export async function processBatchFIFO(
           batchId,
           productId: null,
           productName: item.productName,
+          unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+          costCurrency: item.costCurrency ?? "BRL",
+          exchangeRate: item.exchangeRate ?? 0,
+          acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
           unitCostBrl: item.unitCostBrl,
           quantity: item.quantity,
           totalItemCost: item.totalItemCost,
           allocatedOperationalCost: item.allocatedOperationalCost,
+          operationalCostPerUnit: item.operationalCostPerUnit,
+          allocatedTaxCost: item.allocatedTaxCost,
+          taxCostPerUnit: item.taxCostPerUnit,
+          allocatedOtherCost: item.allocatedOtherCost,
+          otherCostPerUnit: item.otherCostPerUnit,
+          realTotalCost: item.realTotalCost,
           finalUnitCost: item.finalUnitCost,
           desiredMarginRate: item.desiredMarginRate,
           suggestedPrice: item.suggestedPrice,
@@ -515,7 +541,7 @@ export async function processBatchFIFO(
             estimatedTaxRate: item.estimatedTaxRate ?? 6,
             status: "EM_ESPERA",
             position: nextPosition,
-            notes: `Lote #${batchId} — ${item.productName}`,
+            notes: `Entrada #${batchId} — ${item.productName} | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
           } as InsertStockQueue)
           .returning({ id: stockQueue.id });
 
@@ -524,10 +550,20 @@ export async function processBatchFIFO(
           batchId,
           productId: item.productId,
           productName: item.productName,
+          unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+          costCurrency: item.costCurrency ?? "BRL",
+          exchangeRate: item.exchangeRate ?? 0,
+          acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
           unitCostBrl: item.unitCostBrl,
           quantity: item.quantity,
           totalItemCost: item.totalItemCost,
           allocatedOperationalCost: item.allocatedOperationalCost,
+          operationalCostPerUnit: item.operationalCostPerUnit,
+          allocatedTaxCost: item.allocatedTaxCost,
+          taxCostPerUnit: item.taxCostPerUnit,
+          allocatedOtherCost: item.allocatedOtherCost,
+          otherCostPerUnit: item.otherCostPerUnit,
+          realTotalCost: item.realTotalCost,
           finalUnitCost: item.finalUnitCost,
           desiredMarginRate: item.desiredMarginRate,
           suggestedPrice: item.suggestedPrice,
@@ -542,7 +578,7 @@ export async function processBatchFIFO(
           userId,
           quantity: item.quantity,
           unitCost: item.finalUnitCost,
-          notes: `[FILA] Lote #${batchId} posição ${nextPosition} — aguardando estoque ativo zerar`,
+          notes: `[FILA] Entrada #${batchId} posição ${nextPosition} — aguardando estoque ativo zerar | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
         });
 
         queuedCount++;
@@ -565,7 +601,7 @@ export async function processBatchFIFO(
             status: "ATIVO",
             position: nextPosition,
             activatedAt: new Date(),
-            notes: `Lote #${batchId} — ativado direto (sem estoque anterior)`,
+            notes: `Entrada #${batchId} — ativado direto (sem estoque anterior) | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
           } as InsertStockQueue)
           .returning({ id: stockQueue.id });
 
@@ -573,10 +609,20 @@ export async function processBatchFIFO(
           batchId,
           productId: item.productId,
           productName: item.productName,
+          unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+          costCurrency: item.costCurrency ?? "BRL",
+          exchangeRate: item.exchangeRate ?? 0,
+          acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
           unitCostBrl: item.unitCostBrl,
           quantity: item.quantity,
           totalItemCost: item.totalItemCost,
           allocatedOperationalCost: item.allocatedOperationalCost,
+          operationalCostPerUnit: item.operationalCostPerUnit,
+          allocatedTaxCost: item.allocatedTaxCost,
+          taxCostPerUnit: item.taxCostPerUnit,
+          allocatedOtherCost: item.allocatedOtherCost,
+          otherCostPerUnit: item.otherCostPerUnit,
+          realTotalCost: item.realTotalCost,
           finalUnitCost: item.finalUnitCost,
           desiredMarginRate: item.desiredMarginRate,
           suggestedPrice: item.suggestedPrice,
@@ -603,7 +649,7 @@ export async function processBatchFIFO(
           userId,
           quantity: item.quantity,
           unitCost: item.finalUnitCost,
-          notes: `[ATIVO] Lote #${batchId} — ativado imediatamente`,
+          notes: `[ATIVO] Entrada #${batchId} — ativado imediatamente | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
         });
 
         activatedCount++;
@@ -616,6 +662,8 @@ export async function processBatchFIFO(
       .set({
         totalCostOfGoods: result.totalCostOfGoods,
         totalOperationalCost: result.totalOperationalCost,
+        totalTaxCost: result.totalTaxCost,
+        totalOtherCost: result.totalOtherCost,
         fifoMode: true,
         status: "CLOSED",
         updatedAt: new Date(),
