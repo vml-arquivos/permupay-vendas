@@ -51,7 +51,7 @@ const menuItems = [
   { icon: Package, label: "Produtos", path: "/produtos" },
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
   { icon: Calculator, label: "Simulações", path: "/simulacoes" },
-  { icon: Layers, label: "Lotes", path: "/lotes" },
+  { icon: Layers, label: "Entrada de Produtos", path: "/entrada-produtos" },
   { icon: ClipboardList, label: "Pedidos", path: "/pedidos" },
   { icon: Heart, label: "Lista de Desejos", path: "/desejos-admin" },
   { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
