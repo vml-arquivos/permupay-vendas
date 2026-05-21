@@ -1487,42 +1487,54 @@ export default function BatchPricing() {
                             Resultado do cálculo deste produto
                           </p>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-                          <MiniMetric
-                            label="Proporção"
-                            value={formatPercent(previewItem.costProportion * 100)}
-                          />
-                          <MiniMetric
-                            label="Operacional"
-                            value={formatCurrency(previewItem.allocatedOperationalCost)}
-                          />
-                          <MiniMetric
-                            label="Imposto"
-                            value={formatCurrency(previewItem.allocatedTaxCost)}
-                          />
-                          <MiniMetric
-                            label="Outros"
-                            value={formatCurrency(previewItem.allocatedOtherCost)}
-                          />
-                          <MiniMetric
-                            label="Unit. real"
-                            value={formatCurrency(previewItem.finalUnitCost)}
-                            tone="strong"
-                          />
-                          <MiniMetric
-                            label="Total real"
-                            value={formatCurrency(previewItem.realTotalCost)}
-                            tone="success"
-                          />
-                          <MiniMetric
-                            label="Preço sugerido"
-                            value={formatCurrency(previewItem.suggestedPrice)}
-                          />
-                          <MiniMetric
-                            label="Lucro proj."
-                            value={formatCurrency(previewItem.contributionMargin * previewItem.quantity)}
-                            tone={previewItem.contributionMargin >= 0 ? "success" : "warning"}
-                          />
+                        {/* Linha 1: Custos rateados */}
+                        <div className="mb-1.5">
+                          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1">Custos rateados deste produto</p>
+                          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                            <MiniMetric
+                              label="Proporção"
+                              value={formatPercent(previewItem.costProportion * 100)}
+                            />
+                            <MiniMetric
+                              label="Op. total (produto)"
+                              value={formatCurrency(previewItem.allocatedOperationalCost)}
+                              tone="warning"
+                            />
+                            <MiniMetric
+                              label="Op. por unidade"
+                              value={`${formatCurrency(previewItem.operationalCostPerUnit)}/un`}
+                              tone="warning"
+                            />
+                            <MiniMetric
+                              label="Imposto + Outros"
+                              value={formatCurrency((previewItem.allocatedTaxCost ?? 0) + (previewItem.allocatedOtherCost ?? 0))}
+                            />
+                          </div>
+                        </div>
+                        {/* Linha 2: Resultados finais */}
+                        <div>
+                          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1">Resultado final</p>
+                          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                            <MiniMetric
+                              label="Custo unit. real"
+                              value={formatCurrency(previewItem.finalUnitCost)}
+                              tone="strong"
+                            />
+                            <MiniMetric
+                              label="Custo total real"
+                              value={formatCurrency(previewItem.realTotalCost)}
+                              tone="success"
+                            />
+                            <MiniMetric
+                              label="Preço sugerido"
+                              value={formatCurrency(previewItem.suggestedPrice)}
+                            />
+                            <MiniMetric
+                              label="Lucro proj."
+                              value={formatCurrency(previewItem.contributionMargin * previewItem.quantity)}
+                              tone={previewItem.contributionMargin >= 0 ? "success" : "warning"}
+                            />
+                          </div>
                         </div>
                       </div>
                     )}
