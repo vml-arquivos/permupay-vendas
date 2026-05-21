@@ -50,11 +50,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-type ProductView = "todos" | "publicados" | "rascunhos";
+type ProductView = "todos" | "publicados" | "rascunhos" | "paraPublicar";
 
 export default function Products() {
   const utils = trpc.useUtils();
   const { data: products = [] } = trpc.products.list.useQuery();
+  const { data: pendingProducts = [] } = trpc.products.pendingToPublish.useQuery(undefined, {
+    staleTime: 60_000,
+  });
   // Settings globais — usadas como fallback para detectar links de pagamento
   // em produtos criados antes da herança automática ser implementada
   const { data: globalPayment } = trpc.paymentSettings.get.useQuery(undefined, {
@@ -172,12 +175,29 @@ export default function Products() {
     }
   };
 
-  const filteredProducts = (products as any[]).filter((p) => {
+  const pendingIds = new Set((pendingProducts as any[]).map((p) => p.id));
+
+  const isPendingToPublish = (p: any) => {
+    const hasStock = Number(p.stockQuantity ?? 0) > 0;
+    const hasRealCost = Number(p.finalUnitCostBrl ?? p.averageCostBrl ?? 0) > 0;
+    return p.active !== false && p.published !== true && hasStock && hasRealCost;
+  };
+
+  const listForCurrentView =
+    view === "paraPublicar"
+      ? (pendingProducts as any[])
+      : (products as any[]);
+
+  const filteredProducts = listForCurrentView.filter((p) => {
+    const term = searchTerm.toLowerCase().trim();
     const matchSearch =
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchTerm.toLowerCase());
+      !term ||
+      String(p.id).includes(term) ||
+      p.name.toLowerCase().includes(term) ||
+      p.category.toLowerCase().includes(term);
     const matchView =
       view === "todos" ||
+      view === "paraPublicar" ||
       (view === "publicados" && p.published) ||
       (view === "rascunhos" && !p.published);
     return matchSearch && matchView;
@@ -185,6 +205,7 @@ export default function Products() {
 
   const publishedCount = (products as any[]).filter((p) => p.published).length;
   const draftCount = (products as any[]).filter((p) => !p.published).length;
+  const pendingCount = (pendingProducts as any[]).length;
 
   const exportToExcel = () => {
     if (products.length === 0) {
@@ -349,6 +370,7 @@ export default function Products() {
                   { key: "todos", label: `Todos (${products.length})` },
                   { key: "publicados", label: `Publicados (${publishedCount})` },
                   { key: "rascunhos", label: `Rascunhos (${draftCount})` },
+                  { key: "paraPublicar", label: `Para Publicar (${pendingCount})` },
                 ] as { key: ProductView; label: string }[]
               ).map(({ key, label }) => (
                 <button
@@ -372,11 +394,28 @@ export default function Products() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 type="text"
-                placeholder="Pesquisar por nome ou categoria..."
+                placeholder="Pesquisar por nome, categoria ou ID..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 h-10"
               />
+            </div>
+          )}
+
+          {view === "paraPublicar" && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/20 p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    Produtos para Publicar
+                  </p>
+                  <p className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-1">
+                    Aqui aparecem produtos com entrada/estoque e custo calculado, mas ainda não publicados na vitrine.
+                    Clique em <strong>Configurar venda</strong> para completar descrição, imagens, preço e publicação.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -390,7 +429,11 @@ export default function Products() {
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="rounded-xl border border-border bg-card p-8 text-center">
-              <p className="text-sm text-muted-foreground">Nenhum produto encontrado com "{searchTerm}"</p>
+              <p className="text-sm text-muted-foreground">
+                {view === "paraPublicar"
+                  ? "Nenhum produto pendente de publicação encontrado."
+                  : `Nenhum produto encontrado com "${searchTerm}"`}
+              </p>
             </div>
           ) : (
             <div className="grid gap-4">
@@ -454,6 +497,11 @@ export default function Products() {
                                   <EyeOff className="w-3 h-3 mr-1" /> Rascunho
                                 </Badge>
                               )}
+                              {pendingIds.has(product.id) && !product.published && (
+                                <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
+                                  Para publicar
+                                </Badge>
+                              )}
                               {!product.active && <Badge variant="secondary" className="text-xs opacity-60">Inativo</Badge>}
                               {product.promoTag && <Badge className="bg-orange-100 text-orange-700 border-0 text-xs">🏷️ {product.promoTag}</Badge>}
                               {lowStock && <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">⚠️ Baixo estoque</Badge>}
@@ -489,7 +537,7 @@ export default function Products() {
                       </div>
 
                       {/* Preços e estoque */}
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3 rounded-lg bg-muted/30">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-3 rounded-lg bg-muted/30">
                         <div>
                           <p className="text-xs text-muted-foreground">Custo</p>
                           <p className="text-sm font-semibold text-foreground">
@@ -497,8 +545,16 @@ export default function Products() {
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">Custo Final</p>
-                          <p className="text-sm font-semibold text-foreground">{formatCurrency(product.finalUnitCostBrl || 0)}</p>
+                          <p className="text-xs text-muted-foreground">Custo Unit.</p>
+                          <p className="text-sm font-semibold text-foreground">
+                            {formatCurrency(product.finalUnitCostBrl || product.averageCostBrl || product.costPrice || 0)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Custo Total</p>
+                          <p className="text-sm font-semibold text-foreground">
+                            {formatCurrency((product.finalUnitCostBrl || product.averageCostBrl || product.costPrice || 0) * (product.stockQuantity || 0))}
+                          </p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Preço PIX</p>
@@ -524,7 +580,7 @@ export default function Products() {
                       <div className="flex flex-wrap gap-2 pt-2 border-t border-border/50">
                         <Link href={`/produtos/${product.id}/editar`}>
                           <Button variant="outline" size="sm" className="gap-1.5">
-                            <Edit2 className="w-3.5 h-3.5" /> Editar
+                            <Edit2 className="w-3.5 h-3.5" /> {view === "paraPublicar" ? "Configurar venda" : "Editar"}
                           </Button>
                         </Link>
                         <Link href={`/simulador?productId=${product.id}`}>
