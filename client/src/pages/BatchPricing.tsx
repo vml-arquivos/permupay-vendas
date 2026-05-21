@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState, useCallback, type ReactNode } from "react";
-import { CurrencyInput } from "@/components/CurrencyInput";
+import { CurrencyInput, parseCurrencyValue } from "@/components/CurrencyInput";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -127,18 +127,7 @@ const emptyItem = (): LocalItem => ({
 
 function toNumber(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  if (typeof value !== "string") return 0;
-
-  const raw = value.trim();
-  if (!raw) return 0;
-
-  const cleaned = raw
-    .replace(/[R$US$\s]/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-
-  const parsed = Number.parseFloat(cleaned);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseCurrencyValue(value ?? "");
 }
 
 function toMoney(value: string): number {
@@ -228,6 +217,7 @@ function TextNumberInput({
   onChange,
   placeholder,
   integer = false,
+  money = false,
   disabled = false,
   className = "",
 }: {
@@ -235,15 +225,33 @@ function TextNumberInput({
   onChange: (value: string) => void;
   placeholder: string;
   integer?: boolean;
+  money?: boolean;
   disabled?: boolean;
   className?: string;
 }) {
+  if (money) {
+    return (
+      <CurrencyInput
+        value={value}
+        onValueChange={(nextValue) => onChange(nextValue > 0 ? String(nextValue) : "")}
+        placeholder={placeholder}
+        disabled={disabled}
+        noPrefix
+        className={className}
+      />
+    );
+  }
+
   return (
     <Input
       type="text"
       inputMode={integer ? "numeric" : "decimal"}
       value={value}
-      onChange={(event) => onChange(event.target.value)}
+      onChange={(event) => {
+        const raw = event.target.value;
+        if (integer) onChange(raw.replace(/\D/g, ""));
+        else onChange(raw.replace(/[^0-9,.-]/g, ""));
+      }}
       placeholder={placeholder}
       disabled={disabled}
       className={`h-9 text-sm ${className}`}
@@ -380,6 +388,7 @@ export default function BatchPricing() {
   const [totalOtherCost, setTotalOtherCost] = useState("");
 
   const [fifoMode, setFifoMode] = useState(true);
+  const [regularizationMode, setRegularizationMode] = useState(false);
   const [items, setItems] = useState<LocalItem[]>([emptyItem()]);
   const [collapsedItemIds, setCollapsedItemIds] = useState<Set<string>>(
     () => new Set(),
@@ -399,6 +408,10 @@ export default function BatchPricing() {
   const utils = trpc.useUtils();
 
   const productsQuery = trpc.products.list.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+
+  const regularizationCandidatesQuery = trpc.batches.regularizationCandidates.useQuery(undefined, {
     staleTime: 60_000,
   });
 
@@ -450,6 +463,18 @@ export default function BatchPricing() {
       toast.success(
         `Entrada FIFO processada! ${data.activatedCount} ativado(s), ${data.queuedCount} na fila de espera.`,
       );
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const processInitialRegularization = trpc.batches.processInitialRegularization.useMutation({
+    onSuccess: (data) => {
+      utils.batches.list.invalidate();
+      utils.products.list.invalidate();
+      regularizationCandidatesQuery.refetch();
+      setFifoResult({ activatedCount: data.regularizedCount, queuedCount: 0 });
+      setRegularizationMode(false);
+      toast.success(`Regularização inicial concluída! ${data.regularizedCount} produto(s) vinculados ao primeiro lote.`);
     },
     onError: (err) => toast.error(err.message),
   });
@@ -524,8 +549,58 @@ export default function BatchPricing() {
 
   const addItem = () => {
     const newItem = emptyItem();
+    setRegularizationMode(false);
     setItems((prev) => [...prev, newItem]);
     setCollapsedItemIds(() => new Set(items.map((item) => item._id)));
+  };
+
+  const loadRegularizationCandidates = () => {
+    const candidates = (regularizationCandidatesQuery.data ?? []) as any[];
+    if (candidates.length === 0) {
+      toast.info("Nenhum produto sem entrada/lote foi encontrado para regularização.");
+      return;
+    }
+
+    const loadedItems = candidates.map((product) => {
+      const baseCost = Number(
+        product.finalUnitCostBrl ??
+          product.final_unit_cost_brl ??
+          product.averageCostBrl ??
+          product.average_cost_brl ??
+          product.costPriceBrl ??
+          product.cost_price_brl ??
+          product.costPrice ??
+          product.cost_price ??
+          0,
+      );
+      const quantity = Math.max(1, Math.trunc(Number(product.stockQuantity ?? product.stock_quantity ?? 0)));
+
+      return {
+        _id: crypto.randomUUID(),
+        entryMode: "EXISTING" as EntryMode,
+        productId: Number(product.id),
+        productName: product.name ?? `Produto #${product.id}`,
+        category: (product.category ?? "OUTRO") as ProductCategory,
+        currency: "BRL" as AcquisitionCurrency,
+        unitCostOriginal: baseCost > 0 ? String(baseCost) : "",
+        exchangeRate: "",
+        quantity: String(quantity),
+        acquisitionPaymentMethod: "OUTRO" as AcquisitionPaymentMethod,
+        desiredMarginRate: product.desiredMarginRate ? String(product.desiredMarginRate) : "30",
+        estimatedTaxRate: product.estimatedTaxRate ? String(product.estimatedTaxRate) : "6",
+      };
+    });
+
+    setRegularizationMode(true);
+    setFifoMode(true);
+    setSavedBatchId(null);
+    setPreview(null);
+    setPreviewError(null);
+    setBatchName((current) => current.trim() || "Regularização inicial de produtos cadastrados");
+    setBatchDescription((current) => current.trim() || "Entrada inicial criada para vincular produtos legados já cadastrados ao histórico de lotes.");
+    setItems(loadedItems);
+    setCollapsedItemIds(new Set(loadedItems.slice(1).map((item) => item._id)));
+    toast.success(`${loadedItems.length} produto(s) carregados para regularização inicial.`);
   };
 
   const removeItem = (id: string) => {
@@ -949,13 +1024,23 @@ export default function BatchPricing() {
       }
 
       if (fifoMode) {
-        await processFIFO.mutateAsync({
-          batchId,
-          items: validItems,
-          totalOperationalCost: toMoney(totalOperationalCost),
-          totalTaxCost: toMoney(totalTaxCost),
-          totalOtherCost: toMoney(totalOtherCost),
-        });
+        if (regularizationMode) {
+          await processInitialRegularization.mutateAsync({
+            batchId,
+            items: validItems,
+            totalOperationalCost: toMoney(totalOperationalCost),
+            totalTaxCost: toMoney(totalTaxCost),
+            totalOtherCost: toMoney(totalOtherCost),
+          });
+        } else {
+          await processFIFO.mutateAsync({
+            batchId,
+            items: validItems,
+            totalOperationalCost: toMoney(totalOperationalCost),
+            totalTaxCost: toMoney(totalTaxCost),
+            totalOtherCost: toMoney(totalOtherCost),
+          });
+        }
       } else {
         await processBatch.mutateAsync({
           batchId,
@@ -975,7 +1060,8 @@ export default function BatchPricing() {
     createProduct.isPending ||
     createBatch.isPending ||
     processBatch.isPending ||
-    processFIFO.isPending;
+    processFIFO.isPending ||
+    processInitialRegularization.isPending;
 
   return (
     <div className="container mx-auto max-w-7xl px-4 py-8 space-y-6">
@@ -1132,12 +1218,30 @@ export default function BatchPricing() {
       {/* Produtos */}
       <Card>
         <CardHeader className="pb-3">
-          <div>
-            <CardTitle className="text-base">Produtos da Entrada</CardTitle>
-            <CardDescription>
-              Preencha cada item em linhas compactas. Use recolher para
-              trabalhar com vários produtos sem perder espaço.
-            </CardDescription>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <CardTitle className="text-base">Produtos da Entrada</CardTitle>
+              <CardDescription>
+                Preencha cada item em linhas compactas. Use recolher para
+                trabalhar com vários produtos sem perder espaço.
+              </CardDescription>
+              {regularizationMode && (
+                <p className="mt-2 text-xs font-semibold text-primary">
+                  Modo regularização inicial ativo: os produtos existentes serão vinculados ao primeiro lote sem recriar cadastro.
+                </p>
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={loadRegularizationCandidates}
+              disabled={regularizationCandidatesQuery.isLoading}
+              className="shrink-0"
+            >
+              <PackagePlus className="mr-2 h-4 w-4" />
+              Carregar produtos sem entrada
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -1880,13 +1984,26 @@ export default function BatchPricing() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {fifoMode
-                ? "Confirmar envio para fila"
-                : "Confirmar entrada de estoque"}
+              {regularizationMode
+                ? "Confirmar regularização inicial"
+                : fifoMode
+                  ? "Confirmar envio para fila"
+                  : "Confirmar entrada de estoque"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm text-muted-foreground">
-                {fifoMode ? (
+                {regularizationMode ? (
+                  <>
+                    <p>
+                      Esta entrada será salva como <strong>regularização inicial</strong> dos produtos já cadastrados.
+                      Os produtos base não serão recriados e os IDs serão preservados.
+                    </p>
+                    <p className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      Revise quantidades e custos antes de confirmar.
+                    </p>
+                  </>
+                ) : fifoMode ? (
                   <>
                     <p>
                       A entrada será processada com <strong>Fila FIFO</strong>.
@@ -1915,7 +2032,7 @@ export default function BatchPricing() {
                 handleSaveAndProcess(true);
               }}
             >
-              {fifoMode ? "Confirmar envio" : "Confirmar entrada"}
+              {regularizationMode ? "Confirmar regularização" : fifoMode ? "Confirmar envio" : "Confirmar entrada"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
