@@ -5,6 +5,7 @@
  * 1. paymentSettingsSchema expandido com Fiscal, Boleto, Cartão e Descontos Universais.
  * 2. taxCash (PIX) removido do paymentSettingsSchema — forçado como 0 no db.payment-settings.ts.
  * 3. Todos os outros procedimentos INTACTOS.
+ * 4. Segurança: orders.create não aceita unitPrice vindo do frontend.
  */
 
 import { z } from "zod";
@@ -559,7 +560,6 @@ export const appRouter = router({
           buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
           buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
           paymentMethod: z.enum(["PIX", "CARTAO", "BOLETO"]),
-          unitPrice: z.number().min(0),
         })
       )
       .mutation(({ input }) => dbOrders.createOrder(input)),
