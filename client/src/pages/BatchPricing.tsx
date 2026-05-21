@@ -1,58 +1,106 @@
 /**
- * BatchPricing.tsx — Entrada de Produtos com Rateio Proporcional + FIFO
+ * BatchPricing.tsx — Entrada de Produtos profissional, sem tabela espremida
  *
- * Esta tela é a base operacional da Entrada de Produtos.
- * Ela permite registrar entrada para produto existente ou criar um produto base
- * antes de processar estoque, preservando compatibilidade com produtos antigos.
+ * Esta tela registra entradas de produtos/lotes, calcula custo real com rateio
+ * proporcional, permite produto existente ou novo, preserva FIFO e exporta
+ * planilha .xlsx do preview atual.
  */
 
-import { useState, useCallback } from "react";
+import { useMemo, useState, useCallback, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
-  PlusCircle, Trash2, Calculator, PackageCheck, ChevronLeft,
-  Clock, Zap, Info, CheckCircle2, AlertTriangle, PackagePlus,
+  PlusCircle,
+  Trash2,
+  Calculator,
+  PackageCheck,
+  ChevronLeft,
+  Clock,
+  Zap,
+  Info,
+  CheckCircle2,
+  AlertTriangle,
+  PackagePlus,
+  Download,
+  WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  calculateBatchPricing, formatCurrency, formatPercent,
-  isBatchPricingError, type BatchItemInput, type BatchPricingResult,
+  calculateBatchPricing,
+  formatCurrency,
+  formatPercent,
+  isBatchPricingError,
+  type BatchItemInput,
+  type BatchPricingResult,
 } from "@shared/pricing.batch";
-import { CurrencyInput } from "@/components/CurrencyInput";
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
 
 type EntryMode = "EXISTING" | "NEW";
 type AcquisitionCurrency = "BRL" | "USD";
-type AcquisitionPaymentMethod = "DINHEIRO" | "PIX" | "BOLETO" | "CARTAO" | "DOLAR" | "OUTRO";
+type AcquisitionPaymentMethod =
+  | "DINHEIRO"
+  | "PIX"
+  | "BOLETO"
+  | "CARTAO"
+  | "DOLAR"
+  | "OUTRO";
 type ProductCategory = "CELULAR" | "ELETRONICO" | "PERFUME" | "OUTRO";
 
-interface LocalItem extends BatchItemInput {
+type LocalItem = {
   _id: string;
   entryMode: EntryMode;
+  productId?: number;
+  productName: string;
   category: ProductCategory;
   currency: AcquisitionCurrency;
-  unitCostOriginal: number;
-  exchangeRate: number;
+  unitCostOriginal: string;
+  exchangeRate: string;
+  quantity: string;
   acquisitionPaymentMethod: AcquisitionPaymentMethod;
-}
+  desiredMarginRate: string;
+  estimatedTaxRate: string;
+};
+
+const CATEGORY_OPTIONS: { value: ProductCategory; label: string }[] = [
+  { value: "CELULAR", label: "Celular" },
+  { value: "ELETRONICO", label: "Eletrônico" },
+  { value: "PERFUME", label: "Perfume" },
+  { value: "OUTRO", label: "Outro" },
+];
+
+const PAYMENT_OPTIONS: { value: AcquisitionPaymentMethod; label: string }[] = [
+  { value: "DINHEIRO", label: "Dinheiro" },
+  { value: "PIX", label: "Pix" },
+  { value: "BOLETO", label: "Boleto" },
+  { value: "CARTAO", label: "Cartão" },
+  { value: "DOLAR", label: "Dólar" },
+  { value: "OUTRO", label: "Outro" },
+];
 
 const emptyItem = (): LocalItem => ({
   _id: crypto.randomUUID(),
@@ -61,30 +109,63 @@ const emptyItem = (): LocalItem => ({
   productId: undefined,
   category: "OUTRO",
   currency: "BRL",
-  unitCostOriginal: 0,
-  exchangeRate: 5.5,
-  unitCostBrl: 0,
-  quantity: 1,
-  desiredMarginRate: 30,
-  estimatedTaxRate: 6,
+  unitCostOriginal: "",
+  exchangeRate: "",
+  quantity: "",
+  desiredMarginRate: "",
+  estimatedTaxRate: "",
   acquisitionPaymentMethod: "PIX",
 });
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function toNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value !== "string") return 0;
+
+  const raw = value.trim();
+  if (!raw) return 0;
+
+  const cleaned = raw
+    .replace(/[R$US$\s]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toMoney(value: string): number {
+  return toNumber(value);
+}
+
+function cleanFileName(value: string): string {
+  return (
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9-_]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "") || "entrada-produtos"
+  ).toLowerCase();
+}
+
 function resolveUnitCostBrl(item: LocalItem): number {
-  const original = Number(item.unitCostOriginal || 0);
-  if (item.currency === "USD") return original * Number(item.exchangeRate || 0);
+  const original = toMoney(item.unitCostOriginal);
+  if (item.currency === "USD") return original * toNumber(item.exchangeRate);
   return original;
 }
 
-function normalizeItem(item: LocalItem): LocalItem {
+function normalizeItem(item: LocalItem) {
+  const unitCostBrl = resolveUnitCostBrl(item);
   return {
     ...item,
-    unitCostOriginal: Number(item.unitCostOriginal || 0),
-    exchangeRate: Number(item.exchangeRate || 0),
-    unitCostBrl: resolveUnitCostBrl(item),
-    quantity: Number(item.quantity || 0),
-    desiredMarginRate: Number(item.desiredMarginRate || 0),
-    estimatedTaxRate: Number(item.estimatedTaxRate ?? 0),
+    unitCostOriginalNumber: toMoney(item.unitCostOriginal),
+    exchangeRateNumber: item.currency === "USD" ? toNumber(item.exchangeRate) : 0,
+    unitCostBrl,
+    quantityNumber: Math.trunc(toNumber(item.quantity)),
+    desiredMarginRateNumber: toNumber(item.desiredMarginRate),
+    estimatedTaxRateNumber: toNumber(item.estimatedTaxRate),
   };
 }
 
@@ -92,16 +173,101 @@ function toBatchItem(item: LocalItem): BatchItemInput {
   const normalized = normalizeItem(item);
   return {
     productId: normalized.productId,
-    productName: normalized.productName,
-    unitCostOriginal: normalized.unitCostOriginal,
+    productName: normalized.productName.trim(),
+    unitCostOriginal: normalized.unitCostOriginalNumber,
     costCurrency: normalized.currency,
-    exchangeRate: normalized.currency === "USD" ? normalized.exchangeRate : 0,
+    exchangeRate: normalized.exchangeRateNumber,
     acquisitionPaymentMethod: normalized.acquisitionPaymentMethod,
     unitCostBrl: normalized.unitCostBrl,
-    quantity: normalized.quantity,
-    desiredMarginRate: normalized.desiredMarginRate,
-    estimatedTaxRate: normalized.estimatedTaxRate,
+    quantity: normalized.quantityNumber,
+    desiredMarginRate: normalized.desiredMarginRateNumber,
+    estimatedTaxRate: normalized.estimatedTaxRateNumber,
   };
+}
+
+function displayMoneyOrEmpty(value: number): string {
+  return value > 0 ? formatCurrency(value) : "";
+}
+
+function Field({
+  label,
+  children,
+  hint,
+  required,
+}: {
+  label: string;
+  children: ReactNode;
+  hint?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+        {required && <span className="ml-0.5 text-destructive">*</span>}
+      </Label>
+      {children}
+      {hint && <p className="text-[11px] leading-relaxed text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function TextNumberInput({
+  value,
+  onChange,
+  placeholder,
+  integer = false,
+  disabled = false,
+  className = "",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  integer?: boolean;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <Input
+      type="text"
+      inputMode={integer ? "numeric" : "decimal"}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      disabled={disabled}
+      className={`h-10 text-sm ${className}`}
+    />
+  );
+}
+
+function ReadOnlyMoney({ value, placeholder = "Calculado" }: { value: number; placeholder?: string }) {
+  return (
+    <Input
+      value={displayMoneyOrEmpty(value)}
+      readOnly
+      disabled
+      placeholder={placeholder}
+      className="h-10 bg-muted/40 text-sm font-semibold"
+    />
+  );
+}
+
+function SummaryBox({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xl font-bold text-foreground">{value}</p>
+      {hint && <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -109,35 +275,30 @@ function toBatchItem(item: LocalItem): BatchItemInput {
 export default function BatchPricing() {
   const [, setLocation] = useLocation();
 
-  // Cabeçalho
-  const [batchName, setBatchName]               = useState("");
+  // Cabeçalho — strings para não forçar zero visual no input
+  const [batchName, setBatchName] = useState("");
   const [batchDescription, setBatchDescription] = useState("");
-  const [totalOperationalCost, setTotalOperationalCost] = useState(0);
-  const [totalTaxCost, setTotalTaxCost] = useState(0);
-  const [totalOtherCost, setTotalOtherCost] = useState(0);
+  const [totalOperationalCost, setTotalOperationalCost] = useState("");
+  const [totalTaxCost, setTotalTaxCost] = useState("");
+  const [totalOtherCost, setTotalOtherCost] = useState("");
 
-  // Modo FIFO
-  const [fifoMode, setFifoMode] = useState(false);
-
-  // Itens
+  const [fifoMode, setFifoMode] = useState(true);
   const [items, setItems] = useState<LocalItem[]>([emptyItem()]);
 
-  // Preview
-  const [preview, setPreview]           = useState<BatchPricingResult | null>(null);
+  const [preview, setPreview] = useState<BatchPricingResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
-
-  // Dialogs
   const [showCommitDialog, setShowCommitDialog] = useState(false);
-  const [savedBatchId, setSavedBatchId]         = useState<number | null>(null);
-  const [fifoResult, setFifoResult]             = useState<{ queuedCount: number; activatedCount: number } | null>(null);
+  const [savedBatchId, setSavedBatchId] = useState<number | null>(null);
+  const [fifoResult, setFifoResult] = useState<{
+    queuedCount: number;
+    activatedCount: number;
+  } | null>(null);
 
   const utils = trpc.useUtils();
 
   const productsQuery = trpc.products.list.useQuery(undefined, {
     staleTime: 60_000,
   });
-
-  // ── Mutations ───────────────────────────────────────────────────────────────
 
   const createProduct = trpc.products.create.useMutation();
 
@@ -167,93 +328,285 @@ export default function BatchPricing() {
     onError: (err) => toast.error(err.message),
   });
 
-  // ── Handlers de itens ───────────────────────────────────────────────────────
+  const totals = useMemo(() => {
+    const normalized = items.map(normalizeItem);
+    const totalQuantity = normalized.reduce((sum, item) => sum + item.quantityNumber, 0);
+    const goodsTotal = normalized.reduce(
+      (sum, item) => sum + item.unitCostBrl * item.quantityNumber,
+      0
+    );
+    const additionalTotal =
+      toMoney(totalOperationalCost) + toMoney(totalTaxCost) + toMoney(totalOtherCost);
+    return {
+      totalQuantity,
+      goodsTotal,
+      additionalTotal,
+      grandTotal: goodsTotal + additionalTotal,
+      productTypes: items.length,
+    };
+  }, [items, totalOperationalCost, totalTaxCost, totalOtherCost]);
 
   const addItem = () => setItems((prev) => [...prev, emptyItem()]);
 
   const removeItem = (id: string) =>
-    setItems((prev) => prev.filter((i) => i._id !== id));
+    setItems((prev) => (prev.length === 1 ? prev : prev.filter((item) => item._id !== id)));
 
   const updateItem = useCallback(
-    (id: string, field: keyof LocalItem, value: string | number | undefined) => {
+    <K extends keyof LocalItem>(id: string, field: K, value: LocalItem[K]) => {
       setItems((prev) =>
-        prev.map((item) => {
-          if (item._id !== id) return item;
-          const next: LocalItem = {
-            ...item,
-            [field]: typeof value === "string" ? value : value === undefined ? undefined : Number(value),
-          } as LocalItem;
-
-          if (field === "currency" || field === "unitCostOriginal" || field === "exchangeRate") {
-            next.unitCostBrl = resolveUnitCostBrl(next);
-          }
-
-          return next;
-        })
+        prev.map((item) => (item._id === id ? { ...item, [field]: value } : item))
       );
     },
     []
   );
 
-  const applyExistingProduct = useCallback((itemId: string, rawProductId: string) => {
-    const selectedId = rawProductId ? Number(rawProductId) : undefined;
-    const selected = productsQuery.data?.find((p: any) => p.id === selectedId) as any;
+  const applyExistingProduct = useCallback(
+    (itemId: string, rawProductId: string) => {
+      const selectedId = rawProductId ? Number(rawProductId) : undefined;
+      const selected = productsQuery.data?.find((product: any) => product.id === selectedId) as any;
 
-    setItems((prev) =>
-      prev.map((item) => {
-        if (item._id !== itemId) return item;
-        if (!selected) {
-          return { ...item, productId: undefined, entryMode: "EXISTING" };
-        }
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item._id !== itemId) return item;
+          if (!selected) return { ...item, productId: undefined, entryMode: "EXISTING" };
 
-        const cost = Number(selected.finalUnitCostBrl ?? selected.averageCostBrl ?? selected.costPrice ?? 0);
-        return {
-          ...item,
-          entryMode: "EXISTING",
-          productId: selected.id,
-          productName: selected.name ?? item.productName,
-          category: (selected.category as ProductCategory) ?? item.category,
-          currency: "BRL",
-          unitCostOriginal: cost > 0 ? cost : item.unitCostOriginal,
-          unitCostBrl: cost > 0 ? cost : item.unitCostBrl,
-        };
-      })
-    );
-  }, [productsQuery.data]);
+          const fallbackCost = Number(
+            selected.finalUnitCostBrl ?? selected.averageCostBrl ?? selected.costPrice ?? 0
+          );
 
-  // ── Preview ─────────────────────────────────────────────────────────────────
+          return {
+            ...item,
+            entryMode: "EXISTING",
+            productId: selected.id,
+            productName: selected.name ?? item.productName,
+            category: (selected.category as ProductCategory) ?? item.category,
+            currency: "BRL",
+            unitCostOriginal:
+              item.unitCostOriginal.trim() || (fallbackCost > 0 ? String(fallbackCost) : ""),
+          };
+        })
+      );
+    },
+    [productsQuery.data]
+  );
 
-  const handlePreview = () => {
+  function validateEntry(): BatchItemInput[] | null {
     setPreviewError(null);
-    setPreview(null);
+    const validLocalItems = items
+      .filter((item) => item.productName.trim() || item.productId)
+      .map(normalizeItem);
 
-    const validItems = items.filter((i) => i.productName.trim()).map(toBatchItem);
-    if (validItems.length === 0) {
-      setPreviewError("Adicione pelo menos 1 item com nome preenchido.");
-      return;
+    if (!batchName.trim()) {
+      const message = "Informe o nome da entrada.";
+      setPreviewError(message);
+      toast.error(message);
+      return null;
     }
 
-    const result = calculateBatchPricing({ items: validItems, totalOperationalCost, totalTaxCost, totalOtherCost });
-    if (isBatchPricingError(result)) setPreviewError(result.message);
-    else setPreview(result);
-  };
-
-  // ── Salvar + Processar ──────────────────────────────────────────────────────
-
-  const handleSaveAndProcess = async (commitToStock: boolean) => {
-    if (!batchName.trim()) { toast.error("Informe o nome da entrada."); return; }
-
-    const validLocalItems = items.filter((i) => i.productName.trim()).map(normalizeItem);
-    if (validLocalItems.length === 0) { toast.error("Adicione pelo menos 1 item."); return; }
-
-    const invalidUsd = validLocalItems.find((i) => i.currency === "USD" && Number(i.exchangeRate || 0) <= 0);
-    if (invalidUsd) {
-      toast.error(`Informe a cotação do dólar para ${invalidUsd.productName}.`);
-      return;
+    if (validLocalItems.length === 0) {
+      const message = "Adicione pelo menos 1 produto na entrada.";
+      setPreviewError(message);
+      toast.error(message);
+      return null;
     }
+
+    const negativeAdditional = [
+      ["custo operacional", totalOperationalCost],
+      ["impostos/taxas", totalTaxCost],
+      ["outros custos", totalOtherCost],
+    ].find(([, value]) => toMoney(String(value)) < 0);
+
+    if (negativeAdditional) {
+      const message = `O campo ${negativeAdditional[0]} não pode ser negativo.`;
+      setPreviewError(message);
+      toast.error(message);
+      return null;
+    }
+
+    for (const [index, item] of validLocalItems.entries()) {
+      const position = index + 1;
+      if (!item.productName.trim()) {
+        const message = `Produto ${position}: informe o nome do produto.`;
+        setPreviewError(message);
+        toast.error(message);
+        return null;
+      }
+
+      if (item.entryMode === "EXISTING" && !item.productId) {
+        const message = `Produto ${position}: selecione um produto existente ou altere o tipo para Novo.`;
+        setPreviewError(message);
+        toast.error(message);
+        return null;
+      }
+
+      if (item.quantityNumber <= 0) {
+        const message = `Produto ${position}: informe uma quantidade maior que zero.`;
+        setPreviewError(message);
+        toast.error(message);
+        return null;
+      }
+
+      if (item.unitCostBrl <= 0) {
+        const message = `Produto ${position}: informe um custo unitário maior que zero.`;
+        setPreviewError(message);
+        toast.error(message);
+        return null;
+      }
+
+      if (item.currency === "USD" && item.exchangeRateNumber <= 0) {
+        const message = `Produto ${position}: informe a cotação do dólar.`;
+        setPreviewError(message);
+        toast.error(message);
+        return null;
+      }
+    }
+
+    const batchItems = validLocalItems.map((item) => toBatchItem(item));
+    const goodsTotal = batchItems.reduce((sum, item) => sum + item.unitCostBrl * item.quantity, 0);
+    if (goodsTotal <= 0) {
+      const message = "O custo total das mercadorias precisa ser maior que zero.";
+      setPreviewError(message);
+      toast.error(message);
+      return null;
+    }
+
+    return batchItems;
+  }
+
+  const calculatePreview = useCallback(
+    (showToast = false): BatchPricingResult | null => {
+      const validItems = validateEntry();
+      if (!validItems) return null;
+
+      const result = calculateBatchPricing({
+        items: validItems,
+        totalOperationalCost: toMoney(totalOperationalCost),
+        totalTaxCost: toMoney(totalTaxCost),
+        totalOtherCost: toMoney(totalOtherCost),
+      });
+
+      if (isBatchPricingError(result)) {
+        setPreview(null);
+        setPreviewError(result.message);
+        toast.error(result.message);
+        return null;
+      }
+
+      setPreview(result);
+      setPreviewError(null);
+      if (showToast) toast.success("Rateio atualizado.");
+      return result;
+    },
+    [items, totalOperationalCost, totalTaxCost, totalOtherCost, batchName]
+  );
+
+  const handlePreview = () => calculatePreview(true);
+
+  const exportSpreadsheet = async () => {
+    const currentPreview = preview ?? calculatePreview(false);
+    if (!currentPreview) return;
 
     try {
+      const XLSX = await import("xlsx");
+      const now = new Date();
+      const normalizedItems = items.map(normalizeItem);
+
+      const summaryRows = [
+        ["Nome da entrada", batchName.trim()],
+        ["Data de exportação", now.toLocaleString("pt-BR")],
+        ["Custo operacional total", currentPreview.totalOperationalCost],
+        ["Impostos/taxas total", currentPreview.totalTaxCost],
+        ["Outros custos total", currentPreview.totalOtherCost],
+        ["Custo total das mercadorias", currentPreview.totalCostOfGoods],
+        ["Custo total da entrada", currentPreview.grandTotal],
+        ["Quantidade total de unidades", currentPreview.items.reduce((sum, item) => sum + item.quantity, 0)],
+        ["Quantidade de tipos de produto", currentPreview.items.length],
+        ["Modo FIFO ativo", fifoMode ? "Sim" : "Não"],
+        ["Status", "Preview exportado"],
+        ["Descrição", batchDescription.trim()],
+      ];
+
+      const productsRows = currentPreview.items.map((item) => ({
+        "ID do produto": item.productId ?? "Novo",
+        Produto: item.productName,
+        Categoria:
+          normalizedItems.find((localItem) => localItem.productName === item.productName)?.category ?? "",
+        Quantidade: item.quantity,
+        Moeda: item.costCurrency ?? "BRL",
+        "Custo original": item.unitCostOriginal ?? item.unitCostBrl,
+        Cotação: item.exchangeRate ?? 0,
+        "Custo unitário BRL": item.unitCostBrl,
+        "Custo base total": item.totalItemCost,
+        "Forma de pagamento da compra": item.acquisitionPaymentMethod ?? "OUTRO",
+      }));
+
+      const allocationRows = currentPreview.items.map((item) => ({
+        "ID do produto": item.productId ?? "Novo",
+        Produto: item.productName,
+        Quantidade: item.quantity,
+        "Proporção na entrada": item.costProportion,
+        "Custo operacional rateado": item.allocatedOperationalCost,
+        "Imposto rateado": item.allocatedTaxCost,
+        "Outros custos rateados": item.allocatedOtherCost,
+        "Custo operacional por unidade": item.operationalCostPerUnit,
+        "Imposto por unidade": item.taxCostPerUnit,
+        "Outros custos por unidade": item.otherCostPerUnit,
+        "Custo real unitário": item.finalUnitCost,
+        "Custo real total": item.realTotalCost,
+      }));
+
+      const projectionRows = currentPreview.items.map((item) => ({
+        "ID do produto": item.productId ?? "Novo",
+        Produto: item.productName,
+        "Custo real unitário": item.finalUnitCost,
+        "Margem tipo": "Percentual",
+        "Margem valor": item.desiredMarginRate,
+        "Preço sugerido": item.suggestedPrice,
+        "Lucro unitário": item.contributionMargin,
+        "Lucro total estimado": item.contributionMargin * item.quantity,
+      }));
+
+      const workbook = XLSX.utils.book_new();
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+      const productsSheet = XLSX.utils.json_to_sheet(productsRows);
+      const allocationSheet = XLSX.utils.json_to_sheet(allocationRows);
+      const projectionSheet = XLSX.utils.json_to_sheet(projectionRows);
+
+      const setWidths = (sheet: any, widths: number[]) => {
+        sheet["!cols"] = widths.map((wch) => ({ wch }));
+      };
+
+      setWidths(summarySheet, [32, 42]);
+      setWidths(productsSheet, [14, 36, 18, 12, 10, 16, 10, 18, 18, 26]);
+      setWidths(allocationSheet, [14, 36, 12, 18, 24, 18, 22, 26, 20, 24, 20, 18]);
+      setWidths(projectionSheet, [14, 36, 20, 16, 14, 18, 16, 20]);
+
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumo da Entrada");
+      XLSX.utils.book_append_sheet(workbook, productsSheet, "Produtos da Entrada");
+      XLSX.utils.book_append_sheet(workbook, allocationSheet, "Rateio e Custos");
+      XLSX.utils.book_append_sheet(workbook, projectionSheet, "Margem e Lucro");
+
+      XLSX.writeFile(workbook, `${cleanFileName(batchName)}-${Date.now()}.xlsx`);
+      toast.success("Planilha exportada com sucesso.");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Não foi possível exportar a planilha.");
+    }
+  };
+
+  const handleSaveAndProcess = async (commitToStock: boolean) => {
+    const validItemsForPreview = validateEntry();
+    if (!validItemsForPreview) return;
+
+    const result = calculatePreview(false);
+    if (!result) return;
+
+    try {
+      const validLocalItems = items
+        .filter((item) => item.productName.trim() || item.productId)
+        .map(normalizeItem);
+
       const preparedItems: LocalItem[] = [];
+
       for (const item of validLocalItems) {
         if (item.productId) {
           preparedItems.push(item);
@@ -261,7 +614,9 @@ export default function BatchPricing() {
         }
 
         if (item.entryMode !== "NEW") {
-          throw new Error(`Selecione um produto existente ou marque como produto novo: ${item.productName}.`);
+          throw new Error(
+            `Selecione um produto existente ou marque como produto novo: ${item.productName}.`
+          );
         }
 
         const newProduct = await createProduct.mutateAsync({
@@ -271,16 +626,16 @@ export default function BatchPricing() {
           packagingCost: 0,
           inboundShippingCost: 0,
           operationalCost: 0,
-          desiredMarginRate: item.desiredMarginRate,
+          desiredMarginRate: item.desiredMarginRateNumber,
           desiredMarginValue: 0,
           marginMode: "PERCENT",
           taxRegime: "SIMPLES_NACIONAL",
-          estimatedTaxRate: item.estimatedTaxRate ?? 0,
+          estimatedTaxRate: item.estimatedTaxRateNumber,
           active: true,
           published: false,
           costCurrency: item.currency,
-          costPriceUsd: item.currency === "USD" ? item.unitCostOriginal : 0,
-          usdExchangeRate: item.currency === "USD" ? item.exchangeRate : 0,
+          costPriceUsd: item.currency === "USD" ? item.unitCostOriginalNumber : 0,
+          usdExchangeRate: item.currency === "USD" ? item.exchangeRateNumber : 0,
           stockQuantity: 0,
           minimumStock: 0,
           shortDescription: "",
@@ -295,7 +650,13 @@ export default function BatchPricing() {
       setItems((prev) =>
         prev.map((current) => {
           const prepared = preparedItems.find((item) => item._id === current._id);
-          return prepared ?? current;
+          return prepared
+            ? {
+                ...current,
+                productId: prepared.productId,
+                productName: prepared.productName,
+              }
+            : current;
         })
       );
 
@@ -306,30 +667,28 @@ export default function BatchPricing() {
         const batch = await createBatch.mutateAsync({
           name: batchName.trim(),
           description: batchDescription.trim() || undefined,
-          totalOperationalCost,
-          totalTaxCost,
-          totalOtherCost,
+          totalOperationalCost: toMoney(totalOperationalCost),
+          totalTaxCost: toMoney(totalTaxCost),
+          totalOtherCost: toMoney(totalOtherCost),
         });
         batchId = batch.id;
       }
 
       if (fifoMode) {
-        // Modo FIFO — respeita estoque existente
         await processFIFO.mutateAsync({
           batchId,
           items: validItems,
-          totalOperationalCost,
-          totalTaxCost,
-          totalOtherCost,
+          totalOperationalCost: toMoney(totalOperationalCost),
+          totalTaxCost: toMoney(totalTaxCost),
+          totalOtherCost: toMoney(totalOtherCost),
         });
       } else {
-        // Modo padrão
         await processBatch.mutateAsync({
           batchId,
           items: validItems,
-          totalOperationalCost,
-          totalTaxCost,
-          totalOtherCost,
+          totalOperationalCost: toMoney(totalOperationalCost),
+          totalTaxCost: toMoney(totalTaxCost),
+          totalOtherCost: toMoney(totalOtherCost),
           commitToStock,
         });
       }
@@ -338,50 +697,57 @@ export default function BatchPricing() {
     }
   };
 
-  const isLoading = createProduct.isPending || createBatch.isPending || processBatch.isPending || processFIFO.isPending;
-
-  // ─── Render ────────────────────────────────────────────────────────────────
+  const isLoading =
+    createProduct.isPending || createBatch.isPending || processBatch.isPending || processFIFO.isPending;
 
   return (
-    <div className="container mx-auto max-w-5xl py-8 px-4 space-y-6">
-
+    <div className="container mx-auto max-w-7xl px-4 py-8 space-y-6">
       {/* Cabeçalho */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/entrada-produtos")}>
-          <ChevronLeft className="w-4 h-4" />
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold">Nova Entrada de Produtos</h1>
-          <p className="text-sm text-muted-foreground">
-            O custo operacional é rateado proporcionalmente ao valor de cada item.
-          </p>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" onClick={() => setLocation("/entrada-produtos")}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">Nova Entrada de Produtos</h1>
+            <p className="text-sm text-muted-foreground max-w-2xl">
+              Registre produto novo ou existente, calcule custo real com rateio proporcional,
+              alimente estoque/FIFO e exporte a planilha da entrada.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => calculatePreview(true)}>
+            <Calculator className="mr-2 h-4 w-4" />
+            Calcular Rateio
+          </Button>
+          <Button variant="outline" onClick={exportSpreadsheet}>
+            <Download className="mr-2 h-4 w-4" />
+            Exportar Planilha
+          </Button>
         </div>
       </div>
 
-      {/* Resultado FIFO (após processar) */}
       {fifoResult && (
         <Card className="border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20">
           <CardContent className="pt-5">
             <div className="flex flex-wrap gap-6 items-center">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
                 <span className="font-semibold text-emerald-800 dark:text-emerald-300">
                   Entrada FIFO processada com sucesso
                 </span>
               </div>
               <div className="flex gap-4 text-sm">
                 <span className="flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-emerald-600" />
-                  <strong>{fifoResult.activatedCount}</strong> produto(s) ativados imediatamente
+                  <Zap className="h-3.5 w-3.5 text-emerald-600" />
+                  <strong>{fifoResult.activatedCount}</strong> produto(s) ativados
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-amber-600" />
-                  <strong>{fifoResult.queuedCount}</strong> na fila de espera (FIFO)
+                  <Clock className="h-3.5 w-3.5 text-amber-600" />
+                  <strong>{fifoResult.queuedCount}</strong> na fila de espera
                 </span>
               </div>
-              <Button size="sm" onClick={() => setLocation("/entrada-produtos")} className="ml-auto">
-                Ver entradas →
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -391,447 +757,377 @@ export default function BatchPricing() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Dados da Entrada</CardTitle>
+          <CardDescription>
+            Informe os custos totais da compra. Eles serão distribuídos proporcionalmente pelo valor financeiro de cada produto.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <Label>Nome da entrada *</Label>
-            <Input
-              value={batchName}
-              onChange={(e) => setBatchName(e.target.value)}
-              placeholder="Ex: Importação Shenzhen — Maio/26"
-            />
+        <CardContent className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="Nome da entrada" required>
+              <Input
+                value={batchName}
+                onChange={(event) => setBatchName(event.target.value)}
+                placeholder="Ex: Importação Maio/26"
+                className="h-10"
+              />
+            </Field>
+            <Field label="Custo operacional total" hint="Frete, despachante, armazenamento.">
+              <TextNumberInput
+                value={totalOperationalCost}
+                onChange={setTotalOperationalCost}
+                placeholder="Ex: 4500,00"
+              />
+            </Field>
+            <Field label="Impostos / taxas da entrada">
+              <TextNumberInput
+                value={totalTaxCost}
+                onChange={setTotalTaxCost}
+                placeholder="Ex: 1200,00"
+              />
+            </Field>
+            <Field label="Outros custos da entrada">
+              <TextNumberInput
+                value={totalOtherCost}
+                onChange={setTotalOtherCost}
+                placeholder="Ex: 300,00"
+              />
+            </Field>
           </div>
-          <div className="space-y-1.5">
-            <Label>Custo Operacional Total (R$) *</Label>
-            <CurrencyInput
-              value={totalOperationalCost}
-              onValueChange={setTotalOperationalCost}
-              placeholder="0,00"
-            />
-            <p className="text-xs text-muted-foreground">
-              Frete, despachante, armazenagem e custos gerais da entrada.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Impostos / Taxas da Entrada (R$)</Label>
-            <CurrencyInput
-              value={totalTaxCost}
-              onValueChange={setTotalTaxCost}
-              placeholder="0,00"
-            />
-            <p className="text-xs text-muted-foreground">
-              Informe somente se houver imposto ou taxa da aquisição.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Outros Custos da Entrada (R$)</Label>
-            <CurrencyInput
-              value={totalOtherCost}
-              onValueChange={setTotalOtherCost}
-              placeholder="0,00"
-            />
-            <p className="text-xs text-muted-foreground">
-              Qualquer custo adicional que deve compor o custo real.
-            </p>
-          </div>
-          <div className="md:col-span-3 space-y-1.5">
-            <Label>Descrição (opcional)</Label>
+
+          <Field label="Descrição">
             <Textarea
               value={batchDescription}
-              onChange={(e) => setBatchDescription(e.target.value)}
-              placeholder="Detalhes da entrada…"
+              onChange={(event) => setBatchDescription(event.target.value)}
+              placeholder="Observações, fornecedor, número de nota, origem da compra..."
               rows={2}
             />
-          </div>
+          </Field>
+        </CardContent>
+      </Card>
 
-          {/* Toggle FIFO */}
-          <div className="md:col-span-3">
-            <div className={`rounded-xl border p-4 transition-colors ${
-              fifoMode ? "border-primary/40 bg-primary/5" : "border-border"
-            }`}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-primary" />
-                    <Label className="text-sm font-semibold cursor-pointer" htmlFor="fifo-toggle">
-                      Modo FIFO — Fila de Estoque por Entrada
-                    </Label>
-                    <Badge variant="secondary" className="text-[9px] tracking-wide uppercase">
-                      Recomendado
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed max-w-xl">
-                    Quando ativado, produtos que já possuem estoque ativo ficam em
-                    <strong> fila de espera</strong>. O sistema promove automaticamente
-                    a entrada mais antiga quando o estoque atual zera, atualizando custo
-                    e preços de venda sem intervenção manual.
-                  </p>
-
-                  {/* Diagrama visual compacto */}
-                  {fifoMode && (
-                    <div className="mt-3 flex items-center gap-2 text-xs flex-wrap">
-                      <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium border border-emerald-200">
-                        Entrada A — ATIVA
-                      </span>
-                      <span className="text-muted-foreground">→ vende até zerar →</span>
-                      <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-medium border border-amber-200">
-                        Entrada B — EM ESPERA
-                      </span>
-                      <span className="text-muted-foreground">→ promovido automaticamente →</span>
-                      <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium border border-emerald-200">
-                        Entrada B — ATIVA ✓
-                      </span>
-                    </div>
-                  )}
+      {/* FIFO */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4" />
+            Configuração FIFO
+          </CardTitle>
+          <CardDescription>
+            Mantém histórico de entrada e coloca estoque novo em fila quando já houver saldo ativo do mesmo produto.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className={`rounded-xl border p-4 ${fifoMode ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label className="text-sm font-semibold" htmlFor="fifo-toggle">
+                    Processar com fila FIFO
+                  </Label>
+                  <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+                    Recomendado
+                  </Badge>
                 </div>
-                <Switch
-                  id="fifo-toggle"
-                  checked={fifoMode}
-                  onCheckedChange={setFifoMode}
-                  className="mt-0.5 shrink-0"
-                />
+                <p className="text-xs leading-relaxed text-muted-foreground max-w-3xl">
+                  Produto sem estoque entra como ativo. Produto com estoque entra em espera e será promovido quando o estoque atual zerar.
+                </p>
               </div>
-
-              {fifoMode && (
-                <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40">
-                  <Info className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
-                  <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-                    No modo FIFO, a entrada é sempre fechada automaticamente após processamento.
-                    Produtos <strong>sem estoque</strong> ativo são ativados imediatamente.
-                    Produtos <strong>com estoque</strong> entram na fila — o gatilho de virada
-                    é disparado a cada venda registrada no sistema.
-                  </p>
-                </div>
-              )}
+              <Switch id="fifo-toggle" checked={fifoMode} onCheckedChange={setFifoMode} />
             </div>
-          </div>
-
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300">
-            <PackagePlus className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <p>
-              Produto existente mantém o mesmo ID e recebe nova entrada de estoque. Produto novo é criado como rascunho
-              não publicado e depois recebe a entrada. A forma de pagamento informada aqui é da compra, não da venda ao cliente.
-            </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Tabela de Itens */}
+      {/* Produtos */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle className="text-base">Produtos da Entrada</CardTitle>
             <CardDescription>
-              Selecione um produto existente ou marque como novo. A tela converte USD para BRL, calcula o rateio proporcional e usa o ID do produto para ativar estoque/FIFO sem duplicar cadastro.
+              Cada produto fica em um card para evitar rolagem lateral e facilitar preenchimento.
             </CardDescription>
           </div>
           <Button size="sm" variant="outline" onClick={addItem}>
-            <PlusCircle className="w-4 h-4 mr-1" />
+            <PlusCircle className="mr-2 h-4 w-4" />
             Adicionar item
           </Button>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[130px]">Tipo</TableHead>
-                <TableHead className="w-[220px]">Produto existente</TableHead>
-                <TableHead className="w-[220px]">Nome</TableHead>
-                <TableHead className="w-[130px]">Categoria</TableHead>
-                <TableHead className="w-[95px]">Moeda</TableHead>
-                <TableHead className="w-[120px]">Custo original</TableHead>
-                <TableHead className="w-[100px]">Cotação</TableHead>
-                <TableHead className="w-[120px]">Custo BRL</TableHead>
-                <TableHead className="w-[70px]">Qtd</TableHead>
-                <TableHead className="w-[105px]">Pagamento compra</TableHead>
-                <TableHead className="w-[90px]">Margem %</TableHead>
-                <TableHead className="w-[90px]">Imposto %</TableHead>
-                <TableHead className="w-[36px]" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => {
-                const unitCostBrl = resolveUnitCostBrl(item);
-                return (
-                  <TableRow key={item._id}>
-                    <TableCell>
-                      <select
-                        value={item.entryMode}
-                        onChange={(e) => {
-                          const mode = e.target.value as EntryMode;
-                          updateItem(item._id, "entryMode", mode);
-                          if (mode === "NEW") updateItem(item._id, "productId", undefined);
-                        }}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                      >
-                        <option value="EXISTING">Existente</option>
-                        <option value="NEW">Novo</option>
-                      </select>
-                    </TableCell>
+        <CardContent className="space-y-4">
+          {items.map((item, index) => {
+            const normalized = normalizeItem(item);
+            const baseTotal = normalized.unitCostBrl * normalized.quantityNumber;
+            const selectedProduct = productsQuery.data?.find((product: any) => product.id === item.productId) as any;
 
-                    <TableCell>
-                      <select
-                        value={item.productId ?? ""}
-                        onChange={(e) => applyExistingProduct(item._id, e.target.value)}
-                        disabled={item.entryMode === "NEW" || productsQuery.isLoading}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
-                        title="Selecione um produto já cadastrado para não duplicar"
-                      >
-                        <option value="">{productsQuery.isLoading ? "Carregando..." : "Selecionar"}</option>
-                        {productsQuery.data?.map((product: any) => (
-                          <option key={product.id} value={product.id}>
-                            #{product.id} — {product.name}
-                          </option>
-                        ))}
-                      </select>
-                    </TableCell>
+            return (
+              <div key={item._id} className="rounded-2xl border border-border bg-muted/10 p-4 space-y-5">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">Item {index + 1}</Badge>
+                      {item.productId && <Badge variant="secondary">ID #{item.productId}</Badge>}
+                      <Badge variant={item.entryMode === "NEW" ? "default" : "secondary"}>
+                        {item.entryMode === "NEW" ? "Produto novo" : "Produto existente"}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {item.entryMode === "NEW"
+                        ? "Será criado como rascunho e receberá a entrada de estoque."
+                        : "Usa o ID existente e não duplica produto."}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive md:self-start"
+                    onClick={() => removeItem(item._id)}
+                    disabled={items.length === 1}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remover
+                  </Button>
+                </div>
 
-                    <TableCell>
+                {/* Linha 1 */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <Field label="Tipo" required>
+                    <select
+                      value={item.entryMode}
+                      onChange={(event) => {
+                        const mode = event.target.value as EntryMode;
+                        updateItem(item._id, "entryMode", mode);
+                        if (mode === "NEW") updateItem(item._id, "productId", undefined);
+                      }}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="EXISTING">Produto existente</option>
+                      <option value="NEW">Produto novo</option>
+                    </select>
+                  </Field>
+
+                  <Field label="Produto existente" hint="Use para não duplicar cadastro.">
+                    <select
+                      value={item.productId ?? ""}
+                      onChange={(event) => applyExistingProduct(item._id, event.target.value)}
+                      disabled={item.entryMode === "NEW" || productsQuery.isLoading}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
+                    >
+                      <option value="">
+                        {productsQuery.isLoading ? "Carregando produtos..." : "Selecionar produto"}
+                      </option>
+                      {productsQuery.data?.map((product: any) => (
+                        <option key={product.id} value={product.id}>
+                          #{product.id} — {product.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <div className="md:col-span-2">
+                    <Field label="Nome do produto" required>
                       <Input
                         value={item.productName}
-                        onChange={(e) => updateItem(item._id, "productName", e.target.value)}
-                        placeholder={item.entryMode === "NEW" ? "Nome do produto novo" : "Nome do produto"}
-                        className="h-8 text-sm"
+                        onChange={(event) => updateItem(item._id, "productName", event.target.value)}
+                        placeholder={item.entryMode === "NEW" ? "Ex: ONE MILLION ELIXIR 100ML" : "Produto selecionado"}
+                        className="h-10 text-sm"
                       />
-                      {item.productId && (
-                        <p className="mt-1 text-[10px] text-muted-foreground">ID vinculado: #{item.productId}</p>
-                      )}
-                    </TableCell>
+                    </Field>
+                  </div>
 
-                    <TableCell>
-                      <select
-                        value={item.category}
-                        onChange={(e) => updateItem(item._id, "category", e.target.value as ProductCategory)}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                      >
-                        <option value="CELULAR">Celular</option>
-                        <option value="ELETRONICO">Eletrônico</option>
-                        <option value="PERFUME">Perfume</option>
-                        <option value="OUTRO">Outro</option>
-                      </select>
-                    </TableCell>
+                  <Field label="Categoria" required>
+                    <select
+                      value={item.category}
+                      onChange={(event) => updateItem(item._id, "category", event.target.value as ProductCategory)}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {CATEGORY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
 
-                    <TableCell>
-                      <select
-                        value={item.currency}
-                        onChange={(e) => updateItem(item._id, "currency", e.target.value as AcquisitionCurrency)}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                      >
-                        <option value="BRL">BRL</option>
-                        <option value="USD">USD</option>
-                      </select>
-                    </TableCell>
+                {/* Linha 2 */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                  <Field label="Moeda" required>
+                    <select
+                      value={item.currency}
+                      onChange={(event) => updateItem(item._id, "currency", event.target.value as AcquisitionCurrency)}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="BRL">Real (BRL)</option>
+                      <option value="USD">Dólar (USD)</option>
+                    </select>
+                  </Field>
 
-                    <TableCell>
-                      <CurrencyInput
-                        value={item.unitCostOriginal}
-                        onValueChange={(v) => updateItem(item._id, "unitCostOriginal", v)}
-                        noPrefix
-                        placeholder="0,00"
-                        size="sm"
-                      />
-                    </TableCell>
+                  <Field label="Custo original" required>
+                    <TextNumberInput
+                      value={item.unitCostOriginal}
+                      onChange={(value) => updateItem(item._id, "unitCostOriginal", value)}
+                      placeholder={item.currency === "USD" ? "Ex: 20,00" : "Ex: 110,00"}
+                    />
+                  </Field>
 
-                    <TableCell>
-                      <Input
-                        type="number" min={0} step={0.01}
-                        value={item.currency === "USD" ? item.exchangeRate : ""}
-                        onChange={(e) => updateItem(item._id, "exchangeRate", e.target.value)}
-                        disabled={item.currency !== "USD"}
-                        placeholder="5.20"
-                        className="h-8 text-sm disabled:opacity-50"
-                      />
-                    </TableCell>
+                  <Field label="Cotação" hint={item.currency === "USD" ? "Obrigatória para dólar." : "Usada somente em USD."}>
+                    <TextNumberInput
+                      value={item.currency === "USD" ? item.exchangeRate : ""}
+                      onChange={(value) => updateItem(item._id, "exchangeRate", value)}
+                      placeholder="Ex: 5,50"
+                      disabled={item.currency !== "USD"}
+                    />
+                  </Field>
 
-                    <TableCell>
-                      <CurrencyInput
-                        value={unitCostBrl}
-                        onValueChange={(v) => updateItem(item._id, "unitCostBrl", v)}
-                        noPrefix
-                        disabled
-                        placeholder="0,00"
-                        size="sm"
-                      />
-                    </TableCell>
+                  <Field label="Custo unitário BRL">
+                    <ReadOnlyMoney value={normalized.unitCostBrl} />
+                  </Field>
 
-                    <TableCell>
-                      <Input
-                        type="number" min={1} step={1}
-                        value={item.quantity}
-                        onChange={(e) => updateItem(item._id, "quantity", e.target.value)}
-                        className="h-8 text-sm"
-                      />
-                    </TableCell>
+                  <Field label="Quantidade" required>
+                    <TextNumberInput
+                      value={item.quantity}
+                      onChange={(value) => updateItem(item._id, "quantity", value)}
+                      placeholder="Ex: 80"
+                      integer
+                      className="min-w-[120px] font-semibold"
+                    />
+                  </Field>
+                </div>
 
-                    <TableCell>
-                      <select
-                        value={item.acquisitionPaymentMethod}
-                        onChange={(e) => updateItem(item._id, "acquisitionPaymentMethod", e.target.value as AcquisitionPaymentMethod)}
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                        title="Forma usada para comprar este item. Não altera o pagamento da venda."
-                      >
-                        <option value="DINHEIRO">Dinheiro</option>
-                        <option value="PIX">Pix</option>
-                        <option value="BOLETO">Boleto</option>
-                        <option value="CARTAO">Cartão</option>
-                        <option value="DOLAR">Dólar</option>
-                        <option value="OUTRO">Outro</option>
-                      </select>
-                    </TableCell>
+                {/* Linha 3 */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <Field label="Pagamento da compra" hint="Não altera pagamento da venda ao cliente.">
+                    <select
+                      value={item.acquisitionPaymentMethod}
+                      onChange={(event) =>
+                        updateItem(
+                          item._id,
+                          "acquisitionPaymentMethod",
+                          event.target.value as AcquisitionPaymentMethod
+                        )
+                      }
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {PAYMENT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
 
-                    <TableCell>
-                      <Input
-                        type="number" min={0} max={99} step={0.5}
-                        value={item.desiredMarginRate}
-                        onChange={(e) => updateItem(item._id, "desiredMarginRate", e.target.value)}
-                        className="h-8 text-sm"
-                      />
-                    </TableCell>
+                  <Field label="Margem % para projeção">
+                    <TextNumberInput
+                      value={item.desiredMarginRate}
+                      onChange={(value) => updateItem(item._id, "desiredMarginRate", value)}
+                      placeholder="Ex: 30"
+                    />
+                  </Field>
 
-                    <TableCell>
-                      <Input
-                        type="number" min={0} max={99} step={0.1}
-                        value={item.estimatedTaxRate ?? 6}
-                        onChange={(e) => updateItem(item._id, "estimatedTaxRate", e.target.value)}
-                        className="h-8 text-sm"
-                      />
-                    </TableCell>
+                  <Field label="Imposto % venda sugerida">
+                    <TextNumberInput
+                      value={item.estimatedTaxRate}
+                      onChange={(value) => updateItem(item._id, "estimatedTaxRate", value)}
+                      placeholder="Ex: 6"
+                    />
+                  </Field>
+                </div>
 
-                    <TableCell>
-                      <Button
-                        variant="ghost" size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => removeItem(item._id)}
-                        disabled={items.length === 1}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                {/* Resumo calculado do item */}
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+                  <SummaryBox label="Custo base" value={formatCurrency(baseTotal)} />
+                  <SummaryBox label="Custo unit. BRL" value={displayMoneyOrEmpty(normalized.unitCostBrl) || "—"} />
+                  <SummaryBox label="Quantidade" value={normalized.quantityNumber > 0 ? String(normalized.quantityNumber) : "—"} />
+                  <SummaryBox
+                    label="Pagamento"
+                    value={PAYMENT_OPTIONS.find((option) => option.value === item.acquisitionPaymentMethod)?.label ?? "—"}
+                  />
+                  <SummaryBox label="Produto" value={selectedProduct ? `#${selectedProduct.id}` : item.entryMode === "NEW" ? "Novo" : "—"} />
+                  <SummaryBox label="Moeda" value={item.currency} />
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
 
-          {/* Totais rápidos */}
-          <div className="mt-4 flex flex-wrap gap-4 text-sm text-muted-foreground border-t pt-3">
-            <span>
-              <strong className="text-foreground">{items.length}</strong> tipo(s) de produto
-            </span>
-            <span>
-              <strong className="text-foreground">
-                {items.reduce((s, i) => s + i.quantity, 0)}
-              </strong>{" "}
-              unidades totais
-            </span>
-            <span>
-              Custo das mercadorias:{" "}
-              <strong className="text-foreground">
-                {formatCurrency(items.reduce((s, i) => s + resolveUnitCostBrl(i) * i.quantity, 0))}
-              </strong>
-            </span>
-            <span>
-              Custos adicionais da entrada:{" "}
-              <strong className="text-foreground">
-                {formatCurrency(totalOperationalCost + totalTaxCost + totalOtherCost)}
-              </strong>
-            </span>
-            <span>
-              Total estimado:{" "}
-              <strong className="text-foreground">
-                {formatCurrency(items.reduce((s, i) => s + resolveUnitCostBrl(i) * i.quantity, 0) + totalOperationalCost + totalTaxCost + totalOtherCost)}
-              </strong>
-            </span>
+      {/* Resumo financeiro */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <WalletCards className="h-4 w-4" />
+            Resumo Financeiro da Entrada
+          </CardTitle>
+          <CardDescription>Resumo rápido antes do rateio final.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <SummaryBox label="Tipos de produto" value={String(totals.productTypes)} />
+            <SummaryBox label="Unidades totais" value={String(totals.totalQuantity || "—")} />
+            <SummaryBox label="Mercadorias" value={formatCurrency(totals.goodsTotal)} />
+            <SummaryBox label="Custos adicionais" value={formatCurrency(totals.additionalTotal)} />
+            <SummaryBox label="Total da entrada" value={formatCurrency(totals.grandTotal)} />
           </div>
         </CardContent>
       </Card>
 
-      {/* Ação: Preview */}
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={handlePreview}>
-          <Calculator className="w-4 h-4 mr-2" />
-          Calcular Rateio (Preview)
-        </Button>
-      </div>
-
       {previewError && (
-        <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-4 text-sm text-destructive">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
           {previewError}
         </div>
       )}
 
-      {preview && <BatchPreviewTable preview={preview} />}
+      {preview && <BatchPreviewCards preview={preview} />}
 
-      {/* Botões de ação */}
       <Separator />
-      <div className="flex flex-col sm:flex-row justify-end gap-3">
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <Button variant="outline" onClick={exportSpreadsheet}>
+          <Download className="mr-2 h-4 w-4" />
+          Exportar Planilha
+        </Button>
+        <Button variant="outline" onClick={() => calculatePreview(true)}>
+          <Calculator className="mr-2 h-4 w-4" />
+          Atualizar Preview
+        </Button>
         {fifoMode ? (
-          /* Modo FIFO: único botão — sempre fecha e respeita estoque */
-          <Button
-            onClick={() => setShowCommitDialog(true)}
-            disabled={isLoading}
-            className="gap-2"
-          >
-            <Clock className="w-4 h-4" />
+          <Button onClick={() => setShowCommitDialog(true)} disabled={isLoading}>
+            <Clock className="mr-2 h-4 w-4" />
             Processar Entrada com Fila FIFO
           </Button>
         ) : (
-          /* Modo padrão: dois botões */
           <>
-            <Button
-              variant="outline"
-              onClick={() => handleSaveAndProcess(false)}
-              disabled={isLoading}
-            >
-              Salvar Entrada (sem atualizar estoque)
+            <Button variant="outline" onClick={() => handleSaveAndProcess(false)} disabled={isLoading}>
+              Salvar Entrada sem Estoque
             </Button>
-            <Button
-              onClick={() => setShowCommitDialog(true)}
-              disabled={isLoading}
-              className="gap-2"
-            >
-              <PackageCheck className="w-4 h-4" />
+            <Button onClick={() => setShowCommitDialog(true)} disabled={isLoading}>
+              <PackageCheck className="mr-2 h-4 w-4" />
               Processar e Dar Entrada no Estoque
             </Button>
           </>
         )}
       </div>
 
-      {/* Dialog de confirmação */}
       <AlertDialog open={showCommitDialog} onOpenChange={setShowCommitDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {fifoMode ? "Confirmar Processamento FIFO" : "Confirmar Entrada de Estoque"}
+              {fifoMode ? "Confirmar processamento FIFO" : "Confirmar entrada de estoque"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm text-muted-foreground">
                 {fifoMode ? (
                   <>
                     <p>
-                      A entrada será processada com a <strong>Fila FIFO</strong>.
-                      O sistema irá verificar o estoque atual de cada produto:
+                      A entrada será processada com <strong>Fila FIFO</strong>. Produto com estoque atual entra na fila; produto sem estoque entra ativo.
                     </p>
-                    <ul className="space-y-1.5 pl-4 list-disc">
-                      <li>
-                        <strong>Estoque ativo &gt; 0</strong> → produto entra na fila de espera.
-                        Será ativado automaticamente quando o estoque atual zerar.
-                      </li>
-                      <li>
-                        <strong>Estoque = 0</strong> → produto é ativado imediatamente com
-                        os novos preços e custo desta entrada.
-                      </li>
-                    </ul>
-                    <p className="text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                      A entrada será fechada e não poderá ser editada após esta ação.
+                    <p className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      A entrada será fechada após o processamento.
                     </p>
                   </>
                 ) : (
                   <p>
-                    Isso irá atualizar o estoque de cada produto vinculado com as
-                    quantidades informadas e calcular o custo médio ponderado.
-                    Esta ação fechará a entrada e não poderá ser desfeita.
+                    Isso atualiza estoque dos produtos vinculados e calcula custo médio ponderado.
                   </p>
                 )}
               </div>
@@ -854,127 +1150,112 @@ export default function BatchPricing() {
   );
 }
 
-// ─── Subcomponente: Preview do rateio ─────────────────────────────────────────
+// ─── Resultado do rateio em cards ─────────────────────────────────────────────
 
-function BatchPreviewTable({ preview }: { preview: BatchPricingResult }) {
+function BatchPreviewCards({ preview }: { preview: BatchPricingResult }) {
+  const totalSuggestedRevenue = preview.items.reduce(
+    (sum, item) => sum + item.suggestedPrice * item.quantity,
+    0
+  );
+  const totalProjectedProfit = preview.items.reduce(
+    (sum, item) => sum + item.contributionMargin * item.quantity,
+    0
+  );
+
   return (
-    <Card className="border-primary/30">
-      <CardHeader>
-        <CardTitle className="text-base text-primary">
-          Resultado do Rateio Proporcional
-        </CardTitle>
-        <CardDescription>
-          Custos adicionais de{" "}
-          <strong>{formatCurrency(preview.totalOperationalCost + preview.totalTaxCost + preview.totalOtherCost)}</strong> rateados
-          sobre <strong>{formatCurrency(preview.totalCostOfGoods)}</strong> em mercadorias.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Produto</TableHead>
-              <TableHead className="text-right">Custo Unit.</TableHead>
-              <TableHead className="text-right">Qtd</TableHead>
-              <TableHead className="text-right">Custo Total Item</TableHead>
-              <TableHead className="text-right">Proporção</TableHead>
-              <TableHead className="text-right">Custo Op. Rateado</TableHead>
-              <TableHead className="text-right">Imposto Rateado</TableHead>
-              <TableHead className="text-right">Outros Rateados</TableHead>
-              <TableHead className="text-right">Custo Final Unit.</TableHead>
-              <TableHead className="text-right">Preço Sugerido Unit.</TableHead>
-              <TableHead className="text-right">Preço Total (Qtd)</TableHead>
-              <TableHead className="text-right">Margem Unit.</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {preview.items.map((item, i) => (
-              <TableRow key={i}>
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-1.5">
-                    {item.productId && (
-                      <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-mono font-bold bg-muted text-muted-foreground border border-border shrink-0">
-                        #{item.productId}
-                      </span>
-                    )}
-                    {item.productName}
-                  </div>
-                </TableCell>
-                <TableCell className="text-right text-sm font-mono">
-                  {formatCurrency(item.unitCostBrl)}
-                </TableCell>
-                <TableCell className="text-right text-sm font-mono">
-                  {item.quantity}
-                </TableCell>
-                <TableCell className="text-right text-sm">
-                  {formatCurrency(item.totalItemCost)}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Badge variant="secondary" className="text-xs">
-                    {formatPercent(item.costProportion * 100)}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right text-sm text-orange-600 font-mono">
-                  {formatCurrency(item.allocatedOperationalCost)}
-                </TableCell>
-                <TableCell className="text-right text-sm text-amber-600 font-mono">
-                  {formatCurrency(item.allocatedTaxCost)}
-                </TableCell>
-                <TableCell className="text-right text-sm text-blue-600 font-mono">
-                  {formatCurrency(item.allocatedOtherCost)}
-                </TableCell>
-                <TableCell className="text-right text-sm font-mono">
-                  {formatCurrency(item.finalUnitCost)}
-                </TableCell>
-                <TableCell className="text-right font-bold text-primary">
-                  {formatCurrency(item.suggestedPrice)}
-                </TableCell>
-                <TableCell className="text-right font-bold text-emerald-600">
-                  {formatCurrency(item.suggestedPrice * item.quantity)}
-                </TableCell>
-                <TableCell className="text-right text-sm text-green-600">
-                  {formatCurrency(item.contributionMargin)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+    <div className="space-y-6">
+      <Card className="border-primary/30">
+        <CardHeader>
+          <CardTitle className="text-base text-primary">Resultado do Rateio Proporcional</CardTitle>
+          <CardDescription>
+            Custos adicionais de <strong>{formatCurrency(preview.totalOperationalCost + preview.totalTaxCost + preview.totalOtherCost)}</strong> rateados sobre <strong>{formatCurrency(preview.totalCostOfGoods)}</strong> em mercadorias.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <SummaryBox label="Mercadorias" value={formatCurrency(preview.totalCostOfGoods)} />
+            <SummaryBox label="Operacional" value={formatCurrency(preview.totalOperationalCost)} />
+            <SummaryBox label="Impostos/taxas" value={formatCurrency(preview.totalTaxCost)} />
+            <SummaryBox label="Outros custos" value={formatCurrency(preview.totalOtherCost)} />
+            <SummaryBox label="Total da entrada" value={formatCurrency(preview.grandTotal)} />
+            <SummaryBox label="Receita projetada" value={formatCurrency(totalSuggestedRevenue)} />
+            <SummaryBox label="Lucro projetado" value={formatCurrency(totalProjectedProfit)} />
+            <SummaryBox
+              label="Conferência do rateio"
+              value={
+                Math.abs(preview.allocationCheck - preview.totalOperationalCost) < 0.01 &&
+                Math.abs(preview.taxAllocationCheck - preview.totalTaxCost) < 0.01 &&
+                Math.abs(preview.otherAllocationCheck - preview.totalOtherCost) < 0.01
+                  ? "OK"
+                  : "Verificar"
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Totais */}
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: "Custo das Mercadorias", value: formatCurrency(preview.totalCostOfGoods) },
-            { label: "Custo Operacional", value: formatCurrency(preview.totalOperationalCost) },
-            { label: "Impostos/Taxas", value: formatCurrency(preview.totalTaxCost) },
-            { label: "Outros Custos", value: formatCurrency(preview.totalOtherCost) },
-            { label: "Total da Entrada", value: formatCurrency(preview.grandTotal) },
-            {
-              label: "Verificação operacional",
-              value: formatCurrency(preview.allocationCheck),
-              note: Math.abs(preview.allocationCheck - preview.totalOperationalCost) < 0.01
-                ? "✓ Correto" : "⚠ Divergência",
-            },
-            {
-              label: "Verificação impostos",
-              value: formatCurrency(preview.taxAllocationCheck),
-              note: Math.abs(preview.taxAllocationCheck - preview.totalTaxCost) < 0.01
-                ? "✓ Correto" : "⚠ Divergência",
-            },
-            {
-              label: "Verificação outros",
-              value: formatCurrency(preview.otherAllocationCheck),
-              note: Math.abs(preview.otherAllocationCheck - preview.totalOtherCost) < 0.01
-                ? "✓ Correto" : "⚠ Divergência",
-            },
-          ].map(({ label, value, note }) => (
-            <div key={label} className="bg-muted/40 rounded-lg p-3">
-              <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="text-lg font-bold font-mono">{value}</p>
-              {note && <p className="text-xs text-green-600">{note}</p>}
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+      <div className="space-y-4">
+        {preview.items.map((item, index) => (
+          <Card key={`${item.productId ?? "novo"}-${item.productName}-${index}`}>
+            <CardHeader>
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                    <Badge variant="outline">#{index + 1}</Badge>
+                    {item.productId && <Badge variant="secondary">ID {item.productId}</Badge>}
+                    <span>{item.productName}</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Proporção na entrada: <strong>{formatPercent(item.costProportion * 100)}</strong>
+                  </CardDescription>
+                </div>
+                <div className="text-left md:text-right">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Custo real unitário</p>
+                  <p className="text-2xl font-bold text-primary">{formatCurrency(item.finalUnitCost)}</p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+                <SummaryBox label="Quantidade" value={String(item.quantity)} />
+                <SummaryBox label="Moeda" value={item.costCurrency ?? "BRL"} />
+                <SummaryBox label="Custo original" value={formatCurrency(item.unitCostOriginal ?? item.unitCostBrl)} />
+                <SummaryBox label="Cotação" value={item.exchangeRate ? String(item.exchangeRate) : "—"} />
+                <SummaryBox label="Custo unit. BRL" value={formatCurrency(item.unitCostBrl)} />
+                <SummaryBox label="Custo base total" value={formatCurrency(item.baseTotalCost ?? item.totalItemCost)} />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <SummaryBox
+                  label="Operacional rateado"
+                  value={formatCurrency(item.allocatedOperationalCost)}
+                  hint={`${formatCurrency(item.operationalCostPerUnit)} por unidade`}
+                />
+                <SummaryBox
+                  label="Imposto rateado"
+                  value={formatCurrency(item.allocatedTaxCost)}
+                  hint={`${formatCurrency(item.taxCostPerUnit)} por unidade`}
+                />
+                <SummaryBox
+                  label="Outros custos rateados"
+                  value={formatCurrency(item.allocatedOtherCost)}
+                  hint={`${formatCurrency(item.otherCostPerUnit)} por unidade`}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <SummaryBox label="Custo real total" value={formatCurrency(item.realTotalCost)} />
+                <SummaryBox label="Preço sugerido" value={formatCurrency(item.suggestedPrice)} />
+                <SummaryBox label="Lucro unitário proj." value={formatCurrency(item.contributionMargin)} />
+                <SummaryBox
+                  label="Lucro total proj."
+                  value={formatCurrency(item.contributionMargin * item.quantity)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }
