@@ -173,6 +173,9 @@ export const pricingBatches = pgTable("permupay_pricing_batches", {
   name: text("name").notNull(),
   description: text("description"),
   totalOperationalCost: real("total_operational_cost").notNull().default(0),
+  // Custos adicionais da Entrada de Produtos — nullable/default para não quebrar registros antigos
+  totalTaxCost: real("total_tax_cost").notNull().default(0),
+  totalOtherCost: real("total_other_cost").notNull().default(0),
   totalCostOfGoods: real("total_cost_of_goods").notNull().default(0),
   status: batchStatusEnum("status").notNull().default("OPEN"),
   // Modo FIFO: true = novos itens entram na fila se produto já tem estoque ativo
@@ -192,12 +195,25 @@ export const batchItems = pgTable("permupay_batch_items", {
     onDelete: "set null",
   }),
   productName: text("product_name").notNull(),
+
+  // Dados da aquisição — preservam histórico da entrada sem exigir migração dos produtos antigos
+  unitCostOriginal: real("unit_cost_original").notNull().default(0),
+  costCurrency: text("cost_currency").notNull().default("BRL"),
+  exchangeRate: real("exchange_rate").notNull().default(0),
+  acquisitionPaymentMethod: text("acquisition_payment_method").notNull().default("OUTRO"),
+
   unitCostBrl: real("unit_cost_brl").notNull().default(0),
   quantity: integer("quantity").notNull().default(1),
   totalItemCost: real("total_item_cost").notNull().default(0),
   allocatedOperationalCost: real("allocated_operational_cost")
     .notNull()
     .default(0),
+  operationalCostPerUnit: real("operational_cost_per_unit").notNull().default(0),
+  allocatedTaxCost: real("allocated_tax_cost").notNull().default(0),
+  taxCostPerUnit: real("tax_cost_per_unit").notNull().default(0),
+  allocatedOtherCost: real("allocated_other_cost").notNull().default(0),
+  otherCostPerUnit: real("other_cost_per_unit").notNull().default(0),
+  realTotalCost: real("real_total_cost").notNull().default(0),
   finalUnitCost: real("final_unit_cost").notNull().default(0),
   desiredMarginRate: real("desired_margin_rate").notNull().default(0),
   suggestedPrice: real("suggested_price").notNull().default(0),
