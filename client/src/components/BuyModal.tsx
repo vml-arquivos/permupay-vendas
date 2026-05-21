@@ -8,6 +8,7 @@
  * 4. Select para adicionar outro produto ao pedido
  * 5. Pedido salvo imediatamente ao clicar (status AGUARDANDO_PAGAMENTO)
  * 6. Sucesso mostra mensagem "Pagamento Confirmado / Liberado para Retirada"
+ * 7. Segurança: não envia unitPrice para o backend; o servidor calcula o preço real
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -108,9 +109,9 @@ export function BuyModal({
     if (!name.trim()) return toast.error("Informe seu nome");
     if (!contact.trim()) return toast.error("Informe seu WhatsApp ou email");
 
-    const unitPrice = priceByMethod[method];
-
     // Criar pedido principal
+    // Segurança: o preço NÃO é enviado pelo navegador.
+    // O backend calcula o valor correto pelo produto e forma de pagamento.
     createOrder.mutate(
       {
         productId: p.id,
@@ -119,20 +120,11 @@ export function BuyModal({
         buyerContact: contact.trim(),
         buyerContactType: contactType,
         paymentMethod: method,
-        unitPrice,
       },
       {
         onSuccess: () => {
           // Se houver produto extra, criar pedido adicional
           if (extraProductId && extraProduct) {
-            const extraPrice = resolvePrice(
-              method === "PIX"
-                ? extraProduct.suggestedPricePix
-                : method === "CARTAO"
-                ? extraProduct.suggestedPriceCard
-                : extraProduct.suggestedPriceBoleto,
-              extraProduct.suggestedPrice
-            );
             createExtraOrder.mutate({
               productId: extraProduct.id,
               quantity: 1,
@@ -140,7 +132,6 @@ export function BuyModal({
               buyerContact: contact.trim(),
               buyerContactType: contactType,
               paymentMethod: method,
-              unitPrice: extraPrice,
             });
           }
         },
