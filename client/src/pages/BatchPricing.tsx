@@ -1691,68 +1691,77 @@ export default function BatchPricing() {
               return (
                 <div
                   key={batch.id ?? `${batch.name}-${batch.createdAt}`}
-                  className="grid grid-cols-2 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs md:grid-cols-[72px_minmax(180px,1fr)_90px_90px_120px_120px_120px_110px_100px_210px]"
+                  className="rounded-lg border border-border bg-card px-3 py-2.5 text-xs"
                 >
-                  <div className="font-mono text-muted-foreground">
-                    #{batch.id ?? "—"}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBatchId(Number(batch.id))}
-                    className="min-w-0 text-left hover:underline"
-                  >
-                    <p className="truncate font-semibold text-foreground">
-                      {batch.name ?? "Entrada sem nome"}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {formatBatchDate(batch.createdAt ?? batch.created_at)} · {statusLabel(batch.status)}
-                    </p>
-                  </button>
-                  <div>
-                    <span className="block text-[10px] uppercase text-muted-foreground">Produtos</span>
-                    <strong>{productsCount}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[10px] uppercase text-muted-foreground">Itens</span>
-                    <strong>{unitsCount}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[10px] uppercase text-muted-foreground">Mercadorias</span>
-                    <strong>{formatCurrency(goodsTotal)}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[10px] uppercase text-muted-foreground">Operacional</span>
-                    <strong>{formatCurrency(operationalTotal)}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[10px] uppercase text-muted-foreground">Imp./Outros</span>
-                    <strong>{formatCurrency(taxTotal + otherTotal)}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[10px] uppercase text-muted-foreground">Total lote</span>
-                    <strong className="text-primary">{formatCurrency(totalCost)}</strong>
-                  </div>
-                  <Badge variant={String(batch.status ?? "").toUpperCase() === "CLOSED" ? "default" : "secondary"} className="w-fit">
-                    {statusLabel(batch.status)}
-                  </Badge>
-                  <div className="flex flex-wrap justify-end gap-1.5">
-                    <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setSelectedBatchId(Number(batch.id))}>
-                      <Eye className="mr-1 h-3.5 w-3.5" /> Visualizar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 px-2 text-xs"
-                      onClick={() => {
-                        setSelectedBatchId(Number(batch.id));
-                        toast.info("Abrindo detalhes. Use Editar entrada dentro do lote.");
-                      }}
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBatchId(Number(batch.id))}
+                      className="min-w-0 flex-1 text-left hover:underline"
                     >
-                      <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-8 px-2 text-xs text-destructive hover:text-destructive" onClick={() => setDeleteBatchTarget(batch)}>
-                      <Trash2 className="mr-1 h-3.5 w-3.5" /> Apagar
-                    </Button>
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="font-mono text-muted-foreground">#{batch.id ?? "—"}</span>
+                        <p className="max-w-full truncate font-semibold text-foreground lg:max-w-[360px]">
+                          {batch.name ?? "Entrada sem nome"}
+                        </p>
+                        <Badge
+                          variant={String(batch.status ?? "").toUpperCase() === "CLOSED" ? "default" : "secondary"}
+                          className="h-6 shrink-0"
+                        >
+                          {statusLabel(batch.status)}
+                        </Badge>
+                      </div>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        {formatBatchDate(batch.createdAt ?? batch.created_at)}
+                      </p>
+                    </button>
+
+                    <div className="grid w-full grid-cols-3 gap-1.5 sm:grid-cols-3 lg:w-auto lg:min-w-[230px]">
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => setSelectedBatchId(Number(batch.id))}>
+                        <Eye className="mr-1 h-3.5 w-3.5" /> Ver
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => {
+                          setSelectedBatchId(Number(batch.id));
+                          toast.info("Abrindo detalhes. Use Editar entrada dentro do lote.");
+                        }}
+                      >
+                        <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px] text-destructive hover:text-destructive" onClick={() => setDeleteBatchTarget(batch)}>
+                        <Trash2 className="mr-1 h-3.5 w-3.5" /> Apagar
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-7">
+                    <div className="rounded-md bg-muted/25 px-2 py-1.5">
+                      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Produtos</span>
+                      <strong className="text-xs">{productsCount}</strong>
+                    </div>
+                    <div className="rounded-md bg-muted/25 px-2 py-1.5">
+                      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Itens</span>
+                      <strong className="text-xs">{unitsCount}</strong>
+                    </div>
+                    <div className="rounded-md bg-muted/25 px-2 py-1.5">
+                      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Mercadorias</span>
+                      <strong className="text-xs">{formatCurrency(goodsTotal)}</strong>
+                    </div>
+                    <div className="rounded-md bg-muted/25 px-2 py-1.5">
+                      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Operacional</span>
+                      <strong className="text-xs">{formatCurrency(operationalTotal)}</strong>
+                    </div>
+                    <div className="rounded-md bg-muted/25 px-2 py-1.5">
+                      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Imp./Outros</span>
+                      <strong className="text-xs">{formatCurrency(taxTotal + otherTotal)}</strong>
+                    </div>
+                    <div className="rounded-md bg-primary/5 px-2 py-1.5 sm:col-span-2 lg:col-span-2">
+                      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">Total lote</span>
+                      <strong className="text-xs text-primary">{formatCurrency(totalCost)}</strong>
+                    </div>
                   </div>
                 </div>
               );
