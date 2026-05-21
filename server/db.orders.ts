@@ -3,6 +3,8 @@
  *
  * FLUXO DE NEGÓCIO:
  * 1. Cliente cria pedido → status AGUARDANDO_PAGAMENTO (sem débito de estoque)
+ *    - O preço é calculado no backend pelo produto e forma de pagamento
+ *    - O backend ignora qualquer preço vindo do navegador
  * 2. Admin confirma manualmente → status PAGO
  *    - Valida estoque suficiente (lança erro se insuficiente — sem Math.max silencioso)
  *    - Debita stockQuantity em transação atômica
@@ -22,6 +24,30 @@ import {
 
 // ── Criar pedido — SEM debitar estoque ────────────────────────────────────────
 
+function resolveOrderUnitPrice(
+  product: typeof products.$inferSelect,
+  paymentMethod: "PIX" | "CARTAO" | "BOLETO"
+): number {
+  const fallback = Number(product.suggestedPrice ?? 0);
+
+  if (paymentMethod === "PIX") {
+    const pixPrice = Number(product.suggestedPricePix ?? 0);
+    return pixPrice > 0 ? pixPrice : fallback;
+  }
+
+  if (paymentMethod === "CARTAO") {
+    const cardPrice = Number(product.suggestedPriceCard ?? 0);
+    return cardPrice > 0 ? cardPrice : fallback;
+  }
+
+  if (paymentMethod === "BOLETO") {
+    const boletoPrice = Number(product.suggestedPriceBoleto ?? 0);
+    return boletoPrice > 0 ? boletoPrice : fallback;
+  }
+
+  return fallback;
+}
+
 export async function createOrder(data: {
   productId: number;
   quantity: number;
@@ -29,7 +55,6 @@ export async function createOrder(data: {
   buyerContact: string;
   buyerContactType: string;
   paymentMethod: "PIX" | "CARTAO" | "BOLETO";
-  unitPrice: number;
 }): Promise<Order> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -41,14 +66,21 @@ export async function createOrder(data: {
     .limit(1);
 
   if (!product[0]) throw new Error("Produto não encontrado");
-  if (!product[0].published) throw new Error("Produto não disponível");
+  if (!product[0].published || !product[0].active) {
+    throw new Error("Produto não disponível");
+  }
 
   const availableStock = product[0].stockQuantity ?? 0;
   if (availableStock < data.quantity) {
     throw new Error("Estoque insuficiente");
   }
 
-  const totalPrice = data.unitPrice * data.quantity;
+  const unitPrice = resolveOrderUnitPrice(product[0], data.paymentMethod);
+  if (unitPrice <= 0) {
+    throw new Error("Produto sem preço válido para esta forma de pagamento");
+  }
+
+  const totalPrice = unitPrice * data.quantity;
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
   const [order] = await db
@@ -60,7 +92,7 @@ export async function createOrder(data: {
       buyerContact: data.buyerContact,
       buyerContactType: data.buyerContactType,
       paymentMethod: data.paymentMethod,
-      unitPrice: data.unitPrice,
+      unitPrice,
       totalPrice,
       status: "AGUARDANDO_PAGAMENTO",
       expiresAt,
