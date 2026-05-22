@@ -115,8 +115,8 @@ function UrgencyTicker() {
 function CardSkeleton() {
   return (
     <div className="animate-pulse">
-      <div className="rounded-2xl mb-3" style={{ aspectRatio: "3/4", backgroundColor: "#f0f0f0" }} />
-      <div className="space-y-2 px-1">
+      <div className="mb-4" style={{ aspectRatio: "1/1", backgroundColor: "#f8f8f8", border: "1px solid #efefef" }} />
+      <div className="space-y-2">
         <div className="h-2 rounded-full w-16" style={{ backgroundColor: "#f0f0f0" }} />
         <div className="h-4 rounded-full w-3/4" style={{ backgroundColor: "#f0f0f0" }} />
         <div className="h-3 rounded-full w-1/3 mt-3" style={{ backgroundColor: "#f0f0f0" }} />
@@ -149,8 +149,8 @@ function ProductCard({ p }: { p: CatalogProduct }) {
       >
         {/* ── Container da imagem ── */}
         <div
-          className="relative overflow-hidden rounded-2xl mb-3"
-          style={{ aspectRatio: "3/4", backgroundColor: "#F7F5F2" }}
+          className="relative overflow-hidden mb-3"
+          style={{ aspectRatio: "1/1", backgroundColor: "#ffffff", border: "1px solid #efefef" }}
         >
           {/* Badges topo-esquerda */}
           <div className="absolute top-2.5 left-2.5 z-20 flex flex-col gap-1.5">
@@ -183,11 +183,10 @@ function ProductCard({ p }: { p: CatalogProduct }) {
           {/* Wishlist */}
           <button
             onClick={(e) => e.preventDefault()}
-            className="absolute top-2.5 right-2.5 z-20 w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200"
-            style={{ backgroundColor: "rgba(255,255,255,0.85)" }}
+            className="absolute top-2 right-2 z-20 w-8 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200"
             aria-label="Favoritar"
           >
-            <Heart className="w-3.5 h-3.5 text-neutral-500 group-hover:text-rose-500 transition-colors" />
+            <Heart className="w-4 h-4 text-neutral-400 hover:text-rose-500 transition-colors" />
           </button>
 
           {/* Imagem */}
@@ -222,7 +221,7 @@ function ProductCard({ p }: { p: CatalogProduct }) {
           {!stock && (
             <div
               className="absolute inset-0 flex items-center justify-center z-10"
-              style={{ backgroundColor: "rgba(247,245,242,0.75)" }}
+              style={{ backgroundColor: "rgba(255,255,255,0.85)" }}
             >
               <span
                 className="text-[9px] font-semibold tracking-[0.25em] uppercase border px-3 py-1.5 rounded-full"
