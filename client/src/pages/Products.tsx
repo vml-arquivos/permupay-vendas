@@ -50,7 +50,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-type ProductView = "todos" | "publicados" | "rascunhos" | "paraPublicar";
+type ProductView = "todos" | "publicados" | "rascunhos" | "paraPublicar" | "quaseZero";
 
 export default function Products() {
   const utils = trpc.useUtils();
@@ -64,7 +64,7 @@ export default function Products() {
     staleTime: 5 * 60 * 1000,
   });
   const [searchTerm, setSearchTerm] = useState("");
-  const [view, setView] = useState<ProductView>("todos");
+  const [view, setView] = useState<ProductView>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "quaseZero" ? "quaseZero" : "todos");
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: number; name: string } | null>(null);
 
   // ── Ordenação drag-and-drop ──────────────────────────────────────────────────
@@ -198,6 +198,7 @@ export default function Products() {
     const matchView =
       view === "todos" ||
       view === "paraPublicar" ||
+      (view === "quaseZero" && (p.salesChannel === "QUASE_ZERO" || p.salesChannel === "BOTH")) ||
       (view === "publicados" && p.published) ||
       (view === "rascunhos" && !p.published);
     return matchSearch && matchView;
@@ -206,6 +207,7 @@ export default function Products() {
   const publishedCount = (products as any[]).filter((p) => p.published).length;
   const draftCount = (products as any[]).filter((p) => !p.published).length;
   const pendingCount = (pendingProducts as any[]).length;
+  const quaseZeroCount = (products as any[]).filter((p) => p.salesChannel === "QUASE_ZERO" || p.salesChannel === "BOTH").length;
 
   const exportToExcel = () => {
     if (products.length === 0) {
@@ -371,6 +373,7 @@ export default function Products() {
                   { key: "publicados", label: `Publicados (${publishedCount})` },
                   { key: "rascunhos", label: `Rascunhos (${draftCount})` },
                   { key: "paraPublicar", label: `Para Publicar (${pendingCount})` },
+                  { key: "quaseZero", label: `Quase Zero (${quaseZeroCount})` },
                 ] as { key: ProductView; label: string }[]
               ).map(({ key, label }) => (
                 <button
