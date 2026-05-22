@@ -638,8 +638,7 @@ export default function BatchPricing() {
     if (!batch) return;
 
     if (String(batch.status ?? "").toUpperCase() === "CLOSED") {
-      toast.warning("Entrada fechada não pode ser editada diretamente por segurança. Visualize os detalhes ou apague entradas de teste.");
-      return;
+      toast.info("Entrada fechada carregada para edição. Se já teve venda/movimentação crítica, o backend bloqueará ao salvar.");
     }
 
     setSavedBatchId(Number(batch.id));
@@ -648,6 +647,8 @@ export default function BatchPricing() {
     setTotalOperationalCost(String(batch.totalOperationalCost ?? 0));
     setTotalTaxCost(String((batch as any).totalTaxCost ?? 0));
     setTotalOtherCost(String((batch as any).totalOtherCost ?? 0));
+    setFifoMode((batch as any).fifoMode ?? true);
+    setRegularizationMode(String(batch.description ?? "").includes("REGULARIZACAO_INICIAL"));
 
     const loadedItems = Array.isArray(batch.items) && batch.items.length > 0
       ? batch.items.map((entry: any) => ({
