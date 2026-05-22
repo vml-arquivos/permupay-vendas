@@ -109,6 +109,81 @@ export async function getBatchById(
   return { ...batch, items };
 }
 
+
+async function resetBatchInventoryEffects(tx: any, batchId: number) {
+  const queueResult = await tx.execute(sql`
+    SELECT id, product_id, quantity, quantity_remaining, status
+    FROM permupay_stock_queue
+    WHERE batch_id = ${batchId}
+    FOR UPDATE
+  `) as any;
+  const queueRows = (queueResult?.rows ?? []) as any[];
+
+  const hasCriticalQueueMovement = queueRows.some((row) => {
+    const qty = Number(row.quantity ?? 0);
+    const remaining = Number(row.quantity_remaining ?? 0);
+    const status = String(row.status ?? "").toUpperCase();
+    return status === "ESGOTADO" || remaining < qty;
+  });
+
+  if (hasCriticalQueueMovement) {
+    throw new Error("Esta entrada já teve venda/movimentação crítica. Edição bloqueada por segurança.");
+  }
+
+  if (queueRows.length > 0) {
+    for (const row of queueRows) {
+      const status = String(row.status ?? "").toUpperCase();
+      const productId = Number(row.product_id ?? 0);
+      const remaining = Number(row.quantity_remaining ?? 0);
+      if (status === "ATIVO" && productId > 0 && remaining > 0) {
+        await tx.execute(sql`
+          UPDATE permupay_products
+          SET stock_quantity = GREATEST(0, stock_quantity - ${remaining}),
+              updated_at = NOW()
+          WHERE id = ${productId}
+        `);
+      }
+    }
+  } else {
+    const stockResult = await tx.execute(sql`
+      SELECT product_id, COALESCE(SUM(quantity), 0) AS quantity
+      FROM permupay_stock_entries
+      WHERE batch_id = ${batchId}
+        AND quantity > 0
+      GROUP BY product_id
+    `) as any;
+    const stockRows = (stockResult?.rows ?? []) as any[];
+
+    for (const row of stockRows) {
+      const productId = Number(row.product_id ?? 0);
+      const qty = Number(row.quantity ?? 0);
+      if (productId <= 0 || qty <= 0) continue;
+
+      const productResult = await tx.execute(sql`
+        SELECT stock_quantity
+        FROM permupay_products
+        WHERE id = ${productId}
+        FOR UPDATE
+      `) as any;
+      const currentStock = Number(productResult?.rows?.[0]?.stock_quantity ?? 0);
+      if (currentStock < qty) {
+        throw new Error(`Produto #${productId} já teve movimentação. Edição da entrada bloqueada por segurança.`);
+      }
+
+      await tx.execute(sql`
+        UPDATE permupay_products
+        SET stock_quantity = stock_quantity - ${qty},
+            updated_at = NOW()
+        WHERE id = ${productId}
+      `);
+    }
+  }
+
+  await tx.execute(sql`DELETE FROM permupay_stock_queue WHERE batch_id = ${batchId}`);
+  await tx.execute(sql`DELETE FROM permupay_stock_entries WHERE batch_id = ${batchId}`);
+  await tx.execute(sql`DELETE FROM permupay_batch_items WHERE batch_id = ${batchId}`);
+}
+
 /**
  * Processa um lote completo:
  * 1. Calcula o rateio proporcional
@@ -136,14 +211,15 @@ export async function processBatch(
     .limit(1);
 
   if (!batch) throw new Error("Lote não encontrado");
-  if (batch.status === "CLOSED") throw new Error("Este lote já está fechado");
 
   // Calcular rateio
   const result = calculateBatchPricing({ items, totalOperationalCost, totalTaxCost, totalOtherCost });
   if (isBatchPricingError(result)) throw new Error(result.message);
 
-  // Limpar itens anteriores do lote (re-processamento)
-  await db.delete(batchItems).where(eq(batchItems.batchId, batchId));
+  // Se for reprocessamento/edição, desfaz os efeitos anteriores quando ainda é seguro.
+  await db.transaction(async (tx) => {
+    await resetBatchInventoryEffects(tx, batchId);
+  });
 
   // Inserir itens com rateio calculado
   const insertData: InsertBatchItem[] = result.items.map((item) => ({
@@ -421,7 +497,6 @@ export async function processInitialRegularizationBatch(
     .limit(1);
 
   if (!batch) throw new Error("Entrada de regularização não encontrada");
-  if (batch.status === "CLOSED") throw new Error("Esta entrada já está fechada");
 
   if (items.some((item) => !item.productId)) {
     throw new Error("Regularização inicial só pode usar produtos já cadastrados.");
@@ -438,9 +513,7 @@ export async function processInitialRegularizationBatch(
   let regularizedCount = 0;
 
   await db.transaction(async (tx) => {
-    await tx.delete(batchItems).where(eq(batchItems.batchId, batchId));
-    await tx.execute(sql`DELETE FROM permupay_stock_queue WHERE batch_id = ${batchId}`);
-    await tx.execute(sql`DELETE FROM permupay_stock_entries WHERE batch_id = ${batchId}`);
+    await resetBatchInventoryEffects(tx, batchId);
 
     for (const item of result.items) {
       if (!item.productId) continue;
@@ -765,20 +838,18 @@ export async function processBatchFIFO(
     .limit(1);
 
   if (!batch) throw new Error("Lote não encontrado");
-  if (batch.status === "CLOSED") throw new Error("Este lote já está fechado");
 
   // Calcular rateio (motor existente — sem alteração)
   const result = calculateBatchPricing({ items, totalOperationalCost, totalTaxCost, totalOtherCost });
   if (isBatchPricingError(result)) throw new Error(result.message);
-
-  // Limpar itens anteriores
-  await db.delete(batchItems).where(eq(batchItems.batchId, batchId));
 
   let queuedCount = 0;
   let activatedCount = 0;
 
   // Processar cada item dentro de uma transação
   await db.transaction(async (tx) => {
+    await resetBatchInventoryEffects(tx, batchId);
+
     for (const item of result.items) {
       if (!item.productId) {
         // Produto não vinculado — só salva batch_item sem mexer em estoque
