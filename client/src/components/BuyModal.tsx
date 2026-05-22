@@ -6,7 +6,7 @@
  * 2. Adiciona DINHEIRO como forma de pagamento manual.
  * 3. Mantém PIX, cartão e boleto funcionando.
  * 4. Mantém opção de adicionar produto extra ao pedido.
- * 5. Usa uma CTA principal: "Ir para o pagamento".
+ * 5. Usa uma CTA principal: "Reservar produto".
  */
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -192,7 +192,7 @@ export function BuyModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-100">
           <h2 className="font-semibold text-neutral-900 text-base">
-            {step === "success" ? "Pedido registrado!" : `Comprar — ${p.name}`}
+            {step === "success" ? "Reserva registrada!" : `Reservar — ${p.name}`}
           </h2>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700 transition-colors">
             <X className="w-5 h-5" />
@@ -203,7 +203,7 @@ export function BuyModal({
         {step === "method" && (
           <div className="px-6 py-5 space-y-4">
             <p className="text-sm text-neutral-500">
-              Escolha a forma de pagamento:
+              Escolha a forma de pagamento preferida para a reserva:
             </p>
 
             <div className="space-y-2">
@@ -234,7 +234,7 @@ export function BuyModal({
             </div>
 
             <Button className="w-full mt-2" onClick={() => setStep("form")}>
-              Continuar com {methodLabel(method)}
+              Continuar reserva
             </Button>
           </div>
         )}
@@ -331,7 +331,7 @@ export function BuyModal({
                 onClick={handleGoToPayment}
                 disabled={createOrder.isPending}
               >
-                {createOrder.isPending ? "Registrando..." : `Ir para pagamento`}
+                {createOrder.isPending ? "Registrando..." : `Reservar produto`}
               </Button>
             </div>
           </div>
@@ -344,9 +344,9 @@ export function BuyModal({
               <CheckCircle className="w-8 h-8 text-emerald-500" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-neutral-900">Pedido registrado</h3>
+              <h3 className="text-lg font-bold text-neutral-900">Reserva registrada</h3>
               <p className="text-sm text-neutral-500 mt-1">
-                Seu pedido #{orderId} foi registrado. Nossa equipe seguirá com a confirmação.
+                Sua reserva #{orderId} foi registrada. Nossa equipe seguirá com a confirmação do pagamento.
               </p>
               {method === "DINHEIRO" && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
@@ -354,6 +354,9 @@ export function BuyModal({
                 </p>
               )}
             </div>
+            <p className="text-xs text-neutral-400">
+              A reserva fica pendente até a confirmação manual do atendimento.
+            </p>
             <Button className="w-full" onClick={onClose}>
               Fechar
             </Button>
