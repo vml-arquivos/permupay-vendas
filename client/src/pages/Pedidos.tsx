@@ -15,6 +15,7 @@ import {
   BadgeCheck,
   ShieldCheck,
   Phone,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -288,6 +289,19 @@ export default function Pedidos() {
     onError: (e) => toast.error(e.message),
   });
 
+  const deleteOrder = trpc.orders.delete.useMutation({
+    onSuccess: async (result) => {
+      const restored = Number((result as any)?.restoredQuantity ?? 0);
+      toast.success(restored > 0 ? `Pedido apagado e ${restored} unidade(s) devolvida(s) ao estoque.` : "Pedido apagado.");
+      await Promise.all([
+        utils.orders.list.invalidate(),
+        utils.orders.counts.invalidate(),
+      ]);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const pendingOrders = orders.filter(
     (o: any) => o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
   );
@@ -337,6 +351,18 @@ export default function Pedidos() {
     );
     if (!ok) return;
     cancel.mutate({ orderId: order.id, adminNotes: confirmNotes[order.id] });
+  };
+
+  const handleDeleteOrder = (order: any) => {
+    const isPaid = order.status === "PAGO";
+    const message = isPaid
+      ? `APAGAR pedido #${order.id}?\n\nEste pedido está PAGO. Ao apagar, o sistema vai devolver ${order.quantity} unidade(s) ao estoque do produto.\n\nUse isso para limpar compras de teste.`
+      : `APAGAR pedido #${order.id}?\n\nEste pedido não está pago. Ele será removido sem mexer no estoque.`;
+
+    const ok = window.confirm(message);
+    if (!ok) return;
+
+    deleteOrder.mutate({ orderId: order.id, restoreStock: true });
   };
 
   return (
@@ -454,6 +480,16 @@ export default function Pedidos() {
                                 <XCircle className="w-4 h-4" />
                                 Cancelar
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2 text-destructive hover:text-destructive"
+                                disabled={deleteOrder.isPending}
+                                onClick={() => handleDeleteOrder(order)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                Apagar
+                              </Button>
                             </div>
                           )}
 
@@ -468,7 +504,30 @@ export default function Pedidos() {
                                 <Receipt className="w-4 h-4" />
                                 Ver comprovante
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2 text-destructive hover:text-destructive"
+                                disabled={deleteOrder.isPending}
+                                onClick={() => handleDeleteOrder(order)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                Apagar
+                              </Button>
                             </div>
+                          )}
+
+                          {!isPending && !paidOrderForActions && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-2 text-destructive hover:text-destructive"
+                              disabled={deleteOrder.isPending}
+                              onClick={() => handleDeleteOrder(order)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Apagar
+                            </Button>
                           )}
 
                           <Button
