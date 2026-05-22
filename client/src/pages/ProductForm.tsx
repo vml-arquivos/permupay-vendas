@@ -75,6 +75,10 @@ interface FormState {
   promoTag: string;
   published: boolean;
   active: boolean;
+  salesChannel: "SHOP" | "QUASE_ZERO" | "BOTH";
+  productCondition: "NEW" | "SEMINOVO" | "USADO" | "MOSTRUARIO" | "OPEN_BOX" | "REEMBALADO";
+  conditionNotes: string;
+  isUniquePiece: boolean;
   notes: string;
   costCurrency: "BRL" | "USD";
   costPrice: string;
@@ -461,6 +465,10 @@ export default function ProductForm() {
         promoTag: p.promoTag || "",
         published: p.published ?? false,
         active: p.active ?? true,
+        salesChannel: ((p as any).salesChannel as any) || "SHOP",
+        productCondition: ((p as any).productCondition as any) || "NEW",
+        conditionNotes: (p as any).conditionNotes || "",
+        isUniquePiece: (p as any).isUniquePiece === true,
         notes: p.notes || "",
         costCurrency: (p.costCurrency as "BRL" | "USD") || "BRL",
         costPrice: p.costPrice ? String(p.costPrice) : "",
@@ -538,6 +546,10 @@ export default function ProductForm() {
       promoTag: selected.promoTag || prev.promoTag,
       published: selected.published ?? prev.published,
       active: selected.active ?? prev.active,
+      salesChannel: selected.salesChannel || prev.salesChannel,
+      productCondition: selected.productCondition || prev.productCondition,
+      conditionNotes: selected.conditionNotes || prev.conditionNotes,
+      isUniquePiece: selected.isUniquePiece === true,
       notes: selected.notes || prev.notes,
       costCurrency: (selected.costCurrency as "BRL" | "USD") || "BRL",
       costPrice: cost > 0 ? String(cost) : selected.costPrice ? String(selected.costPrice) : prev.costPrice,
@@ -659,6 +671,10 @@ export default function ProductForm() {
       promoTag: form.promoTag || undefined,
       published: form.published,
       active: form.active,
+      salesChannel: form.salesChannel,
+      productCondition: form.productCondition,
+      conditionNotes: form.conditionNotes || undefined,
+      isUniquePiece: form.isUniquePiece,
       notes: form.notes || undefined,
       costCurrency: form.costCurrency,
       costPrice: costPriceBrl,
@@ -941,6 +957,69 @@ export default function ProductForm() {
                   onCheckedChange={(v) => set("published")(v)}
                 />
               </div>
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">Canal de venda</p>
+                  <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+                    Use Quase Zero para usados, seminovos, mostruário, open box e peças únicas.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Onde o produto aparece">
+                    <Select value={form.salesChannel} onValueChange={(v) => set("salesChannel")(v as any)}>
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SHOP">Shop PermuPay</SelectItem>
+                        <SelectItem value="QUASE_ZERO">Quase Zero</SelectItem>
+                        <SelectItem value="BOTH">Shop + Quase Zero</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+
+                  <Field label="Condição">
+                    <Select value={form.productCondition} onValueChange={(v) => set("productCondition")(v as any)}>
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NEW">Novo</SelectItem>
+                        <SelectItem value="SEMINOVO">Seminovo</SelectItem>
+                        <SelectItem value="USADO">Usado</SelectItem>
+                        <SelectItem value="MOSTRUARIO">Mostruário</SelectItem>
+                        <SelectItem value="OPEN_BOX">Open Box</SelectItem>
+                        <SelectItem value="REEMBALADO">Reembalado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+
+                  <div className="sm:col-span-2">
+                    <Field label="Observações da condição">
+                      <Textarea
+                        value={form.conditionNotes}
+                        onChange={(e) => set("conditionNotes")(e.target.value)}
+                        placeholder="Ex: peça de mostruário, pequena marca na embalagem, acompanha acessórios..."
+                        rows={3}
+                        className="text-sm resize-none"
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="sm:col-span-2 flex items-center justify-between rounded-md border border-amber-200 bg-white/70 p-3 dark:bg-background">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Peça única</p>
+                      <p className="text-xs text-muted-foreground">Ideal para produtos usados ou seminovos com estoque 1.</p>
+                    </div>
+                    <Switch
+                      checked={form.isUniquePiece}
+                      onCheckedChange={(v) => set("isUniquePiece")(v)}
+                    />
+                  </div>
+                </div>
+              </div>
+
 
               {/* Galeria */}
               <div className="mt-4">
