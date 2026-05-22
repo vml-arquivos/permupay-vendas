@@ -47,21 +47,6 @@ export const batchStatusEnum = pgEnum("permupay_batch_status", [
   "CLOSED",
 ]);
 
-export const productSalesChannelEnum = pgEnum("permupay_product_sales_channel", [
-  "SHOP",
-  "QUASE_ZERO",
-  "BOTH",
-]);
-
-export const productConditionEnum = pgEnum("permupay_product_condition", [
-  "NEW",
-  "SEMINOVO",
-  "USADO",
-  "MOSTRUARIO",
-  "OPEN_BOX",
-  "REEMBALADO",
-]);
-
 // Enum para status da fila FIFO de estoque
 export const queueStatusEnum = pgEnum("permupay_queue_status", [
   "EM_ESPERA",   // aguardando — produto ativo ainda tem saldo
@@ -148,9 +133,9 @@ export const products = pgTable("permupay_products", {
   promoTag: text("promo_tag"),
   published: boolean("published").notNull().default(false),
 
-  // Canais de venda
-  salesChannel: productSalesChannelEnum("sales_channel").notNull().default("SHOP"),
-  productCondition: productConditionEnum("product_condition").notNull().default("NEW"),
+  // Canal de venda / Quase Zero
+  salesChannel: text("sales_channel").notNull().default("SHOP"), // SHOP | QUASE_ZERO | BOTH
+  productCondition: text("product_condition").notNull().default("NEW"), // NEW | SEMINOVO | USADO | MOSTRUARIO | OPEN_BOX | REEMBALADO
   conditionNotes: text("condition_notes"),
   isUniquePiece: boolean("is_unique_piece").notNull().default(false),
 
