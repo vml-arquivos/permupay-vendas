@@ -26,6 +26,10 @@ interface CatalogProduct {
   paymentPlatform: string | null; pixKey: string | null;
   pixLink: string | null; cardPaymentUrl: string | null;
   boletoUrl: string | null; cardInstallments?: number | null; boletoMonths?: number | null;
+  salesChannel?: "SHOP" | "QUASE_ZERO" | "BOTH" | string | null;
+  productCondition?: "NEW" | "SEMINOVO" | "USADO" | "MOSTRUARIO" | "OPEN_BOX" | "REEMBALADO" | string | null;
+  conditionNotes?: string | null;
+  isUniquePiece?: boolean | null;
 }
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -126,6 +130,18 @@ function Skeleton() {
   );
 }
 
+function conditionLabel(value?: string | null) {
+  const map: Record<string, string> = {
+    NEW: "Novo",
+    SEMINOVO: "Seminovo",
+    USADO: "Usado",
+    MOSTRUARIO: "Mostruário",
+    OPEN_BOX: "Open Box",
+    REEMBALADO: "Reembalado",
+  };
+  return map[String(value ?? "").toUpperCase()] ?? "Quase Zero";
+}
+
 function ProductCard({ product: p }: { product: CatalogProduct }) {
   const stock = hasStock(p);
   const pix = pixPrice(p);
@@ -156,7 +172,7 @@ function ProductCard({ product: p }: { product: CatalogProduct }) {
           )}
 
           <span className="absolute left-3 top-3 z-10 rounded-full bg-stone-950 px-3 py-1 text-[8px] font-semibold uppercase tracking-[0.2em] text-white">
-            Quase Zero
+            {conditionLabel(p.productCondition)}
           </span>
 
           {p.stockQuantity === 1 && stock && (
@@ -224,16 +240,9 @@ function ProductCard({ product: p }: { product: CatalogProduct }) {
 export default function QuaseZero() {
   const [cat, setCat] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const { data, isLoading } = trpc.marketplace.products.useQuery();
+  const { data, isLoading } = trpc.marketplace.quaseZeroProducts.useQuery();
 
-  const allProducts = (data ?? []) as CatalogProduct[];
-
-  const quaseZeroProducts = useMemo(() => {
-    const tagged = allProducts.filter((p) => hasStock(p) && isQuaseZeroProduct(p));
-    // Enquanto os produtos ainda não estiverem marcados como usados/seminovos,
-    // a página mostra os últimos produtos disponíveis para já nascer preenchida.
-    return tagged.length > 0 ? tagged : allProducts.filter((p) => hasStock(p));
-  }, [allProducts]);
+  const quaseZeroProducts = useMemo(() => ((data ?? []) as CatalogProduct[]).filter((p) => hasStock(p)), [data]);
 
   const cats = useMemo(() => Array.from(new Set(quaseZeroProducts.map((p) => p.category))), [quaseZeroProducts]);
 
@@ -369,7 +378,7 @@ export default function QuaseZero() {
               Últimas peças Quase Zero
             </h2>
             <p className="mt-2 max-w-xl text-sm text-stone-500">
-              Para aparecer aqui de forma automática, marque o produto com termos como “Quase Zero”, “usado”, “seminovo” ou “mostruário” no nome, descrição, etiqueta ou categoria.
+              Para aparecer aqui, cadastre o produto no admin com Canal de venda “Quase Zero” ou “Ambos”.
             </p>
           </div>
 
