@@ -49,6 +49,7 @@ import logo from "@/assets/logo.png";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: Package, label: "Produtos", path: "/produtos" },
+  { icon: Store, label: "Quase Zero", path: "/produtos?view=quaseZero" },
   { icon: Warehouse, label: "Estoque", path: "/estoque" },
   { icon: Calculator, label: "Simulações", path: "/simulacoes" },
   { icon: Layers, label: "Entrada de Produtos", path: "/lotes" },
