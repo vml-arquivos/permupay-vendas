@@ -64,7 +64,7 @@ export default function Products() {
     staleTime: 5 * 60 * 1000,
   });
   const [searchTerm, setSearchTerm] = useState("");
-  const [view, setView] = useState<ProductView>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "quaseZero" ? "quaseZero" : "todos");
+  const [view, setView] = useState<ProductView>("todos");
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: number; name: string } | null>(null);
 
   // ── Ordenação drag-and-drop ──────────────────────────────────────────────────
@@ -435,6 +435,8 @@ export default function Products() {
               <p className="text-sm text-muted-foreground">
                 {view === "paraPublicar"
                   ? "Nenhum produto pendente de publicação encontrado."
+                  : view === "quaseZero"
+                  ? "Nenhum produto Quase Zero encontrado."
                   : `Nenhum produto encontrado com "${searchTerm}"`}
               </p>
             </div>
@@ -499,6 +501,12 @@ export default function Products() {
                                 <Badge variant="secondary" className="text-xs">
                                   <EyeOff className="w-3 h-3 mr-1" /> Rascunho
                                 </Badge>
+                              )}
+                              {(product.salesChannel === "QUASE_ZERO" || product.salesChannel === "BOTH") && (
+                                <Badge className="bg-amber-100 text-amber-800 border-0 text-xs">Quase Zero</Badge>
+                              )}
+                              {product.productCondition && product.productCondition !== "NEW" && (
+                                <Badge variant="outline" className="text-stone-600 border-stone-300 text-xs">{String(product.productCondition).replace("_", " ")}</Badge>
                               )}
                               {pendingIds.has(product.id) && !product.published && (
                                 <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
