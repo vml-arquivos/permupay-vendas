@@ -20,8 +20,12 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  MessageCircle,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
+
+type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 
 type OrderStatus =
   | "AGUARDANDO_PAGAMENTO"
@@ -64,10 +68,36 @@ const PAYMENT_LABEL: Record<string, string> = {
 const fmt = (v: number) =>
   Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+function onlyDigits(value: string) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function buildReceiptMessage(order: any) {
+  return [
+    `Olá, ${order.buyerName}! Sua compra foi confirmada.`,
+    "",
+    `Produto: ${order.productName}`,
+    `Quantidade: ${order.quantity}`,
+    `Valor total: ${fmt(order.totalPrice)}`,
+    `Forma de pagamento: ${PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod}`,
+    "Status: Compra confirmada / liberada para retirada.",
+    "",
+    "Obrigado pela preferência!",
+  ].join("\n");
+}
+
+function openWhatsAppReceipt(order: any) {
+  const message = encodeURIComponent(buildReceiptMessage(order));
+  const digits = onlyDigits(order.buyerContact);
+  const phone = digits.length >= 10 ? `55${digits.replace(/^55/, "")}` : "";
+  window.open(phone ? `https://wa.me/${phone}?text=${message}` : `https://wa.me/?text=${message}`, "_blank");
+}
+
 export default function Pedidos() {
   const utils = trpc.useUtils();
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "TODOS">("TODOS");
   const [confirmNotes, setConfirmNotes] = useState<Record<number, string>>({});
+  const [finalPaymentMethods, setFinalPaymentMethods] = useState<Record<number, PaymentMethod>>({});
   const [expanded, setExpanded] = useState<number | null>(null);
 
   const {
@@ -121,6 +151,7 @@ export default function Pedidos() {
     confirm.mutate({
       orderId: order.id,
       adminNotes: confirmNotes[order.id],
+      paymentMethod: finalPaymentMethods[order.id] ?? order.paymentMethod,
     });
   };
 
@@ -160,7 +191,7 @@ export default function Pedidos() {
           )}
 
           <div className="flex gap-2 flex-wrap">
-            {(["TODOS", "AGUARDANDO_PAGAMENTO", "PAGO", "CANCELADO", "EXPIRADO"] as const).map((s) => (
+            {(["TODOS", "AGUARDANDO_PAGAMENTO", "RESERVADO", "PAGO", "CANCELADO", "EXPIRADO"] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
@@ -285,6 +316,24 @@ export default function Pedidos() {
 
                         {isPending && (
                           <div className="space-y-3">
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground">Forma final de pagamento</label>
+                              <select
+                                value={finalPaymentMethods[order.id] ?? order.paymentMethod}
+                                onChange={(e) =>
+                                  setFinalPaymentMethods((current) => ({
+                                    ...current,
+                                    [order.id]: e.target.value as PaymentMethod,
+                                  }))
+                                }
+                                className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+                              >
+                                <option value="PIX">PIX</option>
+                                <option value="DINHEIRO">Dinheiro</option>
+                                <option value="CARTAO">Cartão</option>
+                                <option value="BOLETO">Boleto</option>
+                              </select>
+                            </div>
                             <textarea
                               placeholder="Notas internas antes de confirmar/cancelar (opcional)..."
                               rows={2}
@@ -301,15 +350,33 @@ export default function Pedidos() {
                         )}
 
                         {order.status === "PAGO" && (
-                          <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2">
-                            <p className="text-xs text-green-800 font-medium">
-                              ✓ Pagamento Confirmado / Liberado para Retirada
-                            </p>
-                            {order.confirmedAt && (
-                              <p className="text-xs text-green-600 mt-0.5">
-                                Confirmado em {new Date(order.confirmedAt).toLocaleString("pt-BR")}
+                          <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-3 space-y-3">
+                            <div>
+                              <p className="text-xs text-green-800 font-medium">
+                                ✓ Pagamento Confirmado / Liberado para Retirada
                               </p>
-                            )}
+                              {order.confirmedAt && (
+                                <p className="text-xs text-green-600 mt-0.5">
+                                  Confirmado em {new Date(order.confirmedAt).toLocaleString("pt-BR")}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700 text-white" onClick={() => openWhatsAppReceipt(order)}>
+                                <MessageCircle className="w-4 h-4" /> Compartilhar comprovante pelo WhatsApp
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2"
+                                onClick={async () => {
+                                  await navigator.clipboard.writeText(buildReceiptMessage(order));
+                                  toast.success("Mensagem do comprovante copiada.");
+                                }}
+                              >
+                                <Copy className="w-4 h-4" /> Copiar mensagem
+                              </Button>
+                            </div>
                           </div>
                         )}
                       </div>
