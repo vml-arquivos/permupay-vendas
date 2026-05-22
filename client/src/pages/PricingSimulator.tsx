@@ -53,6 +53,9 @@ import {
   Star,
   RefreshCcw,
   Save,
+  FileDown,
+  Minus,
+  Plus,
 } from "lucide-react";
 
 // ─── Tipos auxiliares ─────────────────────────────────────────────────────────
@@ -489,6 +492,7 @@ export default function PricingSimulator() {
   const [showCard, setShowCard] = useState(true);
   const [simulationName, setSimulationName] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
+  const [pdfQty, setPdfQty] = useState(1); // quantidade para o PDF/orçamento
   const [defaultsApplied, setDefaultsApplied] = useState(false);
   const [location, setLocation] = useLocation();
   const { user } = useAuth();
@@ -723,6 +727,164 @@ export default function PricingSimulator() {
     setResult(null);
     setError(null);
   }, [pricingDefaultsQuery.data]);
+
+  // ─── Exportar PDF da simulação atual ───────────────────────────────────────
+  const exportSimulationPDF = useCallback(() => {
+    if (!result) return;
+
+    const qty = Math.max(1, pdfQty);
+    const fmt = (v: number) => (v * qty).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const fmtU = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const fmtPct = (v: number) => `${(v * 100).toFixed(2)}%`;
+    const now = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+
+    const DIAG_COLOR: Record<string, string> = {
+      EXCELENTE: "#059669", SAUDAVEL: "#16a34a", ATENCAO: "#ca8a04",
+      RISCO: "#ea580c", PREJUIZO: "#dc2626",
+    };
+    const DIAG_BG: Record<string, string> = {
+      EXCELENTE: "#ecfdf5", SAUDAVEL: "#f0fdf4", ATENCAO: "#fefce8",
+      RISCO: "#fff7ed", PREJUIZO: "#fef2f2",
+    };
+
+    const diagBadge = (d: string) => {
+      const c = DIAG_COLOR[d] ?? "#555"; const bg = DIAG_BG[d] ?? "#f5f5f5";
+      return `<span style="padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;background:${bg};color:${c};border:1px solid ${c}40">${d}</span>`;
+    };
+
+    const METHOD_ICON: Record<string, string> = {
+      PIX: "⚡", BOLETO: "📄", DEBITO: "💳", CREDITO_A_VISTA: "💳", CREDITO_PARCELADO: "💳",
+    };
+
+    const cardsHtml = result.results.map((r) => {
+      const isBest  = r.method === result.bestMethod;
+      const isWorst = r.method === result.worstMethod;
+      return `
+      <div style="flex:1;min-width:200px;border:2px solid ${isBest ? "#16a34a" : isWorst ? "#e5e5e5" : "#e5e5e5"};border-radius:12px;padding:18px;background:${isBest ? "#f0fdf4" : "#fafafa"};position:relative;page-break-inside:avoid">
+        ${isBest ? `<div style="position:absolute;top:-12px;left:12px;background:#16a34a;color:#fff;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px">★ Melhor opção</div>` : ""}
+        ${isWorst ? `<div style="position:absolute;top:-12px;left:12px;background:#e5e5e5;color:#555;font-size:10px;padding:3px 10px;border-radius:20px">Menor margem</div>` : ""}
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#111">${METHOD_ICON[r.method] ?? ""} ${r.methodLabel}</div>
+            ${r.installments > 1 ? `<div style="font-size:10px;color:#888">${r.installments}x de ${fmtU(r.installmentValue)}</div>` : ""}
+          </div>
+          ${diagBadge(r.diagnostic)}
+        </div>
+
+        <!-- Preço unitário -->
+        <div style="margin-bottom:4px">
+          <div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.08em">Preço unitário</div>
+          <div style="font-size:22px;font-weight:800;color:#111;letter-spacing:-0.03em">${fmtU(r.suggestedPrice)}</div>
+        </div>
+
+        <!-- Preço total se qty > 1 -->
+        ${qty > 1 ? `
+        <div style="margin-bottom:10px;background:#fff;border:1px solid #e5e5e5;border-radius:6px;padding:6px 10px">
+          <div style="font-size:10px;color:#aaa">Total × ${qty} unidades</div>
+          <div style="font-size:16px;font-weight:700;color:#111">${fmt(r.suggestedPrice)}</div>
+        </div>` : "<div style='margin-bottom:10px'></div>"}
+
+        <table style="width:100%;font-size:10px;color:#666;border-collapse:collapse">
+          <tr><td style="padding:2px 0">Preço de Custo</td><td style="text-align:right;color:#111;font-weight:600">${fmtU(r.baseCost)}</td></tr>
+          <tr><td style="padding:2px 0">Margem de Lucro</td><td style="text-align:right;color:#16a34a;font-weight:600">+${fmtU(r.marginValue)}</td></tr>
+          <tr style="border-top:1px dashed #eee"><td style="padding:4px 0;font-weight:700;color:#111">Subtotal</td><td style="text-align:right;font-weight:700;color:#111">${fmtU(r.subtotalWithMargin)}</td></tr>
+          <tr><td style="padding-top:6px;font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.08em" colspan="2">Despesas Adicionais</td></tr>
+          <tr><td style="padding:2px 0">Impostos</td><td style="text-align:right">${fmtU(r.totalTax)}</td></tr>
+          <tr><td style="padding:2px 0">Taxas/Juros</td><td style="text-align:right">${fmtU(r.totalFees + r.totalInterest)}</td></tr>
+          ${r.otherCosts > 0 ? `<tr><td style="padding:2px 0">Outros Custos</td><td style="text-align:right">${fmtU(r.otherCosts)}</td></tr>` : ""}
+          <tr style="border-top:1px solid #e5e5e5">
+            <td style="padding:6px 0;font-weight:700;color:${r.netProfit >= 0 ? "#16a34a" : "#dc2626"}">Lucro Líquido</td>
+            <td style="text-align:right;font-weight:700;color:${r.netProfit >= 0 ? "#16a34a" : "#dc2626"}">${fmtU(r.netProfit)}</td>
+          </tr>
+          <tr>
+            <td style="padding:2px 0;color:#666">Lucro Bruto</td>
+            <td style="text-align:right;font-weight:600">${fmtPct(r.realMarginRate)}</td>
+          </tr>
+          <tr style="border-top:1px dashed #eee"><td style="padding:4px 0;color:#888">Mín. sem prejuízo</td><td style="text-align:right;color:#555">${fmtU(r.minPriceNoLoss)}</td></tr>
+        </table>
+      </div>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Simulação — ${result.input.productName}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', Arial, sans-serif; color: #111; background: #fff; font-size: 12px; }
+  @page { size: A4 landscape; margin: 14mm 14mm 14mm 14mm; }
+  @media print {
+    .no-print { display: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;border-bottom:3px solid #111;margin-bottom:20px">
+  <div>
+    <div style="font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:4px">Simulação de Precificação</div>
+    <div style="font-size:24px;font-weight:800;color:#111;letter-spacing:-0.03em">${result.input.productName}</div>
+    <div style="font-size:11px;color:#888;margin-top:4px">
+      Categoria: ${result.input.category} · Regime: ${result.input.taxRegime}
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:10px;color:#aaa">Emitido em</div>
+    <div style="font-size:13px;font-weight:600">${now}</div>
+  </div>
+</div>
+
+<!-- KPIs -->
+<div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap">
+  ${[
+    { label: "Preço de Custo (unit.)", value: fmtU(result.totalCost) },
+    { label: "Margem Desejada",        value: fmtPct(result.input.desiredMarginRate) },
+    { label: "Melhor Forma",           value: PAYMENT_METHOD_LABELS[result.bestMethod] ?? result.bestMethod },
+    qty > 1 ? { label: `Custo Total (×${qty})`, value: fmt(result.totalCost) } : null,
+    qty > 1 ? { label: `Preço Venda Total (×${qty})`, value: fmt(result.results.find(r => r.method === result.bestMethod)?.suggestedPrice ?? 0) } : null,
+  ].filter(Boolean).map((k: any) => `
+    <div style="flex:1;min-width:130px;border:1px solid #e5e5e5;border-radius:8px;padding:12px 16px">
+      <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">${k.label}</div>
+      <div style="font-size:16px;font-weight:800;color:#111;letter-spacing:-0.02em">${k.value}</div>
+    </div>
+  `).join("")}
+</div>
+
+<!-- CARDS DE PAGAMENTO -->
+<div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px">Formas de Pagamento</div>
+<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">
+  ${cardsHtml}
+</div>
+
+<!-- NOTA FISCAL -->
+<div style="margin-top:20px;padding:10px 14px;border:1px solid #e5e5e5;border-radius:8px;font-size:9px;color:#aaa">
+  <strong style="color:#888">Nota:</strong> Cálculo estimativo. Confirme NCM, CST/CSOSN, CFOP, ICMS-ST, PIS/COFINS e regime tributário com seu contador.
+  ${qty > 1 ? ` · Valores "Total" calculados para ${qty} unidades.` : ""}
+</div>
+
+<!-- BOTÃO IMPRIMIR -->
+<div class="no-print" style="position:fixed;bottom:20px;right:20px;display:flex;gap:8px">
+  <button onclick="window.print()" style="background:#111;color:#fff;border:none;padding:10px 22px;font-size:13px;font-weight:600;cursor:pointer;border-radius:8px">
+    🖨️ Salvar / Imprimir PDF
+  </button>
+  <button onclick="window.close()" style="background:#f0f0f0;color:#555;border:none;padding:10px 16px;font-size:13px;cursor:pointer;border-radius:8px">
+    Fechar
+  </button>
+</div>
+
+</body>
+</html>`;
+
+    const win = window.open("", "_blank", "width=1100,height=720,scrollbars=yes");
+    if (!win) { alert("Permita popups para gerar o PDF"); return; }
+    win.document.write(html);
+    win.document.close();
+  }, [result, pdfQty]);
 
   const handleSaveSimulation = useCallback(async () => {
     if (!result) return;
