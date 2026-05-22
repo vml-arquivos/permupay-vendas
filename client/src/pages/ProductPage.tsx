@@ -6,30 +6,24 @@
  * - Compatibilidade com produto antigo que usa apenas imageUrl.
  * - Pagamento em dinheiro exibido sem inventar taxa.
  * - Uma ação principal: Reservar produto.
- * - Métodos de pagamento compactos e selecionáveis.
+ * - Formas de pagamento apenas descritivas, sem CTAs individuais.
  * - Checkout preservado via BuyModal.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
   ArrowLeft,
-  Zap,
-  CreditCard,
-  FileText,
   MessageCircle,
   Heart,
   Share2,
   ShoppingBag,
   ChevronRight,
-  Banknote,
-  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BuyModal } from "@/components/BuyModal";
 import logo from "@/assets/logo.png";
 
-type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 
 interface NormalizedImage {
   id: string;
@@ -138,55 +132,11 @@ function Skeleton() {
   );
 }
 
-function PaymentOption({
-  active,
-  icon,
-  label,
-  detail,
-  price,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  detail: string;
-  price: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left rounded-2xl border px-4 py-3 transition-all ${
-        active
-          ? "border-neutral-900 bg-neutral-950 text-white shadow-sm"
-          : "border-neutral-200 bg-white hover:border-neutral-400 text-neutral-900"
-      }`}
-    >
-      <div className="flex items-center gap-3">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-          active ? "bg-white/10 text-white" : "bg-neutral-50 text-neutral-500"
-        }`}>
-          {icon}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className={`text-sm font-semibold ${active ? "text-white" : "text-neutral-900"}`}>{label}</p>
-          <p className={`text-xs mt-0.5 ${active ? "text-white/60" : "text-neutral-400"}`}>{detail}</p>
-        </div>
-        <div className="text-right shrink-0">
-          <p className={`text-sm font-bold ${active ? "text-white" : "text-neutral-900"}`}>{price}</p>
-        </div>
-        {active && <Check className="w-4 h-4 text-white shrink-0" />}
-      </div>
-    </button>
-  );
-}
-
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function ProductPage() {
   const params = useParams<{ id?: string }>();
   const productId = params.id ? Number(params.id) : undefined;
   const [showBuyModal, setShowBuyModal] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>("PIX");
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
   const productQuery = trpc.marketplace.productById.useQuery(
@@ -270,46 +220,9 @@ export default function ProductPage() {
   const boletoMon = Math.max(1, Math.round((p as any).boletoMonths ?? 1));
   const hasPrice = !!(pixPriceVal || cashPriceVal || cardPriceVal || boletoPriceVal);
 
-  const paymentOptions = [
-    pixPriceVal && {
-      method: "PIX" as PaymentMethod,
-      label: "Pix",
-      detail: "À vista",
-      price: fmt(pixPriceVal),
-      icon: <Zap className="w-4 h-4" />,
-    },
-    cashPriceVal && {
-      method: "DINHEIRO" as PaymentMethod,
-      label: "Dinheiro",
-      detail: "Na retirada ou entrega",
-      price: fmt(cashPriceVal),
-      icon: <Banknote className="w-4 h-4" />,
-    },
-    cardPriceVal && {
-      method: "CARTAO" as PaymentMethod,
-      label: "Cartão",
-      detail: cardInst > 1 ? `${cardInst}x de ${fmt(cardPriceVal / cardInst)}` : "Cartão de crédito",
-      price: fmt(cardPriceVal),
-      icon: <CreditCard className="w-4 h-4" />,
-    },
-    boletoPriceVal && {
-      method: "BOLETO" as PaymentMethod,
-      label: "Boleto",
-      detail: boletoMon > 1 ? `${boletoMon}x de ${fmt(boletoPriceVal / boletoMon)}` : "Pagamento por boleto",
-      price: fmt(boletoPriceVal),
-      icon: <FileText className="w-4 h-4" />,
-    },
-  ].filter(Boolean) as Array<{
-    method: PaymentMethod;
-    label: string;
-    detail: string;
-    price: string;
-    icon: ReactNode;
-  }>;
-
-  const effectivePaymentMethod = paymentOptions.some((opt) => opt.method === selectedPaymentMethod)
-    ? selectedPaymentMethod
-    : paymentOptions[0]?.method ?? "PIX";
+  const mainCashPrice = cashPriceVal ?? pixPriceVal ?? fallbackPrice;
+  const cardInstallmentValue = cardPriceVal && cardInst > 1 ? cardPriceVal / cardInst : null;
+  const boletoInstallmentValue = boletoPriceVal && boletoMon > 1 ? boletoPriceVal / boletoMon : null;
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: SANS }}>
       {/* Header */}
@@ -350,14 +263,14 @@ export default function ProductPage() {
           {/* Galeria */}
           <div className="md:sticky md:top-24">
             <div
-              className="relative overflow-hidden rounded-3xl bg-white border border-neutral-200 shadow-sm"
+              className="relative overflow-hidden rounded-2xl bg-white border border-neutral-100"
               style={{ aspectRatio: "1 / 1" }}
             >
               {activeImage ? (
                 <img
                   src={activeImage}
                   alt={p.name}
-                  className="absolute inset-0 w-full h-full object-contain p-3 sm:p-4" style={{ objectPosition: "center center" }}
+                  className="absolute inset-0 w-full h-full object-contain p-2 sm:p-3" style={{ objectPosition: "center center" }}
                 />
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
@@ -456,32 +369,47 @@ export default function ProductPage() {
             )}
 
             {inStock && hasPrice && (
-              <div className="rounded-3xl border border-neutral-200 bg-white p-4 sm:p-5 shadow-sm">
-                <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-400 mb-3">Formas de pagamento disponíveis</p>
+              <div className="space-y-3">
+                <div>
+                  <p className="mb-3 text-[9px] font-semibold uppercase tracking-[0.26em] text-neutral-400" style={{ fontFamily: SANS }}>
+                    Valor do produto
+                  </p>
 
-                {cashPriceVal && (
-                  <div className="mb-4">
-                    <span className="text-neutral-900" style={{ fontFamily: SERIF, fontSize: "2rem", fontWeight: 700, letterSpacing: "-0.03em" }}>
-                      {fmt(cashPriceVal)}
-                    </span>
-                    <span className="ml-2 text-[8px] font-bold tracking-[0.25em] uppercase text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
-                      à vista
-                    </span>
-                  </div>
-                )}
+                  {mainCashPrice && (
+                    <div className="flex flex-wrap items-end gap-3">
+                      <span className="text-neutral-950" style={{ fontFamily: SANS, fontSize: "clamp(2rem, 4vw, 2.8rem)", fontWeight: 800, letterSpacing: "-0.05em" }}>
+                        {fmt(mainCashPrice)}
+                      </span>
+                      <span className="mb-2 rounded-sm bg-emerald-50 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-700">
+                        Pix / dinheiro
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-                <div className="space-y-2">
-                  {paymentOptions.map((opt) => (
-                    <PaymentOption
-                      key={opt.method}
-                      active={effectivePaymentMethod === opt.method}
-                      icon={opt.icon}
-                      label={opt.label}
-                      detail={opt.detail}
-                      price={opt.price}
-                      onClick={() => setSelectedPaymentMethod(opt.method)}
-                    />
-                  ))}
+                <div className="space-y-1.5 text-base text-neutral-950" style={{ fontFamily: SANS }}>
+                  {mainCashPrice && (
+                    <p>
+                      <span className="font-medium">Pix ou dinheiro</span>
+                      <span className="ml-2 text-sm text-neutral-500">à vista</span>
+                    </p>
+                  )}
+                  {cardPriceVal && (
+                    <p>
+                      <span className="font-medium">Cartão</span>
+                      <span className="ml-2 text-sm text-neutral-600">
+                        {cardInstallmentValue ? `ou ${cardInst}x de ${fmt(cardInstallmentValue)}` : `ou ${fmt(cardPriceVal)}`}
+                      </span>
+                    </p>
+                  )}
+                  {boletoPriceVal && (
+                    <p>
+                      <span className="font-medium">Boleto</span>
+                      <span className="ml-2 text-sm text-neutral-600">
+                        {boletoInstallmentValue ? `ou ${boletoMon}x de ${fmt(boletoInstallmentValue)}` : `ou ${fmt(boletoPriceVal)}`}
+                      </span>
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -492,8 +420,8 @@ export default function ProductPage() {
               </p>
             )}
 
-            <div className="rounded-2xl border border-neutral-100 bg-neutral-50 px-4 py-3 text-xs text-neutral-500 leading-relaxed">
-              Escolha a forma de pagamento preferida e reserve o produto. A confirmação do pagamento é feita depois pelo atendimento.
+            <div className="rounded-xl bg-neutral-50 px-4 py-3 text-xs text-neutral-500 leading-relaxed">
+              Reserve o produto agora. A forma de pagamento será escolhida na reserva e confirmada depois pelo atendimento.
             </div>
 
             <div className="h-px bg-neutral-100" />
@@ -566,7 +494,7 @@ export default function ProductPage() {
       {showBuyModal && (
         <BuyModal
           product={p}
-          initialPaymentMethod={effectivePaymentMethod}
+          initialPaymentMethod="PIX"
           onClose={() => setShowBuyModal(false)}
         />
       )}
