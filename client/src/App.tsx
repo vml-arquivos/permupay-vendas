@@ -91,7 +91,7 @@ function Router() {
       <Route path="/pedidos">{() => <PL><Pedidos /></PL>}</Route>
 
       {/* ── SOMENTE ADMIN ─────────────────────────────────────────────── */}
-      <Route path="/usuarios">{() => <P><Usuarios /></P>}</Route>
+      <Route path="/usuarios">{() => <P adminOnly><Usuarios /></P>}</Route>
       <Route path="/categorias">{() => <P adminOnly><CategoriasAdmin /></P>}</Route>
       <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
       <Route path="/configuracoes-pagamento">{() => <P><ConfiguracoesPagamento /></P>}</Route>
