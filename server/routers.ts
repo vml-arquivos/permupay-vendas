@@ -667,6 +667,17 @@ export const appRouter = router({
         dbOrders.cancelOrder(input.orderId, input.adminNotes)
       ),
 
+    delete: protectedProcedure
+      .input(
+        z.object({
+          orderId: z.number(),
+          restoreStock: z.boolean().default(true),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbOrders.deleteOrder(input.orderId, ctx.user.id, input.restoreStock)
+      ),
+
     expireStale: protectedProcedure.mutation(() =>
       dbOrders.expireStaleReservations()
     ),
@@ -798,6 +809,30 @@ export const appRouter = router({
         const existing = await db.getUserByEmail(input.email);
         if (existing) throw new Error("Email já cadastrado");
         return db.createUser(input);
+      }),
+
+    updateUser: protectedProcedure
+      .input(
+        z.object({
+          userId: z.number(),
+          name: z.string().min(2),
+          email: z.string().email(),
+          role: z.enum(["user", "admin"]),
+          active: z.boolean(),
+          newPassword: z.string().min(8).optional().or(z.literal("")),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (input.userId === ctx.user.id && (!input.active || input.role !== ctx.user.role)) {
+          throw new Error("Não é possível rebaixar ou desativar sua própria conta");
+        }
+        return db.updateUserAdmin(input.userId, {
+          name: input.name,
+          email: input.email,
+          role: input.role,
+          active: input.active,
+          newPassword: input.newPassword || undefined,
+        });
       }),
 
     updateUserRole: protectedProcedure
