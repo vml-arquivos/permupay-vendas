@@ -87,139 +87,93 @@ function ProductCard({ product: p }: { product: CatalogProduct }) {
   return (
     <Link href={`/vitrine/${p.id}`}>
       <article
-        className={`group cursor-pointer select-none ${!stock ? "opacity-40 pointer-events-none" : ""}`}
+        className={`group relative cursor-pointer select-none ${!stock ? "opacity-45" : ""}`}
         style={{ fontFamily: SANS }}
       >
-        {/* ── Container da imagem: BLINDADO ── */}
-        <div
-          className="relative overflow-hidden bg-white mb-4 rounded-2xl border border-neutral-100 shadow-sm"
-          style={{ aspectRatio: "4/5" }}   /* proporção fixa em todos os cards */
-        >
-          {p.imageUrl ? (
-            /*
-             * object-contain + padding: imagem NUNCA é cortada.
-             * A imagem inteira sempre aparece dentro do card.
-             * Scale no hover age só no <img>, o container não muda.
-             */
-            <img
-              src={p.imageUrl}
-              alt={p.name}
-              className="absolute inset-0 w-full h-full object-contain p-5 transition-transform duration-700 ease-out group-hover:scale-[1.05]"
-            />
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-              <ShoppingBag className="w-8 h-8 text-neutral-200" />
-              <span className="text-[9px] text-neutral-300 tracking-[0.3em] uppercase">Sem imagem</span>
-            </div>
-          )}
-
-          {/* Badge promo */}
+        <div className="relative mb-4 bg-white" style={{ aspectRatio: "1 / 1.18" }}>
           {p.promoTag && stock && (
-            <span
-              className="absolute top-3 left-3 text-[8px] font-semibold tracking-[0.22em] uppercase px-2.5 py-1 z-10"
-              style={{ backgroundColor: "#111", color: "#fff" }}
-            >
+            <span className="absolute left-0 top-0 z-10 bg-neutral-950 px-2.5 py-1 text-[8px] font-bold uppercase tracking-[0.16em] text-white">
               {p.promoTag}
             </span>
           )}
 
-          {/* Badge estoque baixo */}
-          {low && stock && (
-            <span className="absolute top-3 right-3 text-[8px] font-medium tracking-wider text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full z-10">
-              Últimas unidades
+          {low && stock && !p.promoTag && (
+            <span className="absolute left-0 top-0 z-10 bg-neutral-950 px-2.5 py-1 text-[8px] font-bold uppercase tracking-[0.16em] text-white">
+              Últimas
             </span>
           )}
 
-          {/* Overlay escuro suave no hover */}
-          {stock && (
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-500 z-10" />
-          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            className="absolute right-1 top-1 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-neutral-400 transition-colors hover:text-neutral-950"
+            aria-label="Adicionar aos desejos"
+          >
+            <Heart className="h-4 w-4" />
+          </button>
 
-          {/* CTA deslizante vindo de baixo */}
-          {stock && (
-            <div className="absolute inset-x-0 bottom-0 translate-y-full group-hover:translate-y-0 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] z-20">
-              <div
-                className="py-3.5 text-[9px] font-semibold tracking-[0.22em] uppercase text-center flex items-center justify-center gap-2"
-                style={{ backgroundColor: "#111", color: "#fff", fontFamily: SANS }}
-              >
-                Ver produto <ArrowRight className="w-3 h-3" />
-              </div>
+          {p.imageUrl ? (
+            <img
+              src={p.imageUrl}
+              alt={p.name}
+              className="absolute inset-0 h-full w-full object-contain p-4 transition-transform duration-500 group-hover:scale-[1.035]"
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+              <ShoppingBag className="h-8 w-8 text-neutral-200" />
+              <span className="text-[9px] uppercase tracking-[0.3em] text-neutral-300">Sem imagem</span>
             </div>
           )}
 
-          {/* Indisponível */}
           {!stock && (
-            <div className="absolute inset-0 flex items-center justify-center z-20">
-              <span
-                className="text-[9px] tracking-[0.3em] uppercase border border-neutral-200 px-3 py-1.5"
-                style={{ color: "#bbb", backgroundColor: "rgba(255,255,255,0.85)" }}
-              >
+            <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+              <span className="border border-neutral-200 bg-white px-3 py-1.5 text-[9px] uppercase tracking-[0.24em] text-neutral-400">
                 Indisponível
               </span>
             </div>
           )}
         </div>
 
-        {/* ── Info do produto ── */}
-        <div className="space-y-1 px-0.5">
-          {/* Categoria */}
-          <p
-            className="text-[9px] font-medium tracking-[0.3em] uppercase text-neutral-400"
-            style={{ fontFamily: SANS }}
-          >
-            {p.categoryLabel || CAT[p.category] || p.category}
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-neutral-900" style={{ fontFamily: SANS }}>
+            {(p.categoryLabel || CAT[p.category] || p.category || "Produto").toString().slice(0, 28)}
           </p>
 
-          {/* Nome — 2 linhas fixas para alinhar cards entre si */}
           <h3
-            className="leading-snug line-clamp-2 text-neutral-900 transition-colors duration-300 group-hover:text-neutral-500"
-            style={{ fontFamily: SERIF, fontSize: "0.95rem", fontWeight: 500, letterSpacing: "-0.01em", minHeight: "2.8em" }}
+            className="line-clamp-2 text-neutral-700 transition-colors group-hover:text-neutral-950"
+            style={{ fontFamily: SANS, fontSize: "0.84rem", lineHeight: 1.28, minHeight: "2.2rem" }}
           >
-            {p.name}
+            {p.name.toLowerCase()}
           </h3>
 
-          {/* Descrição curta */}
-          {p.shortDescription && (
-            <p className="text-[11px] text-neutral-400 line-clamp-1 font-light" style={{ fontFamily: SANS }}>
-              {p.shortDescription}
-            </p>
+          {stock && pix ? (
+            <div className="pt-4">
+              <p className="text-[10px] text-neutral-500">a partir de</p>
+              <p className="text-xl font-bold tracking-[-0.04em] text-neutral-950" style={{ fontFamily: SANS }}>
+                {fmt(pix)}
+              </p>
+              {card && inst > 1 && (
+                <p className="text-[11px] font-semibold uppercase text-neutral-950">
+                  ou {inst}x de {fmt(card / inst)}
+                </p>
+              )}
+            </div>
+          ) : stock ? (
+            <p className="pt-4 text-xs italic text-neutral-400">Consulte o preço</p>
+          ) : (
+            <Link href="/desejos">
+              <button
+                onClick={(e) => e.stopPropagation()}
+                className="pt-4 text-[10px] text-neutral-400 transition-colors hover:text-rose-400"
+                style={{ fontFamily: SANS }}
+              >
+                Avisar quando chegar
+              </button>
+            </Link>
           )}
-
-          {/* Preço */}
-          <div className="pt-2">
-            {stock && pix ? (
-              <div>
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <span
-                    className="text-neutral-900 font-semibold"
-                    style={{ fontFamily: SANS, fontSize: "1rem", letterSpacing: "-0.02em" }}
-                  >
-                    {fmt(pix)}
-                  </span>
-                  <span className="text-[8px] font-bold tracking-[0.2em] uppercase text-emerald-600">PIX</span>
-                </div>
-                {card && inst > 1 && (
-                  <p className="text-[10px] text-neutral-400 mt-0.5 font-light" style={{ fontFamily: SANS }}>
-                    ou {inst}× de {fmt(card / inst)} no cartão
-                  </p>
-                )}
-              </div>
-            ) : stock ? (
-              <span className="text-xs text-neutral-400 italic" style={{ fontFamily: SANS }}>
-                Consulte o preço
-              </span>
-            ) : (
-              <Link href="/desejos">
-                <button
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-[10px] text-neutral-400 hover:text-rose-400 flex items-center gap-1.5 transition-colors"
-                  style={{ fontFamily: SANS }}
-                >
-                  <Heart className="w-3 h-3" /> Avisar quando chegar
-                </button>
-              </Link>
-            )}
-          </div>
         </div>
       </article>
     </Link>
@@ -481,7 +435,7 @@ export default function Marketplace() {
                 letterSpacing: "-0.02em",
               }}
             >
-              Vitrine dos <span style={{ color: "#92400e", fontWeight: 700 }}>Desejos</span>
+              Produtos em <span style={{ color: "#92400e", fontWeight: 700 }}>destaque</span>
             </h2>
           </div>
           {!isLoading && filtered.length > 0 && (
@@ -493,7 +447,7 @@ export default function Marketplace() {
 
         {/* Grid de produtos — BLINDADO com aspect-ratio 4/5 nos cards */}
         {isLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-12">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-14 sm:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} />)}
           </div>
         ) : filtered.length === 0 ? (
@@ -510,7 +464,7 @@ export default function Marketplace() {
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-14">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-16 sm:grid-cols-3 lg:grid-cols-4">
             {filtered.map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
