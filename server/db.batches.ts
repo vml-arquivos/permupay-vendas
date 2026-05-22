@@ -330,86 +330,122 @@ export async function deleteBatch(
       FROM permupay_pricing_batches
       WHERE id = ${batchId}
       LIMIT 1
+      FOR UPDATE
     `) as any;
     const batch = batchResult?.rows?.[0];
     if (!batch) throw new Error("Entrada não encontrada");
 
-    const queueResult = await tx.execute(sql`
-      SELECT id, product_id, quantity, quantity_remaining, status
-      FROM permupay_stock_queue
-      WHERE batch_id = ${batchId}
+    // Admin supremo: apagar entrada mesmo se ela já passou por fila/estoque.
+    // Esta rotina é para limpeza administrativa/testes. Ela NÃO apaga produto base nem pedidos.
+    const affectedResult = await tx.execute(sql`
+      SELECT DISTINCT product_id
+      FROM (
+        SELECT product_id FROM permupay_batch_items WHERE batch_id = ${batchId} AND product_id IS NOT NULL
+        UNION
+        SELECT product_id FROM permupay_stock_queue WHERE batch_id = ${batchId} AND product_id IS NOT NULL
+        UNION
+        SELECT product_id FROM permupay_stock_entries WHERE batch_id = ${batchId} AND product_id IS NOT NULL
+      ) s
+      WHERE product_id IS NOT NULL
     `) as any;
-    const queueRows = (queueResult?.rows ?? []) as any[];
+    const affectedProductIds = (affectedResult?.rows ?? [])
+      .map((row: any) => Number(row.product_id ?? row.productId ?? 0))
+      .filter((id: number) => id > 0);
 
-    const hasCriticalMovement = queueRows.some((row) => {
-      const qty = Number(row.quantity ?? 0);
-      const remaining = Number(row.quantity_remaining ?? 0);
-      const status = String(row.status ?? "").toUpperCase();
-      return status === "ESGOTADO" || remaining < qty;
-    });
+    // Remove os vínculos em ordem explícita para evitar erro de FK/restrição.
+    await tx.execute(sql`DELETE FROM permupay_stock_entries WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_stock_queue WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_batch_items WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_pricing_batches WHERE id = ${batchId}`);
 
-    if (hasCriticalMovement) {
-      throw new Error(
-        "Esta entrada já teve movimentação de estoque/venda e não pode ser apagada com segurança."
-      );
-    }
-
-    if (queueRows.length > 0) {
-      for (const row of queueRows) {
-        const status = String(row.status ?? "").toUpperCase();
-        const productId = Number(row.product_id ?? 0);
-        const remaining = Number(row.quantity_remaining ?? 0);
-
-        if (status === "ATIVO" && productId > 0 && remaining > 0) {
-          await tx.execute(sql`
-            UPDATE permupay_products
-            SET stock_quantity = GREATEST(0, stock_quantity - ${remaining}),
-                updated_at = NOW()
-            WHERE id = ${productId}
-          `);
-        }
-      }
-    } else {
-      const stockResult = await tx.execute(sql`
-        SELECT product_id, COALESCE(SUM(quantity), 0) AS quantity
-        FROM permupay_stock_entries
-        WHERE batch_id = ${batchId}
-          AND quantity > 0
-        GROUP BY product_id
+    // Reequilibra cada produto afetado sem apagar produto, imagem, preço comercial ou publicação.
+    for (const productId of affectedProductIds) {
+      const activeResult = await tx.execute(sql`
+        SELECT id, batch_id, quantity_remaining, quantity, unit_cost,
+               suggested_price_pix, suggested_price_card, suggested_price_boleto
+        FROM permupay_stock_queue
+        WHERE product_id = ${productId}
+          AND status = 'ATIVO'
+        ORDER BY activated_at ASC NULLS LAST, created_at ASC
+        LIMIT 1
+        FOR UPDATE
       `) as any;
-      const stockRows = (stockResult?.rows ?? []) as any[];
+      const active = activeResult?.rows?.[0];
 
-      for (const row of stockRows) {
-        const productId = Number(row.product_id ?? 0);
-        const qty = Number(row.quantity ?? 0);
-        if (productId <= 0 || qty <= 0) continue;
-
-        const productResult = await tx.execute(sql`
-          SELECT stock_quantity
-          FROM permupay_products
-          WHERE id = ${productId}
-          FOR UPDATE
-        `) as any;
-        const currentStock = Number(productResult?.rows?.[0]?.stock_quantity ?? 0);
-        if (currentStock < qty) {
-          throw new Error(
-            `Produto #${productId} já teve movimentação. Exclusão da entrada bloqueada por segurança.`
-          );
-        }
-
+      if (active) {
+        const activeQty = Number(active.quantity_remaining ?? active.quantity ?? 0);
         await tx.execute(sql`
           UPDATE permupay_products
-          SET stock_quantity = stock_quantity - ${qty},
+          SET stock_quantity = ${Math.max(0, activeQty)},
+              average_cost_brl = ${Number(active.unit_cost ?? 0)},
+              final_unit_cost_brl = ${Number(active.unit_cost ?? 0)},
+              suggested_price_pix = COALESCE(NULLIF(${Number(active.suggested_price_pix ?? 0)}, 0), suggested_price_pix),
+              suggested_price_card = COALESCE(NULLIF(${Number(active.suggested_price_card ?? 0)}, 0), suggested_price_card),
+              suggested_price_boleto = COALESCE(NULLIF(${Number(active.suggested_price_boleto ?? 0)}, 0), suggested_price_boleto),
               updated_at = NOW()
           WHERE id = ${productId}
         `);
+        continue;
       }
-    }
 
-    await tx.execute(sql`DELETE FROM permupay_stock_queue WHERE batch_id = ${batchId}`);
-    await tx.execute(sql`DELETE FROM permupay_stock_entries WHERE batch_id = ${batchId}`);
-    await tx.execute(sql`DELETE FROM permupay_batch_items WHERE batch_id = ${batchId}`);
-    await tx.execute(sql`DELETE FROM permupay_pricing_batches WHERE id = ${batchId}`);
+      // Se o lote apagado era o ativo, promove o próximo da fila automaticamente.
+      const nextResult = await tx.execute(sql`
+        SELECT id, batch_id, quantity_remaining, quantity, unit_cost,
+               suggested_price_pix, suggested_price_card, suggested_price_boleto
+        FROM permupay_stock_queue
+        WHERE product_id = ${productId}
+          AND status = 'EM_ESPERA'
+        ORDER BY position ASC, created_at ASC
+        LIMIT 1
+        FOR UPDATE
+      `) as any;
+      const next = nextResult?.rows?.[0];
+
+      if (next) {
+        const nextQty = Number(next.quantity_remaining ?? next.quantity ?? 0);
+        await tx.execute(sql`
+          UPDATE permupay_stock_queue
+          SET status = 'ATIVO',
+              quantity_remaining = ${Math.max(0, nextQty)},
+              activated_at = COALESCE(activated_at, NOW()),
+              updated_at = NOW()
+          WHERE id = ${Number(next.id)}
+        `);
+        await tx.execute(sql`
+          UPDATE permupay_batch_items
+          SET queue_status = 'ATIVO'
+          WHERE queue_id = ${Number(next.id)}
+        `);
+        await tx.execute(sql`
+          UPDATE permupay_products
+          SET stock_quantity = ${Math.max(0, nextQty)},
+              average_cost_brl = ${Number(next.unit_cost ?? 0)},
+              final_unit_cost_brl = ${Number(next.unit_cost ?? 0)},
+              suggested_price_pix = COALESCE(NULLIF(${Number(next.suggested_price_pix ?? 0)}, 0), suggested_price_pix),
+              suggested_price_card = COALESCE(NULLIF(${Number(next.suggested_price_card ?? 0)}, 0), suggested_price_card),
+              suggested_price_boleto = COALESCE(NULLIF(${Number(next.suggested_price_boleto ?? 0)}, 0), suggested_price_boleto),
+              updated_at = NOW()
+          WHERE id = ${productId}
+        `);
+        continue;
+      }
+
+      // Sem fila restante: recalcula estoque pelo histórico remanescente.
+      // Isso evita quebrar produto antigo que tenha movimentos sem fila.
+      const stockResult = await tx.execute(sql`
+        SELECT COALESCE(SUM(quantity), 0) AS stock
+        FROM permupay_stock_entries
+        WHERE product_id = ${productId}
+      `) as any;
+      const recalculatedStock = Math.max(0, Number(stockResult?.rows?.[0]?.stock ?? 0));
+
+      await tx.execute(sql`
+        UPDATE permupay_products
+        SET stock_quantity = ${recalculatedStock},
+            updated_at = NOW()
+        WHERE id = ${productId}
+      `);
+    }
   });
 }
 
