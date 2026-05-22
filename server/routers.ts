@@ -644,10 +644,11 @@ export const appRouter = router({
         z.object({
           orderId: z.number(),
           adminNotes: z.string().optional(),
+          paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]).optional(),
         })
       )
       .mutation(({ input, ctx }) =>
-        dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes)
+        dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes, input.paymentMethod)
       ),
 
     cancel: protectedProcedure
