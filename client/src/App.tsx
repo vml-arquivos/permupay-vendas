@@ -9,6 +9,7 @@ import DashboardLayout from "./components/DashboardLayout";
 
 // Páginas públicas
 import Marketplace from "./pages/Marketplace";
+import QuaseZero from "./pages/QuaseZero";
 import ProductPage from "./pages/ProductPage";
 import Login from "./pages/Login";
 import PricingSimulator from "./pages/PricingSimulator";
@@ -48,6 +49,7 @@ function Router() {
       {/* ── PÚBLICAS ──────────────────────────────────────────────────── */}
       <Route path="/" component={Marketplace} />
       <Route path="/vitrine" component={Marketplace} />
+      <Route path="/quase-zero" component={QuaseZero} />
       <Route path="/vitrine/:id" component={ProductPage} />
       <Route path="/login" component={Login} />
       <Route path="/simulador" component={PricingSimulator} />
