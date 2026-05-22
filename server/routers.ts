@@ -63,6 +63,10 @@ const productInput = z.object({
   categoryLabel: z.string().optional(),
   promoTag: z.string().optional(),
   published: z.boolean().optional(),
+  salesChannel: z.enum(["SHOP", "QUASE_ZERO", "BOTH"]).optional(),
+  productCondition: z.enum(["NEW", "SEMINOVO", "USADO", "MOSTRUARIO", "OPEN_BOX", "REEMBALADO"]).optional(),
+  conditionNotes: z.string().optional(),
+  isUniquePiece: z.boolean().optional(),
   taxCash: z.number().min(0).optional(),
   taxBoleto: z.number().min(0).optional(),
   taxDebit: z.number().min(0).optional(),
@@ -453,6 +457,7 @@ export const appRouter = router({
   // ── Marketplace / Vitrine pública ──────────────────────────────────────────
   marketplace: router({
     products: publicProcedure.query(() => dbBatches.getPublishedProducts()),
+    quaseZeroProducts: publicProcedure.query(() => dbBatches.getQuaseZeroProducts()),
     productsByCategory: publicProcedure
       .input(z.object({ category: z.string().optional() }))
       .query(({ input }) => dbBatches.getPublishedProductsByCategory(input.category)),
@@ -644,11 +649,10 @@ export const appRouter = router({
         z.object({
           orderId: z.number(),
           adminNotes: z.string().optional(),
-          paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]).optional(),
         })
       )
       .mutation(({ input, ctx }) =>
-        dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes, input.paymentMethod)
+        dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes)
       ),
 
     cancel: protectedProcedure
