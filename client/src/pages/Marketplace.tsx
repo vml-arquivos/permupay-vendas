@@ -260,6 +260,11 @@ export default function Marketplace() {
             >
               Catálogo
             </button>
+            <Link href="/quase-zero">
+              <span className="text-xs font-medium tracking-[0.18em] uppercase text-amber-700 hover:text-neutral-900 cursor-pointer transition-colors" style={{ fontFamily: SANS }}>
+                Quase Zero
+              </span>
+            </Link>
             <Link href="/desejos">
               <span className="text-xs font-medium tracking-[0.18em] uppercase text-neutral-400 hover:text-neutral-800 cursor-pointer transition-colors" style={{ fontFamily: SANS }}>
                 Lista de Desejos
@@ -328,6 +333,14 @@ export default function Marketplace() {
               >
                 Explorar catálogo
               </button>
+              <Link href="/quase-zero">
+                <button
+                  className="px-8 py-3.5 text-[9px] font-semibold tracking-[0.22em] uppercase border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-all duration-200"
+                  style={{ fontFamily: SANS }}
+                >
+                  Ver Quase Zero
+                </button>
+              </Link>
               <Link href="/desejos">
                 <button
                   className="px-8 py-3.5 text-[9px] font-semibold tracking-[0.22em] uppercase border border-neutral-200 text-neutral-600 hover:border-neutral-400 transition-all duration-200"
@@ -387,6 +400,40 @@ export default function Marketplace() {
               </div>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* ══ CHAMADA QUASE ZERO ═════════════════════════════════════════════ */}
+      <section className="border-b border-neutral-100 bg-white">
+        <div className="max-w-7xl mx-auto px-6 lg:px-16 py-8">
+          <Link href="/quase-zero">
+            <div className="group overflow-hidden rounded-[2rem] border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-stone-50 p-6 sm:p-8 cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_60px_rgba(120,53,15,0.08)]">
+              <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-5">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white border border-amber-200 shadow-sm">
+                    <div className="text-center leading-none">
+                      <span className="block text-xl font-black tracking-[-0.08em] text-amber-900">QZ</span>
+                      <span className="block text-[7px] font-bold uppercase tracking-[0.18em] text-amber-700">quase</span>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.32em] text-amber-700" style={{ fontFamily: SANS }}>
+                      Nova modalidade Shoop PermuPay
+                    </p>
+                    <h2 className="mt-2 text-2xl sm:text-3xl font-bold tracking-[-0.03em] text-neutral-950" style={{ fontFamily: SERIF }}>
+                      Quase Zero
+                    </h2>
+                    <p className="mt-2 max-w-xl text-sm leading-relaxed text-neutral-500" style={{ fontFamily: SANS }}>
+                      Peças usadas, seminovas ou de mostruário com curadoria, preço especial e disponibilidade limitada.
+                    </p>
+                  </div>
+                </div>
+                <div className="inline-flex items-center justify-center gap-2 rounded-full bg-neutral-950 px-6 py-3 text-[9px] font-semibold uppercase tracking-[0.22em] text-white transition-transform group-hover:translate-x-1" style={{ fontFamily: SANS }}>
+                  Acessar Quase Zero <ArrowRight className="h-3.5 w-3.5" />
+                </div>
+              </div>
+            </div>
+          </Link>
         </div>
       </section>
 
@@ -538,6 +585,11 @@ export default function Marketplace() {
             >
               Catálogo
             </button>
+            <Link href="/quase-zero">
+              <span className="text-[9px] tracking-[0.2em] uppercase text-amber-700 hover:text-neutral-900 cursor-pointer transition-colors" style={{ fontFamily: SANS }}>
+                Quase Zero
+              </span>
+            </Link>
             <Link href="/desejos">
               <span className="text-[9px] tracking-[0.2em] uppercase text-neutral-400 hover:text-neutral-800 cursor-pointer transition-colors" style={{ fontFamily: SANS }}>
                 Lista de Desejos
