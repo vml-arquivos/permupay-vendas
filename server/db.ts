@@ -1,830 +1,1257 @@
-import bcrypt from "bcryptjs";
+/**
+ * db.batches.ts — Funções de banco para Lotes, Estoque e Marketplace
+ *
+ * Acrescente este arquivo em server/ e importe as funções em server/routers.ts
+ */
+
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 import {
-  InsertUser,
-  SafeUser,
-  User,
-  pricingSimulations,
+  batchItems,
+  pricingBatches,
   products,
-  users,
+  productImages,
+  stockEntries,
+  stockQueue,
+  type BatchItem,
+  type InsertBatchItem,
+  type InsertPricingBatch,
+  type InsertStockEntry,
+  type InsertStockQueue,
+  type PricingBatch,
+  type StockQueue,
 } from "../drizzle/schema";
+import {
+  BatchItemInput,
+  BatchPricingResult,
+  calculateBatchPricing,
+  isBatchPricingError,
+} from "../shared/pricing.batch";
+import { getDb } from "./db";
 
-let _db: ReturnType<typeof drizzle> | null = null;
-let _pool: Pool | null = null;
+// ─── Lotes de Precificação ────────────────────────────────────────────────────
 
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: process.env.DATABASE_URL?.includes("localhost")
-          ? false
-          : { rejectUnauthorized: false },
-      });
-      _db = drizzle(_pool);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
-  }
-  return _db;
-}
-
-// ─── Helpers de usuário ───────────────────────────────────────────────────────
-
-export function toSafeUser(user: User): SafeUser {
-  const { passwordHash: _, ...safe } = user;
-  return safe;
-}
-
-export async function getUserByEmail(email: string): Promise<User | undefined> {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, email.toLowerCase().trim()))
-    .limit(1);
-  return result[0];
-}
-
-export async function getUserById(id: number): Promise<User | undefined> {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, id))
-    .limit(1);
-  return result[0];
-}
-
-export async function createUser(data: {
-  email: string;
-  name: string;
-  password: string;
-  role?: "user" | "admin";
-}): Promise<SafeUser> {
+export async function createBatch(
+  data: Omit<InsertPricingBatch, "id" | "createdAt" | "updatedAt">
+): Promise<PricingBatch> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const passwordHash = await bcrypt.hash(data.password, 12);
-  const insert: InsertUser = {
-    email: data.email.toLowerCase().trim(),
-    name: data.name.trim(),
-    passwordHash,
-    role: data.role ?? "user",
-  };
+  const [batch] = await db
+    .insert(pricingBatches)
+    .values({
+      ...data,
+      status: "OPEN",
+    })
+    .returning();
 
-  const result = await db.insert(users).values(insert).returning();
-  return toSafeUser(result[0]);
+  return batch!;
 }
 
-export async function verifyPassword(
-  user: User,
-  password: string
-): Promise<boolean> {
-  return bcrypt.compare(password, user.passwordHash);
-}
-
-export async function updateLastSignedIn(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) return;
-  await db
-    .update(users)
-    .set({ lastSignedIn: new Date(), updatedAt: new Date() })
-    .where(eq(users.id, id));
-}
-
-export async function countUsers(): Promise<number> {
-  const db = await getDb();
-  if (!db) return 0;
-  const result = await db.select().from(users);
-  return result.length;
-}
-
-// ─── Helpers de cálculo de custo ──────────────────────────────────────────────
-
-function calculateCostPriceBrl(data: any): number {
-  if (data.costCurrency === "USD") {
-    if (!data.usdExchangeRate || data.usdExchangeRate <= 0) {
-      throw new Error("Cotação do dólar deve ser maior que zero para moeda USD");
-    }
-    return Number(data.costPriceUsd || 0) * Number(data.usdExchangeRate || 0);
-  }
-  return Number(data.costPrice || 0);
-}
-
-function calculateFinalUnitCost(costPriceBrl: number, data: any): number {
-  return (
-    costPriceBrl +
-    Number(data.packagingCost || 0) +
-    Number(data.inboundShippingCost || 0) +
-    Number(data.operationalCost || 0)
-  );
-}
-
-// ─── Funções de Produtos ──────────────────────────────────────────────────────
-
-export async function listProducts(_userId?: number) {
+export async function listBatches(_userId?: number): Promise<(PricingBatch & {
+  itemsCount: number;
+  productsCount: number;
+  totalQuantity: number;
+})[]> {
   const db = await getDb();
   if (!db) return [];
+
   try {
-    return await db
-      .select()
-      .from(products)
-      .orderBy(asc(products.displayOrder), desc(products.createdAt));
+    const result = await db.execute(sql`
+      SELECT
+        b.id,
+        b.user_id AS "userId",
+        b.name,
+        b.description,
+        b.total_operational_cost AS "totalOperationalCost",
+        b.total_tax_cost AS "totalTaxCost",
+        b.total_other_cost AS "totalOtherCost",
+        b.total_cost_of_goods AS "totalCostOfGoods",
+        b.status,
+        b.created_at AS "createdAt",
+        b.updated_at AS "updatedAt",
+        COUNT(i.id)::int AS "itemsCount",
+        COUNT(DISTINCT i.product_id)::int AS "productsCount",
+        COALESCE(SUM(i.quantity), 0)::int AS "totalQuantity"
+      FROM permupay_pricing_batches b
+      LEFT JOIN permupay_batch_items i ON i.batch_id = b.id
+      GROUP BY b.id
+      ORDER BY b.created_at DESC
+    `);
+
+    return ((result as any).rows ?? result) as any;
   } catch (error) {
-    console.error("[DB] Erro ao listar produtos:", error);
-    return [];
+    console.error("[DB] Erro ao listar histórico de entradas:", error);
+    return [] as any;
   }
 }
 
-export async function listProductsToPublish(_userId?: number) {
-  const all = await listProducts(_userId);
-
-  return (all as any[])
-    .filter((p) => {
-      const hasStock = Number(p.stockQuantity ?? 0) > 0;
-      const hasRealCost = Number(p.finalUnitCostBrl ?? p.averageCostBrl ?? 0) > 0;
-
-      return p.active !== false && p.published !== true && hasStock && hasRealCost;
-    })
-    .sort((a, b) => {
-      const aDate = new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
-      const bDate = new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
-      return bDate - aDate;
-    });
-}
-
-
-export async function getProductById(id: number, _userId?: number) {
-  const db = await getDb();
-  if (!db) return undefined;
-  try {
-    const r = await db
-      .select()
-      .from(products)
-      .where(eq(products.id, id))
-      .limit(1);
-    return r[0];
-  } catch (error) {
-    console.error("[DB] Erro ao buscar produto:", error);
-    return undefined;
-  }
-}
-
-export type ProductCostContext = {
-  source: "ACTIVE_QUEUE" | "LATEST_ENTRY" | "LEGACY";
-  productId: number;
-  batchId: number | null;
-  batchItemId: number | null;
-  queueId: number | null;
-  quantityAvailable: number;
-  unitCostOriginal: number;
-  costCurrency: "BRL" | "USD";
-  exchangeRate: number;
-  unitCostBrl: number;
-  operationalCostPerUnit: number;
-  taxCostPerUnit: number;
-  otherCostPerUnit: number;
-  realUnitCost: number;
-  realTotalCost: number;
-  suggestedPrice: number;
-  warning?: string;
-};
-
-function asNumber(value: unknown): number {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function normalizeCostCurrency(value: unknown): "BRL" | "USD" {
-  return String(value ?? "BRL").toUpperCase() === "USD" ? "USD" : "BRL";
-}
-
-export async function getProductCostContext(
-  productId: number,
-  _userId?: number,
-): Promise<ProductCostContext | null> {
+export async function getBatchById(
+  batchId: number,
+  _userId?: number
+): Promise<(PricingBatch & { items: BatchItem[] }) | null> {
   const db = await getDb();
   if (!db) return null;
 
-  const productResult = (await db.execute(sql`
-    SELECT
-      id,
-      cost_price,
-      cost_price_brl,
-      cost_price_usd,
-      usd_exchange_rate,
-      cost_currency,
-      operational_cost,
-      stock_quantity,
-      average_cost_brl,
-      final_unit_cost_brl,
-      suggested_price,
-      suggested_price_pix
-    FROM permupay_products
-    WHERE id = ${productId}
-    LIMIT 1
-  `)) as any;
+  const [batch] = await db
+    .select()
+    .from(pricingBatches)
+    .where(eq(pricingBatches.id, batchId))
+    .limit(1);
 
-  const product = productResult?.rows?.[0];
-  if (!product) return null;
+  if (!batch) return null;
 
-  const activeResult = (await db.execute(sql`
-    SELECT
-      q.id AS queue_id,
-      q.batch_id,
-      q.quantity_remaining,
-      bi.id AS batch_item_id,
-      bi.unit_cost_original,
-      bi.cost_currency,
-      bi.exchange_rate,
-      bi.unit_cost_brl,
-      bi.quantity,
-      bi.operational_cost_per_unit,
-      bi.tax_cost_per_unit,
-      bi.other_cost_per_unit,
-      bi.real_total_cost,
-      bi.final_unit_cost,
-      bi.suggested_price
-    FROM permupay_stock_queue q
-    LEFT JOIN permupay_batch_items bi
-      ON bi.queue_id = q.id
-      OR (bi.batch_id = q.batch_id AND bi.product_id = q.product_id)
-    WHERE q.product_id = ${productId}
-      AND q.status = 'ATIVO'
-      AND q.quantity_remaining > 0
-    ORDER BY q.activated_at DESC NULLS LAST, q.created_at DESC, bi.id DESC
-    LIMIT 1
-  `)) as any;
+  const items = await db
+    .select()
+    .from(batchItems)
+    .where(eq(batchItems.batchId, batchId))
+    .orderBy(batchItems.id);
 
-  const active = activeResult?.rows?.[0];
-  if (active?.batch_item_id) {
-    const realUnitCost = asNumber(active.final_unit_cost);
-    const quantityAvailable = asNumber(active.quantity_remaining);
-    return {
-      source: "ACTIVE_QUEUE",
-      productId,
-      batchId: active.batch_id != null ? Number(active.batch_id) : null,
-      batchItemId: active.batch_item_id != null ? Number(active.batch_item_id) : null,
-      queueId: active.queue_id != null ? Number(active.queue_id) : null,
-      quantityAvailable,
-      unitCostOriginal: asNumber(active.unit_cost_original),
-      costCurrency: normalizeCostCurrency(active.cost_currency),
-      exchangeRate: asNumber(active.exchange_rate),
-      unitCostBrl: asNumber(active.unit_cost_brl),
-      operationalCostPerUnit: asNumber(active.operational_cost_per_unit),
-      taxCostPerUnit: asNumber(active.tax_cost_per_unit),
-      otherCostPerUnit: asNumber(active.other_cost_per_unit),
-      realUnitCost,
-      realTotalCost: asNumber(active.real_total_cost) || realUnitCost * quantityAvailable,
-      suggestedPrice: asNumber(active.suggested_price) || asNumber(product.suggested_price_pix) || asNumber(product.suggested_price),
-    };
-  }
-
-  const latestResult = (await db.execute(sql`
-    SELECT
-      bi.id AS batch_item_id,
-      bi.batch_id,
-      bi.queue_id,
-      bi.unit_cost_original,
-      bi.cost_currency,
-      bi.exchange_rate,
-      bi.unit_cost_brl,
-      bi.quantity,
-      bi.operational_cost_per_unit,
-      bi.tax_cost_per_unit,
-      bi.other_cost_per_unit,
-      bi.real_total_cost,
-      bi.final_unit_cost,
-      bi.suggested_price
-    FROM permupay_batch_items bi
-    LEFT JOIN permupay_pricing_batches b ON b.id = bi.batch_id
-    WHERE bi.product_id = ${productId}
-    ORDER BY bi.created_at DESC, bi.id DESC
-    LIMIT 1
-  `)) as any;
-
-  const latest = latestResult?.rows?.[0];
-  if (latest?.batch_item_id) {
-    const realUnitCost = asNumber(latest.final_unit_cost);
-    const quantity = asNumber(latest.quantity);
-    return {
-      source: "LATEST_ENTRY",
-      productId,
-      batchId: latest.batch_id != null ? Number(latest.batch_id) : null,
-      batchItemId: latest.batch_item_id != null ? Number(latest.batch_item_id) : null,
-      queueId: latest.queue_id != null ? Number(latest.queue_id) : null,
-      quantityAvailable: asNumber(product.stock_quantity) || quantity,
-      unitCostOriginal: asNumber(latest.unit_cost_original),
-      costCurrency: normalizeCostCurrency(latest.cost_currency),
-      exchangeRate: asNumber(latest.exchange_rate),
-      unitCostBrl: asNumber(latest.unit_cost_brl),
-      operationalCostPerUnit: asNumber(latest.operational_cost_per_unit),
-      taxCostPerUnit: asNumber(latest.tax_cost_per_unit),
-      otherCostPerUnit: asNumber(latest.other_cost_per_unit),
-      realUnitCost,
-      realTotalCost: asNumber(latest.real_total_cost) || realUnitCost * quantity,
-      suggestedPrice: asNumber(latest.suggested_price) || asNumber(product.suggested_price_pix) || asNumber(product.suggested_price),
-    };
-  }
-
-  const legacyBase =
-    asNumber(product.final_unit_cost_brl) ||
-    asNumber(product.average_cost_brl) ||
-    asNumber(product.cost_price_brl) ||
-    asNumber(product.cost_price);
-  const legacyOperational = asNumber(product.operational_cost);
-  const realUnitCost = legacyBase + legacyOperational;
-  const quantityAvailable = asNumber(product.stock_quantity);
-
-  return {
-    source: "LEGACY",
-    productId,
-    batchId: null,
-    batchItemId: null,
-    queueId: null,
-    quantityAvailable,
-    unitCostOriginal: asNumber(product.cost_price_usd) || legacyBase,
-    costCurrency: normalizeCostCurrency(product.cost_currency),
-    exchangeRate: asNumber(product.usd_exchange_rate),
-    unitCostBrl: legacyBase,
-    operationalCostPerUnit: legacyOperational,
-    taxCostPerUnit: 0,
-    otherCostPerUnit: 0,
-    realUnitCost,
-    realTotalCost: realUnitCost * quantityAvailable,
-    suggestedPrice: asNumber(product.suggested_price_pix) || asNumber(product.suggested_price),
-    warning: "Produto legado sem entrada/lote vinculado. O custo exibido vem do cadastro antigo.",
-  };
+  return { ...batch, items };
 }
 
-export async function createProduct(data: any) {
+/**
+ * Processa um lote completo:
+ * 1. Calcula o rateio proporcional
+ * 2. Persiste os batch_items com custos rateados
+ * 3. Atualiza o totalCostOfGoods no lote
+ * 4. Opcionalmente dá entrada de estoque nos produtos vinculados
+ */
+export async function processBatch(
+  batchId: number,
+  userId: number,
+  items: BatchItemInput[],
+  totalOperationalCost: number,
+  totalTaxCost = 0,
+  totalOtherCost = 0,
+  commitToStock = false
+): Promise<BatchPricingResult> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  try {
-    if (!data.name || !data.category) {
-      throw new Error("Nome e categoria são obrigatórios");
-    }
+  // Acesso total: qualquer usuário autenticado pode processar qualquer lote.
+  const [batch] = await db
+    .select()
+    .from(pricingBatches)
+    .where(eq(pricingBatches.id, batchId))
+    .limit(1);
 
-    const costCurrency = data.costCurrency || "BRL";
-    if (!["BRL", "USD"].includes(costCurrency)) {
-      throw new Error("Moeda deve ser BRL ou USD");
-    }
+  if (!batch) throw new Error("Lote não encontrado");
+  if (batch.status === "CLOSED") throw new Error("Este lote já está fechado");
 
-    if (costCurrency === "USD") {
-      const exchangeRate = Number(data.usdExchangeRate || 0);
-      if (exchangeRate <= 0) {
-        throw new Error("Cotação do dólar deve ser maior que zero para moeda USD");
-      }
-    }
+  // Calcular rateio
+  const result = calculateBatchPricing({ items, totalOperationalCost, totalTaxCost, totalOtherCost });
+  if (isBatchPricingError(result)) throw new Error(result.message);
 
-    const costPriceUsd = Number(data.costPriceUsd || 0);
-    const usdExchangeRate = Number(data.usdExchangeRate || 0);
-    const stockQuantity = Number(data.stockQuantity || 0);
-    const minimumStock = Number(data.minimumStock || 0);
+  // Limpar itens anteriores do lote (re-processamento)
+  await db.delete(batchItems).where(eq(batchItems.batchId, batchId));
 
-    if (costPriceUsd < 0) throw new Error("Preço em dólar não pode ser negativo");
-    if (usdExchangeRate < 0) throw new Error("Cotação do dólar não pode ser negativa");
-    if (stockQuantity < 0) throw new Error("Estoque não pode ser negativo");
-    if (minimumStock < 0) throw new Error("Estoque mínimo não pode ser negativo");
+  // Inserir itens com rateio calculado
+  const insertData: InsertBatchItem[] = result.items.map((item) => ({
+    batchId,
+    productId: item.productId ?? null,
+    productName: item.productName,
+    unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+    costCurrency: item.costCurrency ?? "BRL",
+    exchangeRate: item.exchangeRate ?? 0,
+    acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
+    unitCostBrl: item.unitCostBrl,
+    quantity: item.quantity,
+    totalItemCost: item.totalItemCost,
+    allocatedOperationalCost: item.allocatedOperationalCost,
+    operationalCostPerUnit: item.operationalCostPerUnit,
+    allocatedTaxCost: item.allocatedTaxCost,
+    taxCostPerUnit: item.taxCostPerUnit,
+    allocatedOtherCost: item.allocatedOtherCost,
+    otherCostPerUnit: item.otherCostPerUnit,
+    realTotalCost: item.realTotalCost,
+    finalUnitCost: item.finalUnitCost,
+    desiredMarginRate: item.desiredMarginRate,
+    suggestedPrice: item.suggestedPrice,
+  }));
 
-    const costPriceBrl = calculateCostPriceBrl({ ...data, costCurrency });
-    const finalUnitCostBrl = calculateFinalUnitCost(costPriceBrl, data);
+  await db.insert(batchItems).values(insertData);
 
-    // Herdar links globais de pagamento se o produto não tiver links próprios
-    let inheritedPix: string | null = null;
-    let inheritedPixLink: string | null = null;
-    let inheritedCard: string | null = null;
-    let inheritedBoleto: string | null = null;
-    try {
-      const { getPaymentSettings } = await import("./db.payment-settings");
-      const gs = await getPaymentSettings();
-      inheritedPix      = gs.pixKey      ?? null;
-      inheritedPixLink  = gs.pixLink     ?? null;
-      inheritedCard     = gs.cardPaymentUrl ?? null;
-      inheritedBoleto   = gs.boletoUrl   ?? null;
-    } catch { /* fallback silencioso — não bloqueia criação */ }
+  // Atualizar totais do lote
+  await db
+    .update(pricingBatches)
+    .set({
+      totalCostOfGoods: result.totalCostOfGoods,
+      totalOperationalCost: result.totalOperationalCost,
+      totalTaxCost: result.totalTaxCost,
+      totalOtherCost: result.totalOtherCost,
+      updatedAt: new Date(),
+    })
+    .where(eq(pricingBatches.id, batchId));
 
-    const productData = {
-      name: String(data.name).trim(),
-      category: data.category,
-      ncm: data.ncm ? String(data.ncm).trim() : null,
-      costPrice: Math.max(0, Number(data.costPrice) || 0),
-      packagingCost: Math.max(0, Number(data.packagingCost) || 0),
-      inboundShippingCost: Math.max(0, Number(data.inboundShippingCost) || 0),
-      operationalCost: Math.max(0, Number(data.operationalCost) || 0),
-      desiredMarginRate: Math.max(0, Number(data.desiredMarginRate) || 0),
-      taxRegime: data.taxRegime || "SIMPLES_NACIONAL",
-      estimatedTaxRate: Math.max(0, Number(data.estimatedTaxRate) || 0),
-      notes: data.notes ? String(data.notes).trim() : null,
-      userId: data.userId ? Number(data.userId) : null,
-      active: data.active !== false,
-      costCurrency,
-      costPriceUsd,
-      usdExchangeRate,
-      costPriceBrl,
-      stockQuantity,
-      minimumStock,
-      averageCostBrl: costPriceBrl,
-      finalUnitCostBrl,
-      shortDescription: data.shortDescription ? String(data.shortDescription).trim() : null,
-      description: data.description ? String(data.description).trim() : null,
-      categoryLabel: data.categoryLabel ? String(data.categoryLabel).trim() : null,
-      promoTag: data.promoTag ? String(data.promoTag).trim() : null,
-      published: data.published === true,
-      salesChannel: ["SHOP", "QUASE_ZERO", "BOTH"].includes(data.salesChannel) ? data.salesChannel : "SHOP",
-      productCondition: ["NEW", "SEMINOVO", "USADO", "MOSTRUARIO", "OPEN_BOX", "REEMBALADO"].includes(data.productCondition) ? data.productCondition : "NEW",
-      conditionNotes: data.conditionNotes ? String(data.conditionNotes).trim() : null,
-      isUniquePiece: data.isUniquePiece === true,
-      suggestedPrice: Math.max(0, Number(data.suggestedPrice) || 0),
-      suggestedPricePix: Math.max(0, Number(data.suggestedPricePix) || 0),
-      suggestedPriceCard: Math.max(0, Number(data.suggestedPriceCard) || 0),
-      suggestedPriceBoleto: Math.max(0, Number(data.suggestedPriceBoleto) || 0),
-      paymentPlatform: data.paymentPlatform || "MERCADO_PAGO",
-      // Links de pagamento: usa os do produto se informados, senão herda os globais
-      pixKey:        data.pixKey        ? String(data.pixKey).trim()        : inheritedPix,
-      pixLink:       data.pixLink       ? String(data.pixLink).trim()       : inheritedPixLink,
-      cardPaymentUrl: data.cardPaymentUrl ? String(data.cardPaymentUrl).trim() : inheritedCard,
-      boletoUrl:     data.boletoUrl     ? String(data.boletoUrl).trim()     : inheritedBoleto,
-      desiredMarginValue: Math.max(0, Number(data.desiredMarginValue) || 0),
-      marginMode: data.marginMode || "PERCENT",
-      taxCash: Math.max(0, Number(data.taxCash) || 6),
-      taxBoleto: Math.max(0, Number(data.taxBoleto) || 6),
-      taxDebit: Math.max(0, Number(data.taxDebit) || 6),
-      taxCreditCash: Math.max(0, Number(data.taxCreditCash) || 6),
-      taxCreditInstallment: Math.max(0, Number(data.taxCreditInstallment) || 6),
-      boletoMonths: Math.max(1, Number(data.boletoMonths) || 3),
-      boletoMonthlyRate: Math.max(0, Number(data.boletoMonthlyRate) || 1.99),
-      boletoFixedFee: Math.max(0, Number(data.boletoFixedFee) || 3.5),
-      boletoDefaultRisk: Math.max(0, Number(data.boletoDefaultRisk) || 2),
-      boletoCustomerPaysInterest: data.boletoCustomerPaysInterest === true,
-      cardDebitFee: Math.max(0, Number(data.cardDebitFee) || 1.5),
-      cardCreditCashFee: Math.max(0, Number(data.cardCreditCashFee) || 2.5),
-      cardCreditInstallmentFee: Math.max(0, Number(data.cardCreditInstallmentFee) || 3.5),
-      cardInstallments: Math.max(1, Number(data.cardInstallments) || 6),
-      cardAnticipationRate: Math.max(0, Number(data.cardAnticipationRate) || 1.5),
-      cardMonthlyRate: Math.max(0, Number(data.cardMonthlyRate) || 1.99),
-      cardCustomerPaysInterest: data.cardCustomerPaysInterest === true,
-    };
+  // Opcional: dar entrada de estoque nos produtos vinculados
+  if (commitToStock) {
+    for (const item of result.items) {
+      if (!item.productId) continue;
 
-    const [r] = await db.insert(products).values(productData).returning();
-    return r;
-  } catch (error) {
-    console.error("[DB] Erro ao criar produto:", error);
-    throw error;
-  }
-}
+      // Registrar entrada de estoque
+      const entry: InsertStockEntry = {
+        productId: item.productId,
+        batchId,
+        userId,
+        quantity: item.quantity,
+        unitCost: item.finalUnitCost,
+        notes: `Entrada via lote #${batchId} | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
+      };
+      await db.insert(stockEntries).values(entry);
 
-export async function updateProduct(id: number, data: any, _userId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+      // Atualizar estoque e custo médio do produto (custo médio ponderado)
+      const [current] = await db
+        .select({
+          stockQuantity: products.stockQuantity,
+          averageCostBrl: products.averageCostBrl,
+        })
+        .from(products)
+        .where(eq(products.id, item.productId))
+        .limit(1);
 
-  try {
-    const updateData: any = { updatedAt: new Date() };
-
-    if (data.costCurrency !== undefined) {
-      if (!["BRL", "USD"].includes(data.costCurrency)) {
-        throw new Error("Moeda deve ser BRL ou USD");
-      }
-      updateData.costCurrency = data.costCurrency;
-    }
-    if (data.usdExchangeRate !== undefined) {
-      const v = Number(data.usdExchangeRate || 0);
-      if (v < 0) throw new Error("Cotação do dólar não pode ser negativa");
-      updateData.usdExchangeRate = v;
-    }
-    if (data.costPriceUsd !== undefined) {
-      const v = Number(data.costPriceUsd || 0);
-      if (v < 0) throw new Error("Preço em dólar não pode ser negativo");
-      updateData.costPriceUsd = v;
-    }
-    if (data.stockQuantity !== undefined) {
-      const v = Number(data.stockQuantity || 0);
-      if (v < 0) throw new Error("Estoque não pode ser negativo");
-      updateData.stockQuantity = v;
-    }
-    if (data.minimumStock !== undefined) {
-      const v = Number(data.minimumStock || 0);
-      if (v < 0) throw new Error("Estoque mínimo não pode ser negativo");
-      updateData.minimumStock = v;
-    }
-
-    if (data.name !== undefined) updateData.name = String(data.name).trim();
-    if (data.category !== undefined) updateData.category = data.category;
-    if (data.ncm !== undefined) updateData.ncm = data.ncm ? String(data.ncm).trim() : null;
-    if (data.costPrice !== undefined) updateData.costPrice = Number(data.costPrice) || 0;
-    if (data.packagingCost !== undefined) updateData.packagingCost = Number(data.packagingCost) || 0;
-    if (data.inboundShippingCost !== undefined) updateData.inboundShippingCost = Number(data.inboundShippingCost) || 0;
-    if (data.operationalCost !== undefined) updateData.operationalCost = Number(data.operationalCost) || 0;
-    if (data.desiredMarginRate !== undefined) updateData.desiredMarginRate = Number(data.desiredMarginRate) || 0;
-    if (data.taxRegime !== undefined) updateData.taxRegime = data.taxRegime;
-    if (data.estimatedTaxRate !== undefined) updateData.estimatedTaxRate = Number(data.estimatedTaxRate) || 0;
-    if (data.notes !== undefined) updateData.notes = data.notes ? String(data.notes).trim() : null;
-    if (data.active !== undefined) updateData.active = data.active;
-    if (data.shortDescription !== undefined) updateData.shortDescription = data.shortDescription ? String(data.shortDescription).trim() : null;
-    if (data.description !== undefined) updateData.description = data.description ? String(data.description).trim() : null;
-    if (data.categoryLabel !== undefined) updateData.categoryLabel = data.categoryLabel ? String(data.categoryLabel).trim() : null;
-    if (data.promoTag !== undefined) updateData.promoTag = data.promoTag ? String(data.promoTag).trim() : null;
-    if (data.published !== undefined) updateData.published = data.published === true;
-    if (data.salesChannel !== undefined) {
-      updateData.salesChannel = ["SHOP", "QUASE_ZERO", "BOTH"].includes(data.salesChannel) ? data.salesChannel : "SHOP";
-    }
-    if (data.productCondition !== undefined) {
-      updateData.productCondition = ["NEW", "SEMINOVO", "USADO", "MOSTRUARIO", "OPEN_BOX", "REEMBALADO"].includes(data.productCondition) ? data.productCondition : "NEW";
-    }
-    if (data.conditionNotes !== undefined) updateData.conditionNotes = data.conditionNotes ? String(data.conditionNotes).trim() : null;
-    if (data.isUniquePiece !== undefined) updateData.isUniquePiece = data.isUniquePiece === true;
-    if (data.suggestedPrice !== undefined) updateData.suggestedPrice = Math.max(0, Number(data.suggestedPrice) || 0);
-    if (data.suggestedPricePix !== undefined) updateData.suggestedPricePix = Math.max(0, Number(data.suggestedPricePix) || 0);
-    if (data.suggestedPriceCard !== undefined) updateData.suggestedPriceCard = Math.max(0, Number(data.suggestedPriceCard) || 0);
-    if (data.suggestedPriceBoleto !== undefined) updateData.suggestedPriceBoleto = Math.max(0, Number(data.suggestedPriceBoleto) || 0);
-    if (data.paymentPlatform !== undefined) updateData.paymentPlatform = data.paymentPlatform || "MERCADO_PAGO";
-    if (data.pixKey !== undefined) updateData.pixKey = data.pixKey ? String(data.pixKey).trim() : null;
-    if (data.pixLink !== undefined) updateData.pixLink = data.pixLink ? String(data.pixLink).trim() : null;
-    if (data.cardPaymentUrl !== undefined) updateData.cardPaymentUrl = data.cardPaymentUrl ? String(data.cardPaymentUrl).trim() : null;
-    if (data.boletoUrl !== undefined) updateData.boletoUrl = data.boletoUrl ? String(data.boletoUrl).trim() : null;
-    if (data.desiredMarginValue !== undefined) updateData.desiredMarginValue = Math.max(0, Number(data.desiredMarginValue) || 0);
-    if (data.marginMode !== undefined) updateData.marginMode = data.marginMode || "PERCENT";
-    if (data.taxCash !== undefined) updateData.taxCash = Math.max(0, Number(data.taxCash) || 6);
-    if (data.taxBoleto !== undefined) updateData.taxBoleto = Math.max(0, Number(data.taxBoleto) || 6);
-    if (data.taxDebit !== undefined) updateData.taxDebit = Math.max(0, Number(data.taxDebit) || 6);
-    if (data.taxCreditCash !== undefined) updateData.taxCreditCash = Math.max(0, Number(data.taxCreditCash) || 6);
-    if (data.taxCreditInstallment !== undefined) updateData.taxCreditInstallment = Math.max(0, Number(data.taxCreditInstallment) || 6);
-    if (data.boletoMonths !== undefined) updateData.boletoMonths = Math.max(1, Number(data.boletoMonths) || 3);
-    if (data.boletoMonthlyRate !== undefined) updateData.boletoMonthlyRate = Math.max(0, Number(data.boletoMonthlyRate) || 1.99);
-    if (data.boletoFixedFee !== undefined) updateData.boletoFixedFee = Math.max(0, Number(data.boletoFixedFee) || 3.5);
-    if (data.boletoDefaultRisk !== undefined) updateData.boletoDefaultRisk = Math.max(0, Number(data.boletoDefaultRisk) || 2);
-    if (data.boletoCustomerPaysInterest !== undefined) updateData.boletoCustomerPaysInterest = data.boletoCustomerPaysInterest === true;
-    if (data.cardDebitFee !== undefined) updateData.cardDebitFee = Math.max(0, Number(data.cardDebitFee) || 1.5);
-    if (data.cardCreditCashFee !== undefined) updateData.cardCreditCashFee = Math.max(0, Number(data.cardCreditCashFee) || 2.5);
-    if (data.cardCreditInstallmentFee !== undefined) updateData.cardCreditInstallmentFee = Math.max(0, Number(data.cardCreditInstallmentFee) || 3.5);
-    if (data.cardInstallments !== undefined) updateData.cardInstallments = Math.max(1, Number(data.cardInstallments) || 6);
-    if (data.cardAnticipationRate !== undefined) updateData.cardAnticipationRate = Math.max(0, Number(data.cardAnticipationRate) || 1.5);
-    if (data.cardMonthlyRate !== undefined) updateData.cardMonthlyRate = Math.max(0, Number(data.cardMonthlyRate) || 1.99);
-    if (data.cardCustomerPaysInterest !== undefined) updateData.cardCustomerPaysInterest = data.cardCustomerPaysInterest === true;
-
-    if (
-      data.costCurrency !== undefined ||
-      data.costPrice !== undefined ||
-      data.costPriceUsd !== undefined ||
-      data.usdExchangeRate !== undefined ||
-      data.packagingCost !== undefined ||
-      data.inboundShippingCost !== undefined ||
-      data.operationalCost !== undefined
-    ) {
-      const current = await getProductById(id);
       if (current) {
-        const mergedData = { ...current, ...updateData };
-        const costPriceBrl = calculateCostPriceBrl(mergedData);
-        const finalUnitCostBrl = calculateFinalUnitCost(costPriceBrl, mergedData);
-        updateData.costPriceBrl = costPriceBrl;
-        updateData.averageCostBrl = costPriceBrl;
-        updateData.finalUnitCostBrl = finalUnitCostBrl;
+        const oldQty = current.stockQuantity ?? 0;
+        const oldAvg = current.averageCostBrl ?? 0;
+        const newQty = oldQty + item.quantity;
+        // Custo médio ponderado: (qtd_antiga * custo_antigo + qtd_nova * custo_novo) / qtd_total
+        const newAvg =
+          newQty > 0
+            ? (oldQty * oldAvg + item.quantity * item.finalUnitCost) / newQty
+            : item.finalUnitCost;
+
+        await db
+          .update(products)
+          .set({
+            stockQuantity: newQty,
+            averageCostBrl: newAvg,
+            finalUnitCostBrl: item.finalUnitCost,
+            updatedAt: new Date(),
+          })
+          .where(eq(products.id, item.productId));
       }
     }
 
-    const [r] = await db
-      .update(products)
-      .set(updateData)
-      .where(eq(products.id, id))
-      .returning();
-    return r;
-  } catch (error) {
-    console.error("[DB] Erro ao atualizar produto:", error);
-    throw error;
+    // Fechar o lote após entrada de estoque
+    await db
+      .update(pricingBatches)
+      .set({ status: "CLOSED", updatedAt: new Date() })
+      .where(eq(pricingBatches.id, batchId));
   }
+
+  return result;
 }
 
-export async function deactivateProduct(id: number, _userId?: number) {
-  return updateProduct(id, { active: false });
-}
-
-export async function deleteProduct(id: number) {
+export async function deleteBatch(
+  batchId: number,
+  _userId?: number
+): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  try {
-    await db.delete(products).where(eq(products.id, id));
-  } catch (error) {
-    console.error("[DB] Erro ao deletar produto:", error);
-    throw error;
-  }
+  if (!db) return;
+
+  await db.transaction(async (tx) => {
+    const batchResult = await tx.execute(sql`
+      SELECT id, status
+      FROM permupay_pricing_batches
+      WHERE id = ${batchId}
+      LIMIT 1
+    `) as any;
+    const batch = batchResult?.rows?.[0];
+    if (!batch) throw new Error("Entrada não encontrada");
+
+    const queueResult = await tx.execute(sql`
+      SELECT id, product_id, quantity, quantity_remaining, status
+      FROM permupay_stock_queue
+      WHERE batch_id = ${batchId}
+    `) as any;
+    const queueRows = (queueResult?.rows ?? []) as any[];
+
+    const hasCriticalMovement = queueRows.some((row) => {
+      const qty = Number(row.quantity ?? 0);
+      const remaining = Number(row.quantity_remaining ?? 0);
+      const status = String(row.status ?? "").toUpperCase();
+      return status === "ESGOTADO" || remaining < qty;
+    });
+
+    if (hasCriticalMovement) {
+      throw new Error(
+        "Esta entrada já teve movimentação de estoque/venda e não pode ser apagada com segurança."
+      );
+    }
+
+    if (queueRows.length > 0) {
+      for (const row of queueRows) {
+        const status = String(row.status ?? "").toUpperCase();
+        const productId = Number(row.product_id ?? 0);
+        const remaining = Number(row.quantity_remaining ?? 0);
+
+        if (status === "ATIVO" && productId > 0 && remaining > 0) {
+          await tx.execute(sql`
+            UPDATE permupay_products
+            SET stock_quantity = GREATEST(0, stock_quantity - ${remaining}),
+                updated_at = NOW()
+            WHERE id = ${productId}
+          `);
+        }
+      }
+    } else {
+      const stockResult = await tx.execute(sql`
+        SELECT product_id, COALESCE(SUM(quantity), 0) AS quantity
+        FROM permupay_stock_entries
+        WHERE batch_id = ${batchId}
+          AND quantity > 0
+        GROUP BY product_id
+      `) as any;
+      const stockRows = (stockResult?.rows ?? []) as any[];
+
+      for (const row of stockRows) {
+        const productId = Number(row.product_id ?? 0);
+        const qty = Number(row.quantity ?? 0);
+        if (productId <= 0 || qty <= 0) continue;
+
+        const productResult = await tx.execute(sql`
+          SELECT stock_quantity
+          FROM permupay_products
+          WHERE id = ${productId}
+          FOR UPDATE
+        `) as any;
+        const currentStock = Number(productResult?.rows?.[0]?.stock_quantity ?? 0);
+        if (currentStock < qty) {
+          throw new Error(
+            `Produto #${productId} já teve movimentação. Exclusão da entrada bloqueada por segurança.`
+          );
+        }
+
+        await tx.execute(sql`
+          UPDATE permupay_products
+          SET stock_quantity = stock_quantity - ${qty},
+              updated_at = NOW()
+          WHERE id = ${productId}
+        `);
+      }
+    }
+
+    await tx.execute(sql`DELETE FROM permupay_stock_queue WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_stock_entries WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_batch_items WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_pricing_batches WHERE id = ${batchId}`);
+  });
 }
 
-export async function duplicateProduct(id: number, _userId?: number) {
-  const p = await getProductById(id);
-  if (!p) throw new Error("Produto não encontrado");
-  const { id: _, createdAt, updatedAt, ...rest } = p as any;
-  return createProduct({ ...rest, name: `${p.name} (Cópia)` });
-}
+// ─── Estoque ──────────────────────────────────────────────────────────────────
 
-// ─── Funções de Simulações ────────────────────────────────────────────────────
-
-export async function createSimulation(data: any) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  try {
-    if (!data.name) throw new Error("Nome da simulação é obrigatório");
-
-    const simulationData = {
-      name: String(data.name).trim(),
-      productSnapshot: data.productSnapshot || {},
-      taxSnapshot: data.taxSnapshot || {},
-      paymentSnapshot: data.paymentSnapshot || {},
-      resultSnapshot: data.resultSnapshot || {},
-      bestPaymentMethod: String(data.bestPaymentMethod || "PIX"),
-      worstPaymentMethod: String(data.worstPaymentMethod || "PIX"),
-      recommendedPrice: Number(data.recommendedPrice) || 0,
-      minimumBreakEvenPrice: Number(data.minimumBreakEvenPrice) || 0,
-      promotionFloorPrice: Number(data.promotionFloorPrice) || 0,
-      desiredMarginRate: Math.max(0, Number(data.desiredMarginRate) || 0),
-      diagnosis: String(data.diagnosis || "SAUDAVEL"),
-      notes: data.notes ? String(data.notes).trim() : null,
-      userId: data.userId ? Number(data.userId) : null,
-      productId: data.productId ? Number(data.productId) : null,
-    };
-
-    const [r] = await db.insert(pricingSimulations).values(simulationData).returning();
-    return r;
-  } catch (error) {
-    console.error("[DB] Erro ao criar simulação:", error);
-    throw error;
-  }
-}
-
-export async function listSimulations(_userId?: number) {
+export async function getStockEntries(productId: number) {
   const db = await getDb();
   if (!db) return [];
-  try {
-    return await db
-      .select()
-      .from(pricingSimulations)
-      .orderBy(desc(pricingSimulations.createdAt));
-  } catch (error) {
-    console.error("[DB] Erro ao listar simulações:", error);
-    return [];
-  }
+
+  return db
+    .select()
+    .from(stockEntries)
+    .where(eq(stockEntries.productId, productId))
+    .orderBy(desc(stockEntries.createdAt));
 }
 
-export async function getSimulationById(id: number, _userId?: number) {
-  const db = await getDb();
-  if (!db) return undefined;
-  try {
-    const r = await db
-      .select()
-      .from(pricingSimulations)
-      .where(eq(pricingSimulations.id, id))
-      .limit(1);
-    return r[0];
-  } catch (error) {
-    console.error("[DB] Erro ao buscar simulação:", error);
-    return undefined;
-  }
-}
-
-export async function deleteSimulation(id: number, _userId?: number) {
-  const db = await getDb();
-  if (!db) return;
-  try {
-    await db
-      .delete(pricingSimulations)
-      .where(eq(pricingSimulations.id, id));
-  } catch (error) {
-    console.error("[DB] Erro ao deletar simulação:", error);
-    throw error;
-  }
-}
-
-export async function duplicateSimulation(id: number, _userId?: number) {
-  const s = await getSimulationById(id);
-  if (!s) throw new Error("Simulação não encontrada");
-  const { id: _, createdAt, updatedAt, ...rest } = s as any;
-  return createSimulation({ ...rest, name: `${s.name} (Cópia)` });
-}
-
-// ─── Funções de Usuários ──────────────────────────────────────────────────────
-
-export async function deleteUser(userId: number, currentUserId: number) {
-  if (userId === currentUserId) throw new Error("Não é possível remover sua própria conta");
+export async function adjustStock(
+  productId: number,
+  userId: number,
+  quantity: number,
+  unitCost: number,
+  notes?: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  try {
-    await db.delete(users).where(eq(users.id, userId));
-  } catch (error) {
-    console.error("[DB] Erro ao deletar usuário:", error);
-    throw error;
-  }
+
+  await db.insert(stockEntries).values({
+    productId,
+    userId,
+    quantity,
+    unitCost,
+    notes: notes ?? "Ajuste manual de estoque",
+  });
+
+  // Atualizar estoque total
+  await db
+    .update(products)
+    .set({
+      stockQuantity: sql`${products.stockQuantity} + ${quantity}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, productId));
 }
 
-// ─── Dashboard ────────────────────────────────────────────────────────────────
 
-export async function getDashboardData(_userId?: number) {
-  try {
-    const [prods, sims] = await Promise.all([
-      listProducts(),
-      listSimulations(),
-    ]);
+// ─── Regularização inicial de produtos legados ──────────────────────────────
 
-    let orderCounts = {
-      aguardando: 0,
-      pagos: 0,
-      cancelados: 0,
-      expirados: 0,
-      faturamento: 0,
-      ticketMedio: 0,
-    };
-    try {
-      const { getOrderCounts } = await import("./db.orders");
-      orderCounts = await getOrderCounts();
-    } catch {
-      // tabela ainda não existe — ignora
-    }
-
-    return {
-      totalProducts: prods.length,
-      activeProducts: prods.filter((p: any) => p.active).length,
-      totalSimulations: sims.length,
-      lastSimulation: sims[0] ?? null,
-      attentionCount: sims.filter((s: any) =>
-        ["RISCO", "ATENCAO", "PREJUIZO"].includes(s.diagnosis)
-      ).length,
-      healthyCount: sims.filter((s: any) =>
-        ["SAUDAVEL", "EXCELENTE"].includes(s.diagnosis)
-      ).length,
-      recentSimulations: sims.slice(0, 5),
-      ordersAguardando: orderCounts.aguardando,
-      ordersPagos: orderCounts.pagos,
-      ordersCancelados: orderCounts.cancelados,
-      faturamentoConfirmado: orderCounts.faturamento,
-      ticketMedio: orderCounts.ticketMedio,
-    };
-  } catch (err) {
-    console.error("[DB] getDashboardData error:", err);
-    return {
-      totalProducts: 0,
-      activeProducts: 0,
-      totalSimulations: 0,
-      lastSimulation: null,
-      attentionCount: 0,
-      healthyCount: 0,
-      recentSimulations: [],
-      ordersAguardando: 0,
-      ordersPagos: 0,
-      ordersCancelados: 0,
-      faturamentoConfirmado: 0,
-      ticketMedio: 0,
-    };
-  }
-}
-
-// ─── Próximo ID de Produto ────────────────────────────────────────────────────
-
-export async function getNextProductId(): Promise<number> {
+export async function listInitialRegularizationCandidates(_userId?: number) {
   const db = await getDb();
-  if (!db) return 0;
-  try {
-    // Consulta o próximo valor da sequência do Postgres sem consumi-lo
-    const result = await db.execute(
-      "SELECT last_value + 1 AS next_id FROM permupay_products_id_seq" as any
-    );
-    const rows = (result as any).rows ?? result;
-    const row = rows?.[0];
-    const nextId = Number(row?.next_id ?? 0);
-    if (nextId > 0) return nextId;
-    throw new Error("sequence not found");
-  } catch {
-    // Fallback: busca o maior ID atual + 1
-    try {
-      const last = await db.select({ id: products.id }).from(products).orderBy(desc(products.id)).limit(1);
-      return (last[0]?.id ?? 0) + 1;
-    } catch {
-      return 0;
-    }
-  }
+  if (!db) return [];
+
+  const result = await db.execute(sql`
+    SELECT
+      p.*,
+      COALESCE(p.final_unit_cost_brl, 0) AS "finalUnitCostBrl",
+      COALESCE(p.average_cost_brl, 0) AS "averageCostBrl",
+      COALESCE(p.cost_price_brl, 0) AS "costPriceBrl"
+    FROM permupay_products p
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM permupay_batch_items bi
+      WHERE bi.product_id = p.id
+    )
+    ORDER BY p.id ASC
+  `) as any;
+
+  return result?.rows ?? [];
 }
 
-// ─── Reordenação de Produtos ──────────────────────────────────────────────────
-
-export async function reorderProducts(orderedIds: number[]) {
+export async function processInitialRegularizationBatch(
+  batchId: number,
+  userId: number,
+  items: BatchItemInput[],
+  totalOperationalCost: number,
+  totalTaxCost = 0,
+  totalOtherCost = 0
+): Promise<BatchPricingResult & { regularizedCount: number }> {
   const db = await getDb();
-  if (!db) return;
-  try {
-    await db.transaction(async (tx) => {
-      for (let i = 0; i < orderedIds.length; i++) {
-        await tx
-          .update(products)
-          .set({ displayOrder: i + 1 })
-          .where(eq(products.id, orderedIds[i]));
+  if (!db) throw new Error("Database not available");
+
+  const [batch] = await db
+    .select()
+    .from(pricingBatches)
+    .where(eq(pricingBatches.id, batchId))
+    .limit(1);
+
+  if (!batch) throw new Error("Entrada de regularização não encontrada");
+  if (batch.status === "CLOSED") throw new Error("Esta entrada já está fechada");
+
+  if (items.some((item) => !item.productId)) {
+    throw new Error("Regularização inicial só pode usar produtos já cadastrados.");
+  }
+
+  const result = calculateBatchPricing({
+    items,
+    totalOperationalCost,
+    totalTaxCost,
+    totalOtherCost,
+  });
+  if (isBatchPricingError(result)) throw new Error(result.message);
+
+  let regularizedCount = 0;
+
+  await db.transaction(async (tx) => {
+    await tx.delete(batchItems).where(eq(batchItems.batchId, batchId));
+    await tx.execute(sql`DELETE FROM permupay_stock_queue WHERE batch_id = ${batchId}`);
+    await tx.execute(sql`DELETE FROM permupay_stock_entries WHERE batch_id = ${batchId}`);
+
+    for (const item of result.items) {
+      if (!item.productId) continue;
+
+      const productResult = await tx.execute(sql`
+        SELECT id, stock_quantity
+        FROM permupay_products
+        WHERE id = ${item.productId}
+        FOR UPDATE
+      `) as any;
+      const product = productResult?.rows?.[0];
+      if (!product) throw new Error(`Produto #${item.productId} não encontrado.`);
+
+      const activeQueueResult = await tx.execute(sql`
+        SELECT id
+        FROM permupay_stock_queue
+        WHERE product_id = ${item.productId}
+          AND status = 'ATIVO'
+          AND batch_id <> ${batchId}
+        LIMIT 1
+      `) as any;
+      if ((activeQueueResult?.rows ?? []).length > 0) {
+        throw new Error(
+          `Produto #${item.productId} já possui lote ativo. Use entrada normal ou revise antes de regularizar.`
+        );
       }
+
+      const taxRate = (item.estimatedTaxRate ?? 6) / 100;
+      const marginRate = item.desiredMarginRate / 100;
+      const divisor = Math.max(0.01, 1 - marginRate - taxRate);
+      const pricePix = parseFloat((item.finalUnitCost / divisor).toFixed(2));
+      const priceCard = parseFloat((pricePix * 1.05).toFixed(2));
+      const priceBoleto = parseFloat((pricePix * 1.06).toFixed(2));
+
+      const [queueEntry] = await tx
+        .insert(stockQueue)
+        .values({
+          productId: item.productId,
+          batchId,
+          userId,
+          quantity: item.quantity,
+          quantityRemaining: item.quantity,
+          unitCost: item.finalUnitCost,
+          suggestedPricePix: pricePix,
+          suggestedPriceCard: priceCard,
+          suggestedPriceBoleto: priceBoleto,
+          desiredMarginRate: item.desiredMarginRate,
+          estimatedTaxRate: item.estimatedTaxRate ?? 6,
+          status: "ATIVO",
+          position: 0,
+          activatedAt: new Date(),
+          notes: `[REGULARIZAÇÃO INICIAL] Entrada #${batchId} — produto legado vinculado sem duplicar cadastro.`,
+        } as InsertStockQueue)
+        .returning({ id: stockQueue.id });
+
+      await tx.insert(batchItems).values({
+        batchId,
+        productId: item.productId,
+        productName: item.productName,
+        unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+        costCurrency: item.costCurrency ?? "BRL",
+        exchangeRate: item.exchangeRate ?? 0,
+        acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
+        unitCostBrl: item.unitCostBrl,
+        quantity: item.quantity,
+        totalItemCost: item.totalItemCost,
+        allocatedOperationalCost: item.allocatedOperationalCost,
+        operationalCostPerUnit: item.operationalCostPerUnit,
+        allocatedTaxCost: item.allocatedTaxCost,
+        taxCostPerUnit: item.taxCostPerUnit,
+        allocatedOtherCost: item.allocatedOtherCost,
+        otherCostPerUnit: item.otherCostPerUnit,
+        realTotalCost: item.realTotalCost,
+        finalUnitCost: item.finalUnitCost,
+        desiredMarginRate: item.desiredMarginRate,
+        suggestedPrice: item.suggestedPrice,
+        queueStatus: "ATIVO",
+        queueId: queueEntry?.id ?? null,
+      } as any);
+
+      await tx.insert(stockEntries).values({
+        productId: item.productId,
+        batchId,
+        userId,
+        quantity: item.quantity,
+        unitCost: item.finalUnitCost,
+        notes: `[REGULARIZAÇÃO INICIAL] Entrada #${batchId} — vínculo inicial do produto existente.`,
+      });
+
+      await tx.execute(sql`
+        UPDATE permupay_products
+        SET stock_quantity = ${item.quantity},
+            average_cost_brl = ${item.finalUnitCost},
+            final_unit_cost_brl = ${item.finalUnitCost},
+            cost_price_brl = ${item.unitCostBrl},
+            updated_at = NOW()
+        WHERE id = ${item.productId}
+      `);
+
+      regularizedCount++;
+    }
+
+    await tx
+      .update(pricingBatches)
+      .set({
+        description: batch.description
+          ? `${batch.description}\n[REGULARIZACAO_INICIAL]`
+          : "[REGULARIZACAO_INICIAL] Primeiro lote criado a partir de produtos já cadastrados.",
+        totalCostOfGoods: result.totalCostOfGoods,
+        totalOperationalCost: result.totalOperationalCost,
+        totalTaxCost: result.totalTaxCost,
+        totalOtherCost: result.totalOtherCost,
+        fifoMode: true,
+        status: "CLOSED",
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(pricingBatches.id, batchId));
+  });
+
+  return { ...result, regularizedCount };
+}
+
+// ─── Marketplace / Vitrine ────────────────────────────────────────────────────
+
+export async function getPublishedProducts() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: products.id,
+      name: products.name,
+      category: products.category,
+      categoryLabel: products.categoryLabel,
+      shortDescription: products.shortDescription,
+      description: products.description,
+      imageUrl: products.imageUrl,
+      promoTag: products.promoTag,
+      suggestedPrice: products.suggestedPrice,
+      suggestedPricePix: products.suggestedPricePix,
+      suggestedPriceCard: products.suggestedPriceCard,
+      suggestedPriceBoleto: products.suggestedPriceBoleto,
+      stockQuantity: products.stockQuantity,
+      minimumStock: products.minimumStock,
+      paymentPlatform: products.paymentPlatform,
+      pixKey: products.pixKey,
+      pixLink: products.pixLink,
+      cardPaymentUrl: products.cardPaymentUrl,
+      boletoUrl: products.boletoUrl,
+      cardInstallments: products.cardInstallments,
+      boletoMonths: products.boletoMonths,
+      salesChannel: products.salesChannel,
+      productCondition: products.productCondition,
+      conditionNotes: products.conditionNotes,
+      isUniquePiece: products.isUniquePiece,
+    })
+    .from(products)
+    .where(and(eq(products.published, true), eq(products.active, true), sql`${products.salesChannel} <> 'QUASE_ZERO'`))
+    .orderBy(asc(products.displayOrder), desc(products.createdAt));
+}
+
+export async function getPublishedProductsByCategory(category?: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const baseQuery = db
+    .select({
+      id: products.id,
+      name: products.name,
+      category: products.category,
+      categoryLabel: products.categoryLabel,
+      shortDescription: products.shortDescription,
+      description: products.description,
+      imageUrl: products.imageUrl,
+      promoTag: products.promoTag,
+      suggestedPrice: products.suggestedPrice,
+      suggestedPricePix: products.suggestedPricePix,
+      suggestedPriceCard: products.suggestedPriceCard,
+      suggestedPriceBoleto: products.suggestedPriceBoleto,
+      stockQuantity: products.stockQuantity,
+      minimumStock: products.minimumStock,
+      paymentPlatform: products.paymentPlatform,
+      pixKey: products.pixKey,
+      pixLink: products.pixLink,
+      cardPaymentUrl: products.cardPaymentUrl,
+      boletoUrl: products.boletoUrl,
+      cardInstallments: products.cardInstallments,
+      boletoMonths: products.boletoMonths,
+      salesChannel: products.salesChannel,
+      productCondition: products.productCondition,
+      conditionNotes: products.conditionNotes,
+      isUniquePiece: products.isUniquePiece,
+    })
+    .from(products)
+    .where(
+      category
+        ? and(eq(products.published, true), eq(products.active, true), eq(products.category, category as any), sql`${products.salesChannel} <> 'QUASE_ZERO'`)
+        : and(eq(products.published, true), eq(products.active, true), sql`${products.salesChannel} <> 'QUASE_ZERO'`)
+    )
+    .orderBy(asc(products.displayOrder), desc(products.createdAt));
+
+  return await baseQuery;
+}
+
+
+export async function getQuaseZeroProducts() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: products.id,
+      name: products.name,
+      category: products.category,
+      categoryLabel: products.categoryLabel,
+      shortDescription: products.shortDescription,
+      description: products.description,
+      imageUrl: products.imageUrl,
+      promoTag: products.promoTag,
+      suggestedPrice: products.suggestedPrice,
+      suggestedPricePix: products.suggestedPricePix,
+      suggestedPriceCard: products.suggestedPriceCard,
+      suggestedPriceBoleto: products.suggestedPriceBoleto,
+      stockQuantity: products.stockQuantity,
+      minimumStock: products.minimumStock,
+      paymentPlatform: products.paymentPlatform,
+      pixKey: products.pixKey,
+      pixLink: products.pixLink,
+      cardPaymentUrl: products.cardPaymentUrl,
+      boletoUrl: products.boletoUrl,
+      cardInstallments: products.cardInstallments,
+      boletoMonths: products.boletoMonths,
+      salesChannel: products.salesChannel,
+      productCondition: products.productCondition,
+      conditionNotes: products.conditionNotes,
+      isUniquePiece: products.isUniquePiece,
+    })
+    .from(products)
+    .where(and(eq(products.published, true), eq(products.active, true), sql`${products.salesChannel} IN ('QUASE_ZERO', 'BOTH')`))
+    .orderBy(asc(products.displayOrder), desc(products.createdAt));
+}
+
+export async function getPublishedProductById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      category: products.category,
+      categoryLabel: products.categoryLabel,
+      shortDescription: products.shortDescription,
+      description: products.description,
+      imageUrl: products.imageUrl,
+      promoTag: products.promoTag,
+      suggestedPrice: products.suggestedPrice,
+      suggestedPricePix: products.suggestedPricePix,
+      suggestedPriceCard: products.suggestedPriceCard,
+      suggestedPriceBoleto: products.suggestedPriceBoleto,
+      stockQuantity: products.stockQuantity,
+      minimumStock: products.minimumStock,
+      paymentPlatform: products.paymentPlatform,
+      pixKey: products.pixKey,
+      pixLink: products.pixLink,
+      cardPaymentUrl: products.cardPaymentUrl,
+      boletoUrl: products.boletoUrl,
+      cardInstallments: products.cardInstallments,
+      boletoMonths: products.boletoMonths,
+      salesChannel: products.salesChannel,
+      productCondition: products.productCondition,
+      conditionNotes: products.conditionNotes,
+      isUniquePiece: products.isUniquePiece,
+    })
+    .from(products)
+    .where(and(eq(products.id, id), eq(products.published, true), eq(products.active, true)))
+    .limit(1);
+
+  const product = result[0] ?? null;
+  if (!product) return null;
+
+  const images = await db
+    .select({
+      id: productImages.id,
+      url: productImages.url,
+      storageKey: productImages.storageKey,
+      isThumbnail: productImages.isThumbnail,
+      sortOrder: productImages.sortOrder,
+      altText: productImages.altText,
+    })
+    .from(productImages)
+    .where(eq(productImages.productId, id))
+    .orderBy(asc(productImages.sortOrder), asc(productImages.id));
+
+  return { ...product, images };
+}
+
+export async function togglePublished(
+  productId: number,
+  _userId: number,
+  published: boolean,
+  promoTag?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [updated] = await db
+    .update(products)
+    .set({
+      published,
+      promoTag: promoTag ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, productId))
+    .returning();
+
+  return updated;
+}
+
+export async function updateProductImage(
+  productId: number,
+  _userId: number,
+  imageUrl: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [updated] = await db
+    .update(products)
+    .set({ imageUrl, updatedAt: new Date() })
+    .where(eq(products.id, productId))
+    .returning();
+
+  return updated;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SERVIÇO FIFO — Fila de Estoque por Lote
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * processBatchFIFO
+ *
+ * Versão FIFO do processBatch. Para cada item do lote:
+ *   1. Calcula o rateio proporcional de custos (mesmo motor que processBatch)
+ *   2. Se produto já tem estoque ativo (stockQuantity > 0):
+ *      → Insere na fila com status = EM_ESPERA
+ *      → O produto ativo NÃO é alterado
+ *   3. Se produto tem estoque = 0:
+ *      → Entra direto como ATIVO (não há fila para ele)
+ *      → Atualiza custo e preço do produto imediatamente
+ *
+ * Prevenção de concorrência: usa tx.execute com SELECT FOR UPDATE no produto
+ * antes de qualquer UPDATE, garantindo leitura não-fantasma em alta carga.
+ */
+export async function processBatchFIFO(
+  batchId: number,
+  userId: number,
+  items: BatchItemInput[],
+  totalOperationalCost: number,
+  totalTaxCost = 0,
+  totalOtherCost = 0
+): Promise<BatchPricingResult & { queuedCount: number; activatedCount: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Verificar lote
+  const [batch] = await db
+    .select()
+    .from(pricingBatches)
+    .where(eq(pricingBatches.id, batchId))
+    .limit(1);
+
+  if (!batch) throw new Error("Lote não encontrado");
+  if (batch.status === "CLOSED") throw new Error("Este lote já está fechado");
+
+  // Calcular rateio (motor existente — sem alteração)
+  const result = calculateBatchPricing({ items, totalOperationalCost, totalTaxCost, totalOtherCost });
+  if (isBatchPricingError(result)) throw new Error(result.message);
+
+  // Limpar itens anteriores
+  await db.delete(batchItems).where(eq(batchItems.batchId, batchId));
+
+  let queuedCount = 0;
+  let activatedCount = 0;
+
+  // Processar cada item dentro de uma transação
+  await db.transaction(async (tx) => {
+    for (const item of result.items) {
+      if (!item.productId) {
+        // Produto não vinculado — só salva batch_item sem mexer em estoque
+        await tx.insert(batchItems).values({
+          batchId,
+          productId: null,
+          productName: item.productName,
+          unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+          costCurrency: item.costCurrency ?? "BRL",
+          exchangeRate: item.exchangeRate ?? 0,
+          acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
+          unitCostBrl: item.unitCostBrl,
+          quantity: item.quantity,
+          totalItemCost: item.totalItemCost,
+          allocatedOperationalCost: item.allocatedOperationalCost,
+          operationalCostPerUnit: item.operationalCostPerUnit,
+          allocatedTaxCost: item.allocatedTaxCost,
+          taxCostPerUnit: item.taxCostPerUnit,
+          allocatedOtherCost: item.allocatedOtherCost,
+          otherCostPerUnit: item.otherCostPerUnit,
+          realTotalCost: item.realTotalCost,
+          finalUnitCost: item.finalUnitCost,
+          desiredMarginRate: item.desiredMarginRate,
+          suggestedPrice: item.suggestedPrice,
+          queueStatus: "EM_ESPERA",
+        } as any);
+        continue;
+      }
+
+      // Leitura com lock exclusivo para evitar race condition.
+      // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+      const currentResult = await tx.execute(
+        sql`SELECT id, stock_quantity, average_cost_brl, suggested_price_pix,
+                   suggested_price_card, suggested_price_boleto
+            FROM permupay_products
+            WHERE id = ${item.productId}
+            FOR UPDATE`
+      ) as any;
+      const current = currentResult?.rows?.[0];
+
+      if (!current) continue;
+
+      const currentStock = Number(current.stock_quantity ?? 0);
+
+      // Calcular preços sugeridos individuais para este item
+      const taxRate = (item.estimatedTaxRate ?? 6) / 100;
+      const marginRate = item.desiredMarginRate / 100;
+      const divisor = Math.max(0.01, 1 - marginRate - taxRate);
+      const prixPix    = parseFloat((item.finalUnitCost / divisor).toFixed(2));
+      const priceCard  = parseFloat((prixPix * 1.05).toFixed(2));  // +5% cartão
+      const priceBoleto = parseFloat((prixPix * 1.06).toFixed(2)); // +6% boleto
+
+      // Calcular próxima posição na fila para este produto.
+      // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+      const maxPosResult = await tx.execute(
+        sql`SELECT COALESCE(MAX(position), -1) AS "maxPos"
+            FROM permupay_stock_queue
+            WHERE product_id = ${item.productId}
+              AND status IN ('EM_ESPERA', 'ATIVO')`
+      ) as any;
+      const maxPosRow = maxPosResult?.rows?.[0];
+      const maxPos = maxPosRow?.maxPos ?? maxPosRow?.maxpos ?? -1;
+
+      const nextPosition = Number(maxPos ?? -1) + 1;
+
+      if (currentStock > 0) {
+        // ── PRODUTO TEM ESTOQUE → FILA DE ESPERA ──────────────────────────
+        const [queueEntry] = await tx
+          .insert(stockQueue)
+          .values({
+            productId: item.productId,
+            batchId,
+            userId,
+            quantity: item.quantity,
+            quantityRemaining: item.quantity,
+            unitCost: item.finalUnitCost,
+            suggestedPricePix: prixPix,
+            suggestedPriceCard: priceCard,
+            suggestedPriceBoleto: priceBoleto,
+            desiredMarginRate: item.desiredMarginRate,
+            estimatedTaxRate: item.estimatedTaxRate ?? 6,
+            status: "EM_ESPERA",
+            position: nextPosition,
+            notes: `Entrada #${batchId} — ${item.productName} | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
+          } as InsertStockQueue)
+          .returning({ id: stockQueue.id });
+
+        // Salvar batch_item com referência à fila
+        await tx.insert(batchItems).values({
+          batchId,
+          productId: item.productId,
+          productName: item.productName,
+          unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+          costCurrency: item.costCurrency ?? "BRL",
+          exchangeRate: item.exchangeRate ?? 0,
+          acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
+          unitCostBrl: item.unitCostBrl,
+          quantity: item.quantity,
+          totalItemCost: item.totalItemCost,
+          allocatedOperationalCost: item.allocatedOperationalCost,
+          operationalCostPerUnit: item.operationalCostPerUnit,
+          allocatedTaxCost: item.allocatedTaxCost,
+          taxCostPerUnit: item.taxCostPerUnit,
+          allocatedOtherCost: item.allocatedOtherCost,
+          otherCostPerUnit: item.otherCostPerUnit,
+          realTotalCost: item.realTotalCost,
+          finalUnitCost: item.finalUnitCost,
+          desiredMarginRate: item.desiredMarginRate,
+          suggestedPrice: item.suggestedPrice,
+          queueStatus: "EM_ESPERA",
+          queueId: queueEntry?.id ?? null,
+        } as any);
+
+        // Registrar entrada de estoque como "em espera" (rastreabilidade)
+        await tx.insert(stockEntries).values({
+          productId: item.productId,
+          batchId,
+          userId,
+          quantity: item.quantity,
+          unitCost: item.finalUnitCost,
+          notes: `[FILA] Entrada #${batchId} posição ${nextPosition} — aguardando estoque ativo zerar | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
+        });
+
+        queuedCount++;
+      } else {
+        // ── PRODUTO SEM ESTOQUE → ENTRA DIRETO COMO ATIVO ─────────────────
+        const [queueEntry] = await tx
+          .insert(stockQueue)
+          .values({
+            productId: item.productId,
+            batchId,
+            userId,
+            quantity: item.quantity,
+            quantityRemaining: item.quantity,
+            unitCost: item.finalUnitCost,
+            suggestedPricePix: prixPix,
+            suggestedPriceCard: priceCard,
+            suggestedPriceBoleto: priceBoleto,
+            desiredMarginRate: item.desiredMarginRate,
+            estimatedTaxRate: item.estimatedTaxRate ?? 6,
+            status: "ATIVO",
+            position: nextPosition,
+            activatedAt: new Date(),
+            notes: `Entrada #${batchId} — ativado direto (sem estoque anterior) | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
+          } as InsertStockQueue)
+          .returning({ id: stockQueue.id });
+
+        await tx.insert(batchItems).values({
+          batchId,
+          productId: item.productId,
+          productName: item.productName,
+          unitCostOriginal: item.unitCostOriginal ?? item.unitCostBrl,
+          costCurrency: item.costCurrency ?? "BRL",
+          exchangeRate: item.exchangeRate ?? 0,
+          acquisitionPaymentMethod: item.acquisitionPaymentMethod ?? "OUTRO",
+          unitCostBrl: item.unitCostBrl,
+          quantity: item.quantity,
+          totalItemCost: item.totalItemCost,
+          allocatedOperationalCost: item.allocatedOperationalCost,
+          operationalCostPerUnit: item.operationalCostPerUnit,
+          allocatedTaxCost: item.allocatedTaxCost,
+          taxCostPerUnit: item.taxCostPerUnit,
+          allocatedOtherCost: item.allocatedOtherCost,
+          otherCostPerUnit: item.otherCostPerUnit,
+          realTotalCost: item.realTotalCost,
+          finalUnitCost: item.finalUnitCost,
+          desiredMarginRate: item.desiredMarginRate,
+          suggestedPrice: item.suggestedPrice,
+          queueStatus: "ATIVO",
+          queueId: queueEntry?.id ?? null,
+        } as any);
+
+        // Atualizar produto com custo e preços do novo lote
+        await tx.execute(
+          sql`UPDATE permupay_products SET
+                stock_quantity        = ${item.quantity},
+                average_cost_brl     = ${item.finalUnitCost},
+                final_unit_cost_brl  = ${item.finalUnitCost},
+                suggested_price_pix  = ${prixPix},
+                suggested_price_card = ${priceCard},
+                suggested_price_boleto = ${priceBoleto},
+                updated_at           = NOW()
+              WHERE id = ${item.productId}`
+        );
+
+        await tx.insert(stockEntries).values({
+          productId: item.productId,
+          batchId,
+          userId,
+          quantity: item.quantity,
+          unitCost: item.finalUnitCost,
+          notes: `[ATIVO] Entrada #${batchId} — ativado imediatamente | Aquisição: ${item.acquisitionPaymentMethod ?? "OUTRO"} | Moeda: ${item.costCurrency ?? "BRL"}`,
+        });
+
+        activatedCount++;
+      }
+    }
+
+    // Atualizar totais e marcar lote como FIFO/fechado
+    await tx
+      .update(pricingBatches)
+      .set({
+        totalCostOfGoods: result.totalCostOfGoods,
+        totalOperationalCost: result.totalOperationalCost,
+        totalTaxCost: result.totalTaxCost,
+        totalOtherCost: result.totalOtherCost,
+        fifoMode: true,
+        status: "CLOSED",
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(pricingBatches.id, batchId));
+  });
+
+  return { ...result, queuedCount, activatedCount };
+}
+
+/**
+ * triggerStockTransition
+ *
+ * GATILHO DE VIRADA DE LOTE — chamado sempre que uma venda é registrada.
+ *
+ * Fluxo:
+ *  1. Debita `qtySold` do estoque ativo do produto
+ *  2. Se stockQuantity chegou a 0:
+ *     a. Marca o lote ATIVO como ESGOTADO na fila
+ *     b. Busca o próximo lote EM_ESPERA (menor position, mais antigo)
+ *     c. Promove para ATIVO: atualiza produto com novos preços e quantidade
+ *  3. Se stockQuantity ainda > 0: só debita, nada mais
+ *
+ * Retorna informações sobre a transição para o caller logar/notificar.
+ */
+export async function triggerStockTransition(
+  productId: number,
+  qtySold: number,
+  userId?: number
+): Promise<{
+  newStock: number;
+  transitioned: boolean;
+  promotedQueueId?: number;
+  newLotName?: string;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db.transaction(async (tx) => {
+    // Lock exclusivo no produto para serializar vendas concorrentes.
+    // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+    const productResult = await tx.execute(
+      sql`SELECT id, stock_quantity, name
+          FROM permupay_products
+          WHERE id = ${productId}
+          FOR UPDATE`
+    ) as any;
+    const product = productResult?.rows?.[0];
+
+    if (!product) throw new Error("Produto não encontrado");
+
+    const currentStock = Number(product.stock_quantity ?? 0);
+    const newStock = Math.max(0, currentStock - qtySold);
+
+    // Debitar estoque
+    await tx.execute(
+      sql`UPDATE permupay_products
+          SET stock_quantity = ${newStock}, updated_at = NOW()
+          WHERE id = ${productId}`
+    );
+
+    if (newStock > 0) {
+      // Ainda tem saldo — nenhuma transição necessária
+      return { newStock, transitioned: false };
+    }
+
+    // ── ESTOQUE ZEROU → INICIAR VIRADA DE LOTE ────────────────────────────
+
+    // 1. Marcar lote ATIVO atual como ESGOTADO
+    await tx.execute(
+      sql`UPDATE permupay_stock_queue
+          SET status = 'ESGOTADO',
+              quantity_remaining = 0,
+              exhausted_at = NOW(),
+              updated_at = NOW()
+          WHERE product_id = ${productId}
+            AND status = 'ATIVO'`
+    );
+
+    // 2. Buscar próximo lote em espera (FIFO: menor position, criado antes).
+    // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+    const nextQueueResult = await tx.execute(
+      sql`SELECT id, quantity, unit_cost,
+                 suggested_price_pix, suggested_price_card, suggested_price_boleto,
+                 batch_id
+          FROM permupay_stock_queue
+          WHERE product_id = ${productId}
+            AND status = 'EM_ESPERA'
+          ORDER BY position ASC, created_at ASC
+          LIMIT 1
+          FOR UPDATE`
+    ) as any;
+    const nextQueue = nextQueueResult?.rows?.[0];
+
+    if (!nextQueue) {
+      // Sem lotes em espera — produto fica com estoque 0
+      return { newStock: 0, transitioned: false };
+    }
+
+    // 3. Promover para ATIVO
+    await tx.execute(
+      sql`UPDATE permupay_stock_queue
+          SET status = 'ATIVO',
+              activated_at = NOW(),
+              updated_at = NOW()
+          WHERE id = ${nextQueue.id}`
+    );
+
+    // 4. Atualizar produto com dados do novo lote
+    await tx.execute(
+      sql`UPDATE permupay_products SET
+            stock_quantity         = ${Number(nextQueue.quantity)},
+            average_cost_brl       = ${Number(nextQueue.unit_cost)},
+            final_unit_cost_brl    = ${Number(nextQueue.unit_cost)},
+            suggested_price_pix    = ${Number(nextQueue.suggested_price_pix)},
+            suggested_price_card   = ${Number(nextQueue.suggested_price_card)},
+            suggested_price_boleto = ${Number(nextQueue.suggested_price_boleto)},
+            updated_at             = NOW()
+          WHERE id = ${productId}`
+    );
+
+    // 5. Registrar evento de transição como stock_entry
+    await tx.insert(stockEntries).values({
+      productId,
+      batchId: nextQueue.batch_id ?? null,
+      userId: userId ?? null,
+      quantity: Number(nextQueue.quantity),
+      unitCost: Number(nextQueue.unit_cost),
+      notes: `[VIRADA FIFO] Lote fila #${nextQueue.id} promovido para ATIVO automaticamente`,
     });
-  } catch (error) {
-    console.error("[DB] Erro ao reordenar produtos:", error);
-    throw error;
-  }
+
+    // 6. Atualizar batch_item correspondente
+    await tx.execute(
+      sql`UPDATE permupay_batch_items
+          SET queue_status = 'ATIVO'
+          WHERE queue_id = ${nextQueue.id}`
+    );
+
+    // Buscar nome do lote para retorno.
+    // Drizzle + node-postgres retorna QueryResult ({ rows }), não um array direto.
+    const batchInfoResult = await tx.execute(
+      sql`SELECT name FROM permupay_pricing_batches WHERE id = ${nextQueue.batch_id}`
+    ) as any;
+    const batchInfo = batchInfoResult?.rows?.[0];
+
+    return {
+      newStock: Number(nextQueue.quantity),
+      transitioned: true,
+      promotedQueueId: Number(nextQueue.id),
+      newLotName: batchInfo?.name,
+    };
+  });
+}
+
+/**
+ * getStockQueue — Lista a fila completa de um produto
+ */
+export async function getStockQueue(productId: number): Promise<StockQueue[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(stockQueue)
+    .where(eq(stockQueue.productId, productId))
+    .orderBy(asc(stockQueue.position), asc(stockQueue.createdAt));
+}
+
+/**
+ * getAllQueues — Lista toda a fila FIFO paginada (visão admin)
+ */
+export async function getAllQueues(status?: string): Promise<StockQueue[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const where = status
+    ? and(eq(stockQueue.status, status as any))
+    : undefined;
+
+  return db
+    .select()
+    .from(stockQueue)
+    .where(where)
+    .orderBy(asc(stockQueue.productId), asc(stockQueue.position))
+    .limit(500);
+}
+
+/**
+ * cancelQueueEntry — Cancela uma entrada na fila (admin)
+ */
+export async function cancelQueueEntry(queueId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [entry] = await db
+    .select()
+    .from(stockQueue)
+    .where(eq(stockQueue.id, queueId))
+    .limit(1);
+
+  if (!entry) throw new Error("Entrada não encontrada na fila");
+  if (entry.status === "ATIVO") throw new Error("Não é possível cancelar o lote ATIVO. Faça uma virada manual.");
+
+  await db
+    .update(stockQueue)
+    .set({ status: "CANCELADO", updatedAt: new Date() } as any)
+    .where(eq(stockQueue.id, queueId));
+}
+
+/**
+ * manualStockSale — Registra venda manual e dispara triggerStockTransition
+ * Use para testes ou vendas registradas fora do fluxo de orders
+ */
+export async function manualStockSale(
+  productId: number,
+  qtySold: number,
+  userId?: number
+) {
+  return triggerStockTransition(productId, qtySold, userId);
 }
