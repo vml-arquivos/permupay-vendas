@@ -438,6 +438,10 @@ export async function createProduct(data: any) {
       categoryLabel: data.categoryLabel ? String(data.categoryLabel).trim() : null,
       promoTag: data.promoTag ? String(data.promoTag).trim() : null,
       published: data.published === true,
+      salesChannel: ["SHOP", "QUASE_ZERO", "BOTH"].includes(data.salesChannel) ? data.salesChannel : "SHOP",
+      productCondition: ["NEW", "SEMINOVO", "USADO", "MOSTRUARIO", "OPEN_BOX", "REEMBALADO"].includes(data.productCondition) ? data.productCondition : "NEW",
+      conditionNotes: data.conditionNotes ? String(data.conditionNotes).trim() : null,
+      isUniquePiece: data.isUniquePiece === true,
       suggestedPrice: Math.max(0, Number(data.suggestedPrice) || 0),
       suggestedPricePix: Math.max(0, Number(data.suggestedPricePix) || 0),
       suggestedPriceCard: Math.max(0, Number(data.suggestedPriceCard) || 0),
@@ -528,6 +532,14 @@ export async function updateProduct(id: number, data: any, _userId?: number) {
     if (data.categoryLabel !== undefined) updateData.categoryLabel = data.categoryLabel ? String(data.categoryLabel).trim() : null;
     if (data.promoTag !== undefined) updateData.promoTag = data.promoTag ? String(data.promoTag).trim() : null;
     if (data.published !== undefined) updateData.published = data.published === true;
+    if (data.salesChannel !== undefined) {
+      updateData.salesChannel = ["SHOP", "QUASE_ZERO", "BOTH"].includes(data.salesChannel) ? data.salesChannel : "SHOP";
+    }
+    if (data.productCondition !== undefined) {
+      updateData.productCondition = ["NEW", "SEMINOVO", "USADO", "MOSTRUARIO", "OPEN_BOX", "REEMBALADO"].includes(data.productCondition) ? data.productCondition : "NEW";
+    }
+    if (data.conditionNotes !== undefined) updateData.conditionNotes = data.conditionNotes ? String(data.conditionNotes).trim() : null;
+    if (data.isUniquePiece !== undefined) updateData.isUniquePiece = data.isUniquePiece === true;
     if (data.suggestedPrice !== undefined) updateData.suggestedPrice = Math.max(0, Number(data.suggestedPrice) || 0);
     if (data.suggestedPricePix !== undefined) updateData.suggestedPricePix = Math.max(0, Number(data.suggestedPricePix) || 0);
     if (data.suggestedPriceCard !== undefined) updateData.suggestedPriceCard = Math.max(0, Number(data.suggestedPriceCard) || 0);
