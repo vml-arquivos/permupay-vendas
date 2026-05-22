@@ -62,11 +62,11 @@ const productInput = z.object({
   boletoUrl: z.string().optional(),
   categoryLabel: z.string().optional(),
   promoTag: z.string().optional(),
-  published: z.boolean().optional(),
   salesChannel: z.enum(["SHOP", "QUASE_ZERO", "BOTH"]).optional(),
   productCondition: z.enum(["NEW", "SEMINOVO", "USADO", "MOSTRUARIO", "OPEN_BOX", "REEMBALADO"]).optional(),
   conditionNotes: z.string().optional(),
   isUniquePiece: z.boolean().optional(),
+  published: z.boolean().optional(),
   taxCash: z.number().min(0).optional(),
   taxBoleto: z.number().min(0).optional(),
   taxDebit: z.number().min(0).optional(),
@@ -649,10 +649,11 @@ export const appRouter = router({
         z.object({
           orderId: z.number(),
           adminNotes: z.string().optional(),
+          paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]).optional(),
         })
       )
       .mutation(({ input, ctx }) =>
-        dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes)
+        dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes, input.paymentMethod)
       ),
 
     cancel: protectedProcedure
