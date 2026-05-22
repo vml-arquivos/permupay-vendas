@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { formatCurrency, formatPercent } from "../../../shared/pricingCalculator";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Plus, Trash2, AlertCircle } from "lucide-react";
+import { Download, Plus, Trash2, AlertCircle, FileText } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
@@ -28,53 +28,261 @@ const DIAGNOSIS_STYLES: Record<string, string> = {
   PREJUIZO: "bg-red-100 text-red-700 border-red-200",
 };
 
-const METHOD_LABEL: Record<string, string> = {
-  PIX: "PIX",
-  BOLETO: "Boleto",
-  DEBITO: "Débito",
-  CREDITO_A_VISTA: "Crédito à Vista",
-  CREDITO_PARCELADO: "Crédito Parcelado",
+const DIAGNOSIS_COLOR: Record<string, string> = {
+  EXCELENTE: "#059669", SAUDAVEL: "#16a34a",
+  ATENCAO: "#ca8a04", RISCO: "#ea580c", PREJUIZO: "#dc2626",
 };
 
-// ─── Extrai dados de uma simulação para exibição na tabela ────────────────────
+const DIAGNOSIS_BG: Record<string, string> = {
+  EXCELENTE: "#ecfdf5", SAUDAVEL: "#f0fdf4",
+  ATENCAO: "#fefce8", RISCO: "#fff7ed", PREJUIZO: "#fef2f2",
+};
+
+const METHOD_LABEL: Record<string, string> = {
+  PIX: "PIX", BOLETO: "Boleto", DEBITO: "Débito",
+  CREDITO_A_VISTA: "Crédito à Vista", CREDITO_PARCELADO: "Crédito Parcelado",
+};
+
+// ─── Extrai dados de uma simulação ───────────────────────────────────────────
 function extractSimRow(sim: any) {
   const product = sim.productSnapshot || {};
   const result = sim.resultSnapshot || {};
   const results: any[] = result.results || [];
 
-  // Encontrar resultados por método
   const byMethod = (method: string) => results.find((r: any) => r.method === method) || null;
 
-  const pix = byMethod("PIX");
+  const pix      = byMethod("PIX");
   const boletoRes = byMethod("BOLETO");
-  // Cartão: tentar CREDITO_PARCELADO primeiro, depois CREDITO_A_VISTA
-  const cardRes = byMethod("CREDITO_PARCELADO") || byMethod("CREDITO_A_VISTA") || byMethod("DEBITO");
-
-  // Coluna "Impostos" — soma do totalTax do melhor método ou resultado do PIX
+  const cardRes  = byMethod("CREDITO_PARCELADO") || byMethod("CREDITO_A_VISTA") || byMethod("DEBITO");
   const bestResult = results.find((r: any) => r.method === sim.bestPaymentMethod) || pix || results[0];
 
   return {
     nome: sim.name,
     produto: product.productName || product.name || "—",
+    categoria: product.category || "—",
     precoCusto: product.costPrice ?? product.finalUnitCostBrl ?? 0,
     precoVenda: sim.recommendedPrice ?? 0,
-    margemLucro: (sim.desiredMarginRate ?? 0) * 100,          // armazenado 0–1 no banco
+    margemLucro: (sim.desiredMarginRate ?? 0) * 100,
     lucroLiquido: sim.netProfit ?? bestResult?.netProfit ?? 0,
     impostos: bestResult?.totalTax ?? 0,
-    // PIX
     valorAVista: pix?.suggestedPrice ?? 0,
-    // Cartão
     jurosCartao: cardRes?.totalFees ?? cardRes?.totalInterest ?? 0,
     valorParcelaCartao: cardRes?.installmentValue ?? cardRes?.suggestedPrice ?? 0,
-    // Boleto
     jurosBoleto: boletoRes?.totalFees ?? boletoRes?.totalInterest ?? 0,
     valorParcelaBoleto: boletoRes?.installmentValue ?? boletoRes?.suggestedPrice ?? 0,
-    // Extras para exibição
     diagnosis: sim.diagnosis || "—",
     bestMethod: sim.bestPaymentMethod || "—",
     createdAt: new Date(sim.createdAt).toLocaleDateString("pt-BR"),
     id: sim.id,
+    // dados extras para PDF detalhado
+    resultados: results,
+    frete: product.freight ?? 0,
+    custoOp: product.operationalCost ?? 0,
+    embalagem: product.packaging ?? 0,
+    regimeTrib: product.taxRegime ?? "",
   };
+}
+
+// ─── Gerador de PDF ───────────────────────────────────────────────────────────
+function exportToPDF(rows: ReturnType<typeof extractSimRow>[], companyName = "Shoop PermuPay") {
+  if (rows.length === 0) { toast.error("Nenhuma simulação para exportar"); return; }
+
+  const now = new Date().toLocaleDateString("pt-BR", {
+    day: "2-digit", month: "long", year: "numeric",
+  });
+  const totalLucro = rows.reduce((s, r) => s + r.lucroLiquido, 0);
+  const margemMedia = rows.reduce((s, r) => s + r.margemLucro, 0) / rows.length;
+  const precoMedio  = rows.reduce((s, r) => s + r.precoVenda, 0) / rows.length;
+
+  const diagBadge = (d: string) => {
+    const color = DIAGNOSIS_COLOR[d] ?? "#555";
+    const bg    = DIAGNOSIS_BG[d]    ?? "#f5f5f5";
+    return `<span style="display:inline-block;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:0.05em;background:${bg};color:${color};border:1px solid ${color}40">${d}</span>`;
+  };
+
+  // Linhas da tabela resumo
+  const tableRows = rows.map((r, i) => `
+    <tr style="background:${i % 2 === 0 ? "#ffffff" : "#f9f9f9"}">
+      <td style="padding:10px 12px;border-bottom:1px solid #eee">
+        <div style="font-weight:600;font-size:12px;color:#111">${r.nome}</div>
+        <div style="font-size:10px;color:#888;margin-top:2px">${r.produto}</div>
+        <div style="font-size:9px;color:#bbb;margin-top:1px">${r.createdAt}</div>
+      </td>
+      <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #eee;font-size:12px;color:#555">${fmt(r.precoCusto)}</td>
+      <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #eee;font-size:12px;font-weight:700;color:#111">${fmt(r.precoVenda)}</td>
+      <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #eee;font-size:12px;color:#555">${fmtPct(r.margemLucro)}</td>
+      <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #eee;font-size:12px;font-weight:600;color:${r.lucroLiquido >= 0 ? "#16a34a" : "#dc2626"}">${fmt(r.lucroLiquido)}</td>
+      <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #eee;font-size:12px;color:#555">${fmt(r.impostos)}</td>
+      <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #eee;font-size:12px;color:#555">${r.valorAVista > 0 ? fmt(r.valorAVista) : "—"}</td>
+      <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #eee;font-size:12px;color:#555">${r.valorParcelaCartao > 0 ? fmt(r.valorParcelaCartao) : "—"}</td>
+      <td style="padding:10px 12px;text-align:center;border-bottom:1px solid #eee">${diagBadge(r.diagnosis)}</td>
+    </tr>
+  `).join("");
+
+  // Cards detalhados por simulação
+  const detailCards = rows.map((r) => {
+    const metodosHtml = r.resultados.map((res: any) => `
+      <div style="flex:1;min-width:180px;border:1px solid #eee;border-radius:8px;padding:14px;background:#fafafa">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:11px;font-weight:700;color:#111">${METHOD_LABEL[res.method] ?? res.method}</span>
+          ${diagBadge(res.diagnostic ?? "—")}
+        </div>
+        <div style="font-size:18px;font-weight:800;color:#111;margin-bottom:8px">${fmt(res.suggestedPrice)}</div>
+        ${res.installments > 1 ? `<div style="font-size:10px;color:#888;margin-bottom:6px">${res.installments}× de ${fmt(res.installmentValue)}</div>` : ""}
+        <table style="width:100%;font-size:10px;color:#666;border-collapse:collapse">
+          <tr><td>Custo base</td><td style="text-align:right;color:#111">${fmt(res.baseCost)}</td></tr>
+          <tr><td>Margem lucro</td><td style="text-align:right;color:#16a34a">+${fmt(res.marginValue)}</td></tr>
+          <tr><td>Impostos</td><td style="text-align:right">${fmt(res.totalTax)}</td></tr>
+          <tr><td>Taxas/Juros</td><td style="text-align:right">${fmt((res.totalFees ?? 0) + (res.totalInterest ?? 0))}</td></tr>
+          <tr style="border-top:1px dashed #eee"><td style="padding-top:4px;font-weight:700;color:#111">Lucro líquido</td><td style="padding-top:4px;text-align:right;font-weight:700;color:${(res.netProfit ?? 0) >= 0 ? "#16a34a" : "#dc2626"}">${fmt(res.netProfit)}</td></tr>
+          <tr><td>Margem real</td><td style="text-align:right;color:#111">${fmtPct((res.realMarginRate ?? 0) * 100)}</td></tr>
+        </table>
+      </div>
+    `).join("");
+
+    return `
+      <div style="page-break-inside:avoid;margin-bottom:32px;border:1px solid #e5e5e5;border-radius:12px;overflow:hidden">
+        <!-- Header do card -->
+        <div style="background:#111;padding:16px 20px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:#fff">${r.nome}</div>
+            <div style="font-size:11px;color:#aaa;margin-top:2px">${r.produto} · ${r.categoria} · ${r.createdAt}</div>
+          </div>
+          ${diagBadge(r.diagnosis)}
+        </div>
+
+        <!-- Dados do produto -->
+        <div style="padding:16px 20px;background:#fafafa;border-bottom:1px solid #eee;display:flex;flex-wrap:wrap;gap:20px">
+          <div><div style="font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Preço de Custo</div><div style="font-size:14px;font-weight:700;color:#111">${fmt(r.precoCusto)}</div></div>
+          <div><div style="font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Preço Recomendado</div><div style="font-size:14px;font-weight:700;color:#111">${fmt(r.precoVenda)}</div></div>
+          <div><div style="font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Margem Desejada</div><div style="font-size:14px;font-weight:700;color:#111">${fmtPct(r.margemLucro)}</div></div>
+          <div><div style="font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Lucro Líquido</div><div style="font-size:14px;font-weight:700;color:${r.lucroLiquido >= 0 ? "#16a34a" : "#dc2626"}">${fmt(r.lucroLiquido)}</div></div>
+          ${r.frete > 0 ? `<div><div style="font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Frete</div><div style="font-size:14px;font-weight:700;color:#111">${fmt(r.frete)}</div></div>` : ""}
+          ${r.custoOp > 0 ? `<div><div style="font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Custo Operac.</div><div style="font-size:14px;font-weight:700;color:#111">${fmt(r.custoOp)}</div></div>` : ""}
+          ${r.regimeTrib ? `<div><div style="font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Regime Trib.</div><div style="font-size:14px;font-weight:700;color:#111">${r.regimeTrib}</div></div>` : ""}
+        </div>
+
+        <!-- Métodos de pagamento -->
+        <div style="padding:16px 20px">
+          <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Formas de Pagamento</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px">${metodosHtml}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Simulações e Orçamentos — ${companyName}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', Arial, sans-serif; color: #111; background: #fff; font-size: 12px; }
+  @page { size: A4; margin: 18mm 15mm 18mm 15mm; }
+  @media print {
+    .no-print { display: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+  table { border-collapse: collapse; }
+</style>
+</head>
+<body>
+
+<!-- CAPA -->
+<div style="display:flex;flex-direction:column;min-height:100vh;padding:40px 0">
+  <!-- Header da capa -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:40px;border-bottom:3px solid #111;margin-bottom:40px">
+    <div>
+      <div style="font-size:28px;font-weight:800;color:#111;letter-spacing:-0.03em">${companyName}</div>
+      <div style="font-size:12px;color:#888;margin-top:4px;letter-spacing:0.05em;text-transform:uppercase">Relatório de Precificação</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:11px;color:#888">Emitido em</div>
+      <div style="font-size:14px;font-weight:600;color:#111">${now}</div>
+    </div>
+  </div>
+
+  <!-- KPIs da capa -->
+  <div style="display:flex;gap:20px;margin-bottom:48px;flex-wrap:wrap">
+    ${[
+      { label: "Simulações", value: String(rows.length), color: "#111" },
+      { label: "Preço Médio", value: fmt(precoMedio), color: "#111" },
+      { label: "Margem Média", value: fmtPct(margemMedia), color: "#111" },
+      { label: "Lucro Total", value: fmt(totalLucro), color: totalLucro >= 0 ? "#16a34a" : "#dc2626" },
+    ].map(k => `
+      <div style="flex:1;min-width:140px;border:1px solid #e5e5e5;border-radius:10px;padding:20px 24px">
+        <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:8px">${k.label}</div>
+        <div style="font-size:22px;font-weight:800;color:${k.color};letter-spacing:-0.03em">${k.value}</div>
+      </div>
+    `).join("")}
+  </div>
+
+  <!-- Tabela resumo -->
+  <div style="margin-bottom:40px">
+    <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:12px">Resumo das Simulações</div>
+    <div style="border:1px solid #e5e5e5;border-radius:10px;overflow:hidden">
+      <table style="width:100%">
+        <thead>
+          <tr style="background:#111;color:#fff">
+            <th style="padding:10px 12px;text-align:left;font-size:10px;font-weight:600;letter-spacing:0.04em">Simulação / Produto</th>
+            <th style="padding:10px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.04em">Custo</th>
+            <th style="padding:10px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.04em">Venda</th>
+            <th style="padding:10px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.04em">Margem</th>
+            <th style="padding:10px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.04em">Lucro Líq.</th>
+            <th style="padding:10px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.04em">Impostos</th>
+            <th style="padding:10px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.04em">PIX</th>
+            <th style="padding:10px 12px;text-align:right;font-size:10px;font-weight:600;letter-spacing:0.04em">Parc. Cartão</th>
+            <th style="padding:10px 12px;text-align:center;font-size:10px;font-weight:600;letter-spacing:0.04em">Status</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+        <tfoot>
+          <tr style="background:#f5f5f5;border-top:2px solid #e5e5e5">
+            <td style="padding:10px 12px;font-weight:700;font-size:11px;color:#111">TOTAIS / MÉDIAS</td>
+            <td style="padding:10px 12px;text-align:right;font-size:11px;font-weight:600;color:#555">${fmt(rows.reduce((s, r) => s + r.precoCusto, 0) / rows.length)} (méd.)</td>
+            <td style="padding:10px 12px;text-align:right;font-size:11px;font-weight:700;color:#111">${fmt(precoMedio)} (méd.)</td>
+            <td style="padding:10px 12px;text-align:right;font-size:11px;font-weight:600;color:#555">${fmtPct(margemMedia)} (méd.)</td>
+            <td style="padding:10px 12px;text-align:right;font-size:11px;font-weight:700;color:${totalLucro >= 0 ? "#16a34a" : "#dc2626"}">${fmt(totalLucro)}</td>
+            <td colspan="4" style="padding:10px 12px;text-align:right;font-size:10px;color:#aaa">${rows.length} simulação(ões) exportadas</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- DETALHAMENTO POR SIMULAÇÃO -->
+<div style="page-break-before:always">
+  <div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:20px;padding-top:10px">Detalhamento por Simulação</div>
+  ${detailCards}
+</div>
+
+<!-- RODAPÉ -->
+<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;font-size:9px;color:#bbb">
+  <span>${companyName} · Relatório gerado em ${now}</span>
+  <span>Valores estimados — confirme com seu contador</span>
+</div>
+
+<!-- Botão de impressão (some no PDF) -->
+<div class="no-print" style="position:fixed;bottom:24px;right:24px;display:flex;gap:10px">
+  <button onclick="window.print()" style="background:#111;color:#fff;border:none;padding:12px 24px;font-size:13px;font-weight:600;cursor:pointer;border-radius:8px;letter-spacing:0.04em">
+    🖨️ Imprimir / Salvar PDF
+  </button>
+  <button onclick="window.close()" style="background:#f0f0f0;color:#555;border:none;padding:12px 20px;font-size:13px;cursor:pointer;border-radius:8px">
+    Fechar
+  </button>
+</div>
+
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=900,height=700,scrollbars=yes");
+  if (!win) { toast.error("Permita popups para gerar o PDF"); return; }
+  win.document.write(html);
+  win.document.close();
+  toast.success("PDF gerado! Clique em 'Imprimir / Salvar PDF' na nova janela.");
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -140,6 +348,15 @@ export default function SimulationsExport() {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <Button
+              onClick={() => exportToPDF(rows)}
+              disabled={rows.length === 0}
+              variant="outline"
+              className="gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              Exportar PDF
+            </Button>
             <Button
               onClick={exportToExcel}
               disabled={rows.length === 0}
