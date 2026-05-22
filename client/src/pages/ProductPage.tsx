@@ -5,7 +5,7 @@
  * - Galeria pública com imagem principal + miniaturas.
  * - Compatibilidade com produto antigo que usa apenas imageUrl.
  * - Pagamento em dinheiro exibido sem inventar taxa.
- * - Uma ação principal: Ir para pagamento.
+ * - Uma ação principal: Reservar produto.
  * - Métodos de pagamento compactos e selecionáveis.
  * - Checkout preservado via BuyModal.
  */
@@ -310,8 +310,6 @@ export default function ProductPage() {
   const effectivePaymentMethod = paymentOptions.some((opt) => opt.method === selectedPaymentMethod)
     ? selectedPaymentMethod
     : paymentOptions[0]?.method ?? "PIX";
-  const selectedMethodLabel = paymentOptions.find((opt) => opt.method === effectivePaymentMethod)?.label ?? "pagamento";
-
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: SANS }}>
       {/* Header */}
@@ -459,7 +457,7 @@ export default function ProductPage() {
 
             {inStock && hasPrice && (
               <div className="rounded-3xl border border-neutral-200 bg-white p-4 sm:p-5 shadow-sm">
-                <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-400 mb-3">Opções de pagamento</p>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-400 mb-3">Formas de pagamento disponíveis</p>
 
                 {cashPriceVal && (
                   <div className="mb-4">
@@ -494,6 +492,10 @@ export default function ProductPage() {
               </p>
             )}
 
+            <div className="rounded-2xl border border-neutral-100 bg-neutral-50 px-4 py-3 text-xs text-neutral-500 leading-relaxed">
+              Escolha a forma de pagamento preferida e reserve o produto. A confirmação do pagamento é feita depois pelo atendimento.
+            </div>
+
             <div className="h-px bg-neutral-100" />
 
             {inStock ? (
@@ -508,7 +510,7 @@ export default function ProductPage() {
                   >
                     <ShoppingBag className="w-4 h-4" />
                     <span className="text-xs font-semibold tracking-[0.2em] uppercase" style={{ fontFamily: SANS }}>
-                      Ir para pagamento com {selectedMethodLabel}
+                      Reservar produto
                     </span>
                   </button>
                 )}
