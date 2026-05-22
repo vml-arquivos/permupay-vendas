@@ -718,12 +718,60 @@ export async function duplicateSimulation(id: number, _userId?: number) {
 
 // ─── Funções de Usuários ──────────────────────────────────────────────────────
 
+export async function updateUserAdmin(
+  userId: number,
+  data: {
+    name: string;
+    email: string;
+    role: "user" | "admin";
+    active: boolean;
+    newPassword?: string;
+  }
+): Promise<SafeUser> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existingEmail = await getUserByEmail(data.email);
+  if (existingEmail && existingEmail.id !== userId) {
+    throw new Error("Email já cadastrado por outro usuário");
+  }
+
+  const patch: any = {
+    name: data.name.trim(),
+    email: data.email.toLowerCase().trim(),
+    role: data.role,
+    active: data.active,
+    updatedAt: new Date(),
+  };
+
+  if (data.newPassword && data.newPassword.trim()) {
+    patch.passwordHash = await bcrypt.hash(data.newPassword.trim(), 12);
+  }
+
+  const [updated] = await db
+    .update(users)
+    .set(patch)
+    .where(eq(users.id, userId))
+    .returning();
+
+  if (!updated) throw new Error("Usuário não encontrado");
+  return toSafeUser(updated);
+}
+
 export async function deleteUser(userId: number, currentUserId: number) {
   if (userId === currentUserId) throw new Error("Não é possível remover sua própria conta");
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
   try {
+    // Evita erro de chave estrangeira em produtos/simulações antigas.
+    await db.update(products).set({ userId: null as any, updatedAt: new Date() } as any).where(eq(products.userId, userId));
+    await db.update(pricingSimulations).set({ userId: null as any, updatedAt: new Date() } as any).where(eq(pricingSimulations.userId, userId));
+    await db.execute(sql`UPDATE permupay_stock_entries SET user_id = NULL WHERE user_id = ${userId}`);
+    await db.execute(sql`UPDATE permupay_pricing_batches SET user_id = NULL WHERE user_id = ${userId}`);
+    await db.execute(sql`UPDATE permupay_orders SET confirmed_by = NULL WHERE confirmed_by = ${userId}`);
     await db.delete(users).where(eq(users.id, userId));
+    return { success: true as const };
   } catch (error) {
     console.error("[DB] Erro ao deletar usuário:", error);
     throw error;
