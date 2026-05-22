@@ -78,6 +78,7 @@ export function BuyModal({
   const [name, setName] = useState(prefillName);
   const [contact, setContact] = useState(prefillContact);
   const [contactType, setContactType] = useState<"WHATSAPP" | "EMAIL">("WHATSAPP");
+  const [quantity, setQuantity] = useState(1);
   const [orderId, setOrderId] = useState<number | null>(null);
 
   // Produto adicional
@@ -163,7 +164,7 @@ export function BuyModal({
     createOrder.mutate(
       {
         productId: p.id,
-        quantity: 1,
+        quantity,
         buyerName: name.trim(),
         buyerContact: contact.trim(),
         buyerContactType: contactType,
@@ -206,6 +207,28 @@ export function BuyModal({
               Escolha a forma de pagamento preferida para a reserva:
             </p>
 
+            {/* Seletor de quantidade */}
+            <div className="flex items-center justify-between p-3 rounded-xl border border-neutral-100 bg-neutral-50">
+              <span className="text-sm font-medium text-neutral-700">Quantidade</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                  className="w-8 h-8 rounded-lg border border-neutral-200 flex items-center justify-center text-neutral-600 hover:border-neutral-400 hover:bg-white transition-all font-bold text-lg leading-none"
+                >
+                  −
+                </button>
+                <span className="text-base font-bold text-neutral-900 w-6 text-center">
+                  {quantity}
+                </span>
+                <button
+                  onClick={() => setQuantity((q) => q + 1)}
+                  className="w-8 h-8 rounded-lg border border-neutral-200 flex items-center justify-center text-neutral-600 hover:border-neutral-400 hover:bg-white transition-all font-bold text-lg leading-none"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
             <div className="space-y-2">
               {methodOptions
                 .filter((opt) => opt.price > 0)
@@ -228,7 +251,16 @@ export function BuyModal({
                         <p className="text-xs text-neutral-500">{opt.subtitle}</p>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-neutral-900">{fmt(opt.price)}</span>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-neutral-900">
+                        {fmt(opt.price * quantity)}
+                      </p>
+                      {quantity > 1 && (
+                        <p className="text-[10px] text-neutral-400">
+                          {quantity}× {fmt(opt.price)}
+                        </p>
+                      )}
+                    </div>
                   </button>
                 ))}
             </div>
@@ -248,8 +280,20 @@ export function BuyModal({
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-neutral-900 line-clamp-2">{p.name}</p>
                   <p className="text-xs text-neutral-500 mt-1">
-                    {methodLabel(method)} — {fmt(priceByMethod[method] ?? 0)}
+                    {methodLabel(method)} — {quantity > 1 ? `${quantity}× ${fmt(priceByMethod[method] ?? 0)} = ` : ""}<span className="font-semibold text-neutral-800">{fmt((priceByMethod[method] ?? 0) * quantity)}</span>
                   </p>
+                </div>
+                {/* Ajuste de quantidade inline no form */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                    className="w-6 h-6 rounded border border-neutral-200 flex items-center justify-center text-neutral-500 hover:bg-neutral-100 text-sm font-bold leading-none"
+                  >−</button>
+                  <span className="text-sm font-bold w-5 text-center">{quantity}</span>
+                  <button
+                    onClick={() => setQuantity((q) => q + 1)}
+                    className="w-6 h-6 rounded border border-neutral-200 flex items-center justify-center text-neutral-500 hover:bg-neutral-100 text-sm font-bold leading-none"
+                  >+</button>
                 </div>
               </div>
             </div>
@@ -346,7 +390,7 @@ export function BuyModal({
             <div>
               <h3 className="text-lg font-bold text-neutral-900">Reserva registrada</h3>
               <p className="text-sm text-neutral-500 mt-1">
-                Sua reserva #{orderId} foi registrada. Nossa equipe seguirá com a confirmação do pagamento.
+                Sua reserva #{orderId} foi registrada ({quantity} {quantity === 1 ? "unidade" : "unidades"}). Nossa equipe seguirá com a confirmação do pagamento.
               </p>
               {method === "DINHEIRO" && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
