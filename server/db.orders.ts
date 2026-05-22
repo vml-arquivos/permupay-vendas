@@ -284,6 +284,104 @@ export async function cancelOrder(orderId: number, adminNotes?: string): Promise
   return updated;
 }
 
+
+
+/**
+ * Exclusão administrativa suprema de pedido.
+ *
+ * Uso principal: limpar pedidos de teste.
+ * - Se o pedido estava PAGO, devolve a quantidade ao estoque do produto.
+ * - Registra uma entrada positiva em stock_entries para auditoria.
+ * - Tenta devolver saldo ao lote/fila ATIVO quando existir.
+ * - Apaga o pedido no final.
+ *
+ * Observação: para produção real, prefira cancelar/estornar. Esta função é
+ * intencionalmente administrativa para ambiente de manutenção/testes.
+ */
+export async function deleteOrder(
+  orderId: number,
+  adminUserId: number,
+  restoreStock = true
+): Promise<{ success: true; restoredQuantity: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db.transaction(async (tx) => {
+    const orderResult = await tx.execute(sql`
+      SELECT *
+      FROM permupay_orders
+      WHERE id = ${orderId}
+      FOR UPDATE
+    `) as any;
+    const existing = orderResult?.rows?.[0];
+
+    if (!existing) throw new Error("Pedido não encontrado");
+
+    const productId = Number(existing.product_id ?? 0);
+    const qty = Number(existing.quantity ?? 0);
+    const wasPaid = String(existing.status) === "PAGO";
+    let restoredQuantity = 0;
+
+    if (restoreStock && wasPaid && productId > 0 && qty > 0) {
+      const productResult = await tx.execute(sql`
+        SELECT id, stock_quantity, final_unit_cost_brl, average_cost_brl
+        FROM permupay_products
+        WHERE id = ${productId}
+        FOR UPDATE
+      `) as any;
+      const product = productResult?.rows?.[0];
+
+      if (product) {
+        const currentStock = Number(product.stock_quantity ?? 0);
+        const newStock = currentStock + qty;
+
+        await tx.execute(sql`
+          UPDATE permupay_products
+          SET stock_quantity = ${newStock},
+              active = true,
+              updated_at = NOW()
+          WHERE id = ${productId}
+        `);
+
+        const activeQueueResult = await tx.execute(sql`
+          SELECT id, quantity_remaining
+          FROM permupay_stock_queue
+          WHERE product_id = ${productId}
+            AND status = 'ATIVO'
+          ORDER BY activated_at ASC NULLS LAST, created_at ASC
+          LIMIT 1
+          FOR UPDATE
+        `) as any;
+        const activeQueue = activeQueueResult?.rows?.[0];
+
+        if (activeQueue) {
+          const queueRemaining = Number(activeQueue.quantity_remaining ?? 0) + qty;
+          await tx.execute(sql`
+            UPDATE permupay_stock_queue
+            SET quantity_remaining = ${queueRemaining},
+                updated_at = NOW()
+            WHERE id = ${activeQueue.id}
+          `);
+        }
+
+        await tx.insert(stockEntries).values({
+          productId,
+          userId: adminUserId,
+          quantity: qty,
+          unitCost: Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0),
+          notes: `[ADMIN] Pedido #${orderId} apagado; estoque devolvido por limpeza/teste`,
+        });
+
+        restoredQuantity = qty;
+      }
+    }
+
+    await tx.delete(orders).where(eq(orders.id, orderId));
+
+    return { success: true as const, restoredQuantity };
+  });
+}
+
 export async function expireStaleReservations(): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
