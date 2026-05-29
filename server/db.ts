@@ -617,6 +617,14 @@ export async function deleteProduct(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   try {
+    // pricingSimulations.productId não tem onDelete rule no schema,
+    // então precisamos nullificá-lo manualmente antes de deletar o produto
+    // para evitar violação de FK no PostgreSQL.
+    await db
+      .update(pricingSimulations)
+      .set({ productId: null })
+      .where(eq(pricingSimulations.productId, id));
+
     await db.delete(products).where(eq(products.id, id));
   } catch (error) {
     console.error("[DB] Erro ao deletar produto:", error);
