@@ -134,6 +134,13 @@
       "when": 1779800000000,
       "tag": "0018_stock_queue_fifo",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1748476800000,
+      "tag": "0022_fix_orders_product_fk",
+      "breakpoints": true
     }
   ]
 }
