@@ -10,6 +10,7 @@ import {
   products,
   users,
 } from "../drizzle/schema";
+import { orders, orderStatusEnum } from "../drizzle/schema.orders";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: Pool | null = null;
@@ -617,14 +618,27 @@ export async function deleteProduct(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   try {
-    // pricingSimulations.productId não tem onDelete rule no schema,
-    // então precisamos nullificá-lo manualmente antes de deletar o produto
-    // para evitar violação de FK no PostgreSQL.
+    // 1. Desvincula simulações de precificação (productId sem onDelete no schema)
     await db
       .update(pricingSimulations)
       .set({ productId: null })
       .where(eq(pricingSimulations.productId, id));
 
+    // 2. Cancela pedidos ativos vinculados ao produto.
+    //    A migration 0022 remove a FK RESTRICT de permupay_orders.product_id,
+    //    mas cancelamos pedidos pendentes por integridade de negócio.
+    //    Pedidos já finalizados (PAGO/CANCELADO/EXPIRADO) são preservados.
+    await db
+      .update(orders)
+      .set({ status: "CANCELADO" as const, cancelledAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(orders.productId, id),
+          sql`${orders.status} IN ('AGUARDANDO_PAGAMENTO', 'RESERVADO')`
+        )
+      );
+
+    // 3. Deleta o produto
     await db.delete(products).where(eq(products.id, id));
   } catch (error) {
     console.error("[DB] Erro ao deletar produto:", error);
