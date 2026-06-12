@@ -12,7 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  ArrowLeft, Plus, Pencil, Trash2, MapPin, Navigation, Store, X, Check, Camera,
+  ArrowLeft, Plus, Pencil, Trash2, MapPin, Navigation, Store, X, Check, Camera, Eye, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCameraUpload } from "@/hooks/useCameraUpload";
@@ -68,12 +68,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+
+function Info({ label, value, large }: { label: string; value?: string; large?: boolean }) {
+  return (
+    <div className={`rounded-2xl bg-gray-50 border border-gray-100 px-3 py-2 ${large ? "col-span-2" : ""}`}>
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</p>
+      <p className="text-sm font-medium text-gray-800 break-words mt-0.5">{value || "—"}</p>
+    </div>
+  );
+}
+
 export default function CotacaoLocais() {
   const [, nav] = useLocation();
   const utils = trpc.useUtils();
   const { capture, uploading: uploadingFoto } = useCameraUpload();
 
   const [sheet, setSheet] = useState(false);
+  const [sheetMode, setSheetMode] = useState<"form" | "details">("form");
   const [form, setForm]   = useState<Form>(EMPTY);
   const [gps, setGps]     = useState(false);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
@@ -97,12 +108,8 @@ export default function CotacaoLocais() {
 
   const reverseGeocode = trpc.cotacao.locais.reverseGeocode.useMutation();
 
-  function close() { setSheet(false); setForm(EMPTY); setFotoPreview(""); setGpsAccuracy(null); }
-
-  function openNew() { setForm(EMPTY); setFotoPreview(""); setGpsAccuracy(null); setSheet(true); }
-
-  function openEdit(l: any) {
-    setForm({
+  function localToForm(l: any): Form {
+    return {
       id: l.id,
       nome: l.nome,
       endereco: l.endereco ?? "",
@@ -123,9 +130,28 @@ export default function CotacaoLocais() {
       estado: l.estado ?? "",
       referencia: l.referencia ?? "",
       logoUrl: l.logoUrl ?? "",
-    });
-    setFotoPreview(l.fotoFachada ?? "");
+    };
+  }
+
+  function close() { setSheet(false); setForm(EMPTY); setFotoPreview(""); setGpsAccuracy(null); setSheetMode("form"); }
+
+  function openNew() { setForm(EMPTY); setFotoPreview(""); setGpsAccuracy(null); setSheetMode("form"); setSheet(true); }
+
+  function openEdit(l: any) {
+    const next = localToForm(l);
+    setForm(next);
+    setFotoPreview(next.fotoFachada);
     setGpsAccuracy(null);
+    setSheetMode("form");
+    setSheet(true);
+  }
+
+  function openDetails(l: any) {
+    const next = localToForm(l);
+    setForm(next);
+    setFotoPreview(next.fotoFachada);
+    setGpsAccuracy(null);
+    setSheetMode("details");
     setSheet(true);
   }
 
@@ -305,7 +331,7 @@ export default function CotacaoLocais() {
                     <Store className="h-5 w-5 text-primary" />
                   </div>
                 )}
-                <div className="flex-1 min-w-0">
+                <button onClick={() => openDetails(l)} className="flex-1 min-w-0 text-left">
                   <p className="font-semibold text-sm truncate">{l.nome}</p>
                   {l.tipoComercio && <p className="text-xs text-muted-foreground">{l.tipoComercio}</p>}
                   {l.endereco && <p className="text-xs text-muted-foreground truncate mt-0.5">{l.endereco}</p>}
@@ -315,8 +341,11 @@ export default function CotacaoLocais() {
                     </span>
                     {l.lat && <span className="text-xs text-emerald-600 font-medium flex items-center gap-0.5"><Navigation className="h-3 w-3" />GPS</span>}
                   </div>
-                </div>
+                </button>
                 <div className="flex gap-1 shrink-0">
+                  <button onClick={() => openDetails(l)} className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-gray-100">
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  </button>
                   <button onClick={() => openEdit(l)} className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-gray-100">
                     <Pencil className="h-4 w-4 text-muted-foreground" />
                   </button>
@@ -359,11 +388,42 @@ export default function CotacaoLocais() {
               <div className="h-1 w-10 bg-gray-200 rounded-full" />
             </div>
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
-              <h2 className="font-bold text-base">{form.id ? "Editar local" : "Novo local"}</h2>
+              <h2 className="font-bold text-base">{sheetMode === "details" ? "Dados do comércio" : form.id ? "Editar local" : "Novo local"}</h2>
               <button onClick={close} className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-gray-100"><X className="h-4 w-4" /></button>
             </div>
 
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              {sheetMode === "details" ? (
+                <div className="space-y-4">
+                  {fotoPreview ? (
+                    <img src={fotoPreview} alt={form.nome} className="w-full h-44 object-cover rounded-2xl border border-gray-100" />
+                  ) : (
+                    <div className="h-32 rounded-2xl bg-primary/10 flex items-center justify-center"><Store className="h-10 w-10 text-primary" /></div>
+                  )}
+                  <div>
+                    <p className="text-lg font-bold leading-tight">{form.nome}</p>
+                    <p className="text-sm text-muted-foreground">{form.tipoComercio || "Tipo não informado"}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Info label="CNPJ" value={form.cnpj} />
+                    <Info label="Telefone" value={form.telefone} />
+                    <Info label="WhatsApp" value={form.whatsapp} />
+                    <Info label="CEP" value={form.cep} />
+                  </div>
+                  <Info label="Endereço" value={form.endereco || [form.logradouro, form.numero, form.bairro, form.cidade, form.estado].filter(Boolean).join(", ")} large />
+                  <Info label="Referência" value={form.referencia} large />
+                  <Info label="Custo de deslocamento" value={parseFloat(form.custo || "0").toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} />
+                  {form.lat && form.lng && (
+                    <a href={`https://www.google.com/maps?q=${form.lat},${form.lng}`} target="_blank" rel="noreferrer" className="w-full rounded-2xl bg-emerald-50 text-emerald-700 px-4 py-3 text-sm font-semibold flex items-center justify-center gap-2 border border-emerald-100">
+                      <Navigation className="h-4 w-4" /> Abrir no Google Maps <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                  <button onClick={() => setSheetMode("form")} className="w-full rounded-2xl bg-[oklch(0.30_0.13_240)] text-white px-4 py-3.5 text-sm font-semibold flex items-center justify-center gap-2">
+                    <Pencil className="h-4 w-4" /> Editar dados do comércio
+                  </button>
+                </div>
+              ) : (
+              <>
               {/* Foto de fachada */}
               <Field label="Foto da fachada">
                 <button
@@ -565,13 +625,17 @@ export default function CotacaoLocais() {
                   </p>
                 </div>
               </Field>
+              </>
+              )}
             </div>
 
+            {sheetMode === "form" && (
             <div className="px-5 pb-8 pt-3 border-t border-gray-100 shrink-0">
               <button onClick={save} disabled={saving || uploadingFoto} className="w-full py-3.5 rounded-2xl bg-[oklch(0.30_0.13_240)] text-white font-semibold text-base flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-50">
                 {saving ? "Salvando..." : <><Check className="h-5 w-5" />{form.id ? "Salvar" : "Cadastrar"}</>}
               </button>
             </div>
+            )}
           </div>
         </div>
       )}

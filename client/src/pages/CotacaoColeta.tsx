@@ -8,7 +8,7 @@ import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MapPin, CheckCircle2, Circle, Plus, WifiOff, RefreshCw, BarChart3, ChevronDown, Camera, X } from "lucide-react";
+import { ArrowLeft, MapPin, CheckCircle2, Circle, Plus, WifiOff, RefreshCw, BarChart3, ChevronDown, Camera, X, Package, Search, ExternalLink, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useCotacaoOffline } from "@/hooks/useCotacaoOffline";
 import { useCameraUpload } from "@/hooks/useCameraUpload";
@@ -27,11 +27,14 @@ export default function CotacaoColeta() {
   const [precos, setPrecos]           = useState<PMap>({});
   const [naoAchados, setNaoAchados]   = useState<NSet>(new Set());
   const [fotosPreview, setFotosPreview] = useState<FotoMap>({});
+  const [produtoSheet, setProdutoSheet] = useState(false);
+  const [buscaProduto, setBuscaProduto] = useState("");
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const { data: sessao, isLoading } = trpc.cotacao.sessoes.obter.useQuery({ id: sessaoId });
   const { data: locais } = trpc.cotacao.locais.listar.useQuery();
+  const { data: todosProdutos } = trpc.products.list.useQuery();
   trpc.cotacao.precos.listarSessao.useQuery(
     { sessaoId },
     {
@@ -62,6 +65,33 @@ export default function CotacaoColeta() {
   const registrar = trpc.cotacao.precos.registrar.useMutation({
     onSuccess: () => utils.cotacao.precos.listarSessao.invalidate({ sessaoId }),
   });
+
+  const adicionarProdutoSessao = trpc.cotacao.sessoes.adicionarProduto.useMutation({
+    onSuccess: () => {
+      utils.cotacao.sessoes.obter.invalidate({ id: sessaoId });
+      setProdutoSheet(false);
+      setBuscaProduto("");
+      toast.success("Produto incluído na cotação");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const criarProdutoRapido = trpc.products.quickCreate.useMutation({
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  async function criarEAdicionarProduto() {
+    const nome = buscaProduto.trim();
+    if (!nome) { toast.error("Digite o nome do produto"); return; }
+    const produto: any = await criarProdutoRapido.mutateAsync({ name: nome, category: "OUTRO", notes: "Criado rapidamente durante coleta de cotação" });
+    await utils.products.list.invalidate();
+    adicionarProdutoSessao.mutate({ sessaoId, produtoId: produto.id, quantidade: 1, unidade: "un", obrigatorio: false });
+  }
+
+  const produtosDisponiveis = (todosProdutos ?? []).filter((p: any) =>
+    !(sessao?.produtos ?? []).some((sp: any) => sp.produtoId === p.id) &&
+    (!buscaProduto.trim() || p.name.toLowerCase().includes(buscaProduto.trim().toLowerCase()))
+  );
 
   const autoSave = useCallback((spId: number, lId: number, val: string, encontrado: boolean, fotoUrl?: string) => {
     const k = `${spId}-${lId}`;
@@ -330,16 +360,86 @@ export default function CotacaoColeta() {
       {/* Bottom bar */}
       {localId && !concluido && (
         <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-4 pb-6 pt-2 bg-gradient-to-t from-gray-50 to-transparent">
-          <div className="flex gap-2">
-            <button onClick={() => nav("/cotacoes/locais")} className="h-12 px-4 rounded-2xl border border-gray-200 bg-white text-sm font-medium text-muted-foreground flex items-center gap-2 active:bg-gray-50 shrink-0">
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={() => nav("/cotacoes/locais")} className="h-12 rounded-2xl border border-gray-200 bg-white text-xs font-medium text-muted-foreground flex items-center justify-center gap-1 active:bg-gray-50">
               <Plus className="h-4 w-4" /> Local
             </button>
-            <button onClick={() => nav(`/cotacoes/${sessaoId}/comparativo`)} className="flex-1 h-12 rounded-2xl bg-[oklch(0.30_0.13_240)] text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.97] transition-transform shadow-lg">
-              <BarChart3 className="h-4 w-4" /> Ver comparativo
+            <button onClick={() => setProdutoSheet(true)} className="h-12 rounded-2xl border border-gray-200 bg-white text-xs font-medium text-muted-foreground flex items-center justify-center gap-1 active:bg-gray-50">
+              <Package className="h-4 w-4" /> Produto
+            </button>
+            <button onClick={() => nav(`/cotacoes/${sessaoId}/comparativo`)} className="h-12 rounded-2xl bg-[oklch(0.30_0.13_240)] text-white font-semibold text-xs flex items-center justify-center gap-1 active:scale-[0.97] transition-transform shadow-lg">
+              <BarChart3 className="h-4 w-4" /> Comparar
             </button>
           </div>
         </div>
       )}
+
+      {produtoSheet && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setProdutoSheet(false)} />
+          <div className="relative bg-white rounded-t-3xl max-w-md mx-auto w-full max-h-[82svh] flex flex-col shadow-2xl">
+            <div className="flex justify-center pt-3 pb-1 shrink-0"><div className="h-1 w-10 bg-gray-200 rounded-full" /></div>
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div>
+                <p className="font-bold text-base">Adicionar produto agora</p>
+                <p className="text-xs text-muted-foreground">Inclua na cotação sem sair da coleta</p>
+              </div>
+              <button onClick={() => setProdutoSheet(false)} className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-gray-100"><X className="h-4 w-4" /></button>
+            </div>
+
+            <div className="p-4 space-y-3 overflow-y-auto">
+              <div className="flex items-center gap-2 bg-gray-50 rounded-2xl px-3 py-3 border border-gray-100">
+                <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                <input
+                  autoFocus
+                  className="flex-1 bg-transparent outline-none text-sm"
+                  placeholder="Buscar ou criar produto..."
+                  value={buscaProduto}
+                  onChange={e => setBuscaProduto(e.target.value)}
+                />
+                {buscaProduto && <button onClick={() => setBuscaProduto("")} className="text-muted-foreground"><X className="h-4 w-4" /></button>}
+              </div>
+
+              {buscaProduto.trim() && (
+                <button
+                  onClick={criarEAdicionarProduto}
+                  disabled={criarProdutoRapido.isPending || adicionarProdutoSessao.isPending}
+                  className="w-full rounded-2xl bg-primary text-white px-4 py-3 text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  {criarProdutoRapido.isPending || adicionarProdutoSessao.isPending ? "Adicionando..." : `Criar “${buscaProduto.trim()}” e incluir`}
+                </button>
+              )}
+
+              <button onClick={() => nav("/produtos")} className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-muted-foreground flex items-center justify-center gap-2">
+                Abrir lista de produtos do site <ExternalLink className="h-4 w-4" />
+              </button>
+
+              <div className="space-y-2">
+                {produtosDisponiveis.slice(0, 30).map((p: any) => (
+                  <button
+                    key={p.id}
+                    onClick={() => adicionarProdutoSessao.mutate({ sessaoId, produtoId: p.id, quantidade: 1, unidade: "un", obrigatorio: false })}
+                    disabled={adicionarProdutoSessao.isPending}
+                    className="w-full rounded-2xl border border-gray-100 bg-white px-4 py-3 text-left flex items-center gap-3 active:bg-gray-50 disabled:opacity-50"
+                  >
+                    <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><Package className="h-4 w-4 text-primary" /></div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{p.name}</p>
+                      <p className="text-xs text-muted-foreground">{p.category}</p>
+                    </div>
+                    <Check className="h-4 w-4 text-emerald-600" />
+                  </button>
+                ))}
+                {produtosDisponiveis.length === 0 && !buscaProduto.trim() && (
+                  <p className="text-sm text-muted-foreground text-center py-6">Todos os produtos do site já estão nesta cotação.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
