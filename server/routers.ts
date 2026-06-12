@@ -970,6 +970,122 @@ export const appRouter = router({
           return dbCotacao.atualizarLocal(id, ctx.user.id, data);
         }),
 
+
+      reverseGeocode: protectedProcedure
+        .input(
+          z.object({
+            latitude: z.number().min(-90).max(90),
+            longitude: z.number().min(-180).max(180),
+          })
+        )
+        .mutation(async ({ input }) => {
+          const ufByState: Record<string, string> = {
+            "acre": "AC",
+            "alagoas": "AL",
+            "amapá": "AP",
+            "amazonas": "AM",
+            "bahia": "BA",
+            "ceará": "CE",
+            "distrito federal": "DF",
+            "espírito santo": "ES",
+            "goiás": "GO",
+            "maranhão": "MA",
+            "mato grosso": "MT",
+            "mato grosso do sul": "MS",
+            "minas gerais": "MG",
+            "pará": "PA",
+            "paraíba": "PB",
+            "paraná": "PR",
+            "pernambuco": "PE",
+            "piauí": "PI",
+            "rio de janeiro": "RJ",
+            "rio grande do norte": "RN",
+            "rio grande do sul": "RS",
+            "rondônia": "RO",
+            "roraima": "RR",
+            "santa catarina": "SC",
+            "são paulo": "SP",
+            "sergipe": "SE",
+            "tocantins": "TO",
+          };
+
+          const clean = (value: unknown) =>
+            typeof value === "string" && value.trim().length > 0
+              ? value.trim()
+              : undefined;
+
+          const url = new URL("https://nominatim.openstreetmap.org/reverse");
+          url.searchParams.set("format", "jsonv2");
+          url.searchParams.set("lat", String(input.latitude));
+          url.searchParams.set("lon", String(input.longitude));
+          url.searchParams.set("zoom", "18");
+          url.searchParams.set("addressdetails", "1");
+          url.searchParams.set("accept-language", "pt-BR,pt;q=0.9,en;q=0.5");
+
+          const response = await fetch(url, {
+            headers: {
+              "User-Agent": "PermuPayVendas/1.0 (reverse-geocoding)",
+              "Accept": "application/json",
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`Falha ao localizar endereço pelo GPS (${response.status})`);
+          }
+
+          const payload = await response.json() as {
+            name?: string;
+            display_name?: string;
+            address?: Record<string, string>;
+          };
+
+          const address = payload.address ?? {};
+          const logradouro = clean(address.road)
+            ?? clean(address.pedestrian)
+            ?? clean(address.footway)
+            ?? clean(address.path);
+          const numero = clean(address.house_number);
+          const bairro = clean(address.suburb)
+            ?? clean(address.neighbourhood)
+            ?? clean(address.quarter)
+            ?? clean(address.city_district)
+            ?? clean(address.residential);
+          const cidade = clean(address.city)
+            ?? clean(address.town)
+            ?? clean(address.village)
+            ?? clean(address.municipality)
+            ?? clean(address.county);
+          const estadoNome = clean(address.state);
+          const estado = clean(address.state_code)?.toUpperCase()
+            ?? (estadoNome ? ufByState[estadoNome.toLowerCase()] : undefined);
+          const cep = clean(address.postcode);
+
+          const endereco = [
+            [logradouro, numero].filter(Boolean).join(", "),
+            bairro,
+            cidade && estado ? `${cidade} - ${estado}` : cidade ?? estado,
+            cep ? `CEP ${cep}` : undefined,
+          ].filter(Boolean).join(" · ");
+
+          const nomeSugerido = clean(payload.name)
+            ?? clean(address.shop)
+            ?? clean(address.amenity)
+            ?? clean(address.building)
+            ?? (clean(payload.display_name)?.split(",")[0]);
+
+          return {
+            nomeSugerido,
+            endereco,
+            cep,
+            logradouro,
+            numero,
+            bairro,
+            cidade,
+            estado,
+            referencia: clean(payload.display_name),
+          };
+        }),
+
       remover: protectedProcedure
         .input(z.object({ id: z.number() }))
         .mutation(({ input, ctx }) =>

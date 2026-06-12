@@ -76,6 +76,7 @@ export default function CotacaoLocais() {
   const [sheet, setSheet] = useState(false);
   const [form, setForm]   = useState<Form>(EMPTY);
   const [gps, setGps]     = useState(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [filtro, setFiltro] = useState("");
   const [fotoPreview, setFotoPreview] = useState("");
 
@@ -94,9 +95,11 @@ export default function CotacaoLocais() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  function close() { setSheet(false); setForm(EMPTY); setFotoPreview(""); }
+  const reverseGeocode = trpc.cotacao.locais.reverseGeocode.useMutation();
 
-  function openNew() { setForm(EMPTY); setFotoPreview(""); setSheet(true); }
+  function close() { setSheet(false); setForm(EMPTY); setFotoPreview(""); setGpsAccuracy(null); }
+
+  function openNew() { setForm(EMPTY); setFotoPreview(""); setGpsAccuracy(null); setSheet(true); }
 
   function openEdit(l: any) {
     setForm({
@@ -122,21 +125,117 @@ export default function CotacaoLocais() {
       logoUrl: l.logoUrl ?? "",
     });
     setFotoPreview(l.fotoFachada ?? "");
+    setGpsAccuracy(null);
     setSheet(true);
   }
 
-  function captureGPS() {
-    if (!navigator.geolocation) { toast.error("GPS não disponível"); return; }
+  function buildPayload(draft: Form) {
+    return {
+      nome: draft.nome.trim(),
+      endereco: draft.endereco || undefined,
+      tipoComercio: draft.tipoComercio || undefined,
+      custoOperacionalPadrao: draft.custo || "0",
+      lat: draft.lat || undefined,
+      lng: draft.lng || undefined,
+      fotoFachada: draft.fotoFachada || undefined,
+      cnpj: draft.cnpj || undefined,
+      telefone: draft.telefone || undefined,
+      whatsapp: draft.whatsapp || undefined,
+      cep: draft.cep || undefined,
+      logradouro: draft.logradouro || undefined,
+      numero: draft.numero || undefined,
+      complemento: draft.complemento || undefined,
+      bairro: draft.bairro || undefined,
+      cidade: draft.cidade || undefined,
+      estado: draft.estado || undefined,
+      referencia: draft.referencia || undefined,
+      logoUrl: draft.logoUrl || undefined,
+    };
+  }
+
+  function persistForm(draft: Form) {
+    if (!draft.nome.trim()) { toast.error("Informe o nome"); return; }
+    const payload = buildPayload(draft);
+    if (draft.id) atualizar.mutate({ id: draft.id, ...payload });
+    else criar.mutate(payload);
+  }
+
+  async function carregarLocalizacaoAtual({ salvar }: { salvar: boolean }) {
+    if (!navigator.geolocation) { toast.error("GPS não disponível neste navegador"); return; }
+
     setGps(true);
     navigator.geolocation.getCurrentPosition(
-      p => {
-        setForm(f => ({ ...f, lat: p.coords.latitude.toFixed(7), lng: p.coords.longitude.toFixed(7) }));
+      async p => {
+        const lat = p.coords.latitude.toFixed(7);
+        const lng = p.coords.longitude.toFixed(7);
+        setGpsAccuracy(p.coords.accuracy ?? null);
+
+        let geo: {
+          nomeSugerido?: string;
+          endereco?: string;
+          cep?: string;
+          logradouro?: string;
+          numero?: string;
+          bairro?: string;
+          cidade?: string;
+          estado?: string;
+          referencia?: string;
+        } | null = null;
+
+        try {
+          geo = await reverseGeocode.mutateAsync({
+            latitude: p.coords.latitude,
+            longitude: p.coords.longitude,
+          });
+        } catch (error: any) {
+          toast.warning(error?.message ?? "GPS capturado, mas não foi possível preencher o endereço automaticamente.");
+        }
+
+        const fallbackNome = `Comércio capturado ${new Date().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`;
+        const draft: Form = {
+          ...form,
+          nome: form.nome.trim() || geo?.nomeSugerido || fallbackNome,
+          endereco: geo?.endereco || form.endereco,
+          cep: geo?.cep || form.cep,
+          logradouro: geo?.logradouro || form.logradouro,
+          numero: geo?.numero || form.numero,
+          bairro: geo?.bairro || form.bairro,
+          cidade: geo?.cidade || form.cidade,
+          estado: geo?.estado || form.estado,
+          referencia: geo?.referencia || form.referencia,
+          lat,
+          lng,
+        };
+
+        setForm(draft);
         setGps(false);
-        toast.success("Localização capturada!");
+
+        if (salvar) {
+          persistForm(draft);
+          toast.success("Comércio salvo com localização e endereço aproximado do mapa.");
+        } else {
+          toast.success("Localização do comércio carregada e endereço preenchido.");
+        }
       },
-      e => { setGps(false); toast.error("GPS: " + e.message); },
-      { enableHighAccuracy: true, timeout: 10000 }
+      e => {
+        setGps(false);
+        const msg =
+          e.code === e.PERMISSION_DENIED ? "Permissão de localização negada. Ative o GPS/permissão do navegador." :
+          e.code === e.POSITION_UNAVAILABLE ? "GPS indisponível no momento. Tente novamente em área aberta." :
+          e.code === e.TIMEOUT ? "Tempo esgotado ao buscar localização. Tente novamente." :
+          e.message;
+        toast.error(msg);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
+  }
+
+  function captureGPS() {
+    carregarLocalizacaoAtual({ salvar: false });
+  }
+
+  function salvarLocalizacaoAtual() {
+    carregarLocalizacaoAtual({ salvar: true });
   }
 
   function tirarFotoFachada() {
@@ -147,30 +246,7 @@ export default function CotacaoLocais() {
   }
 
   function save() {
-    if (!form.nome.trim()) { toast.error("Informe o nome"); return; }
-    const payload = {
-      nome: form.nome.trim(),
-      endereco: form.endereco || undefined,
-      tipoComercio: form.tipoComercio || undefined,
-      custoOperacionalPadrao: form.custo || "0",
-      lat: form.lat || undefined,
-      lng: form.lng || undefined,
-      fotoFachada: form.fotoFachada || undefined,
-      cnpj: form.cnpj || undefined,
-      telefone: form.telefone || undefined,
-      whatsapp: form.whatsapp || undefined,
-      cep: form.cep || undefined,
-      logradouro: form.logradouro || undefined,
-      numero: form.numero || undefined,
-      complemento: form.complemento || undefined,
-      bairro: form.bairro || undefined,
-      cidade: form.cidade || undefined,
-      estado: form.estado || undefined,
-      referencia: form.referencia || undefined,
-      logoUrl: form.logoUrl || undefined,
-    };
-    if (form.id) atualizar.mutate({ id: form.id, ...payload });
-    else criar.mutate(payload);
+    persistForm(form);
   }
 
   const saving = criar.isPending || atualizar.isPending;
@@ -444,15 +520,50 @@ export default function CotacaoLocais() {
                 </div>
               </Field>
 
-              <Field label="Localização GPS">
-                <div className="flex gap-2">
-                  <input className="flex-1 text-xs bg-gray-50 rounded-xl px-3 py-2.5 outline-none" placeholder="Latitude" value={form.lat} onChange={e => setForm(f => ({ ...f, lat: e.target.value }))} />
-                  <input className="flex-1 text-xs bg-gray-50 rounded-xl px-3 py-2.5 outline-none" placeholder="Longitude" value={form.lng} onChange={e => setForm(f => ({ ...f, lng: e.target.value }))} />
-                  <button onClick={captureGPS} disabled={gps} className="h-10 w-10 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center active:bg-primary/20 disabled:opacity-50" title="Capturar posição atual">
+              <Field label="Localização do comércio">
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={salvarLocalizacaoAtual}
+                    disabled={gps || saving || uploadingFoto}
+                    className="w-full rounded-2xl bg-primary text-white px-4 py-3.5 text-sm font-semibold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
+                  >
                     <Navigation className={`h-4 w-4 ${gps ? "animate-pulse" : ""}`} />
+                    {uploadingFoto ? "Aguarde o envio da foto..." : gps ? "Buscando localização do comércio..." : "Salvar este comércio pela localização atual"}
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={captureGPS}
+                    disabled={gps}
+                    className="w-full rounded-xl bg-primary/10 text-primary px-4 py-2.5 text-xs font-semibold flex items-center justify-center gap-2 active:bg-primary/20 disabled:opacity-50"
+                  >
+                    <MapPin className="h-3.5 w-3.5" />
+                    Só preencher endereço pelo GPS
+                  </button>
+
+                  {form.lat && form.lng && (
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-700 space-y-1">
+                      <p className="flex items-center gap-1 font-medium">
+                        <Check className="h-3 w-3" />
+                        Localização deste comércio carregada
+                        {gpsAccuracy !== null ? ` · precisão aprox. ${Math.round(gpsAccuracy)}m` : ""}
+                      </p>
+                      <a
+                        href={`https://www.google.com/maps?q=${form.lat},${form.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 underline underline-offset-2"
+                      >
+                        Abrir ponto no Google Maps
+                      </a>
+                    </div>
+                  )}
+
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Use este botão quando estiver dentro ou na frente da loja/comércio. O sistema salva este comércio da cotação com a foto e os dados já preenchidos, captura o GPS com alta precisão e tenta preencher automaticamente endereço, bairro, cidade, UF e CEP pelo mapa. Você só ajusta manualmente se algo vier incompleto.
+                  </p>
                 </div>
-                {form.lat && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><Check className="h-3 w-3" />{form.lat}, {form.lng}</p>}
               </Field>
             </div>
 
