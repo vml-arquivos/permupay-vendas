@@ -33,6 +33,7 @@ import CategoriasAdmin from "./pages/CategoriasAdmin";
 
 // Cotação de preços
 import Cotacoes from "./pages/Cotacoes";
+import CotacoesGestao from "./pages/CotacoesGestao";
 import CotacaoSessaoForm from "./pages/CotacaoSessaoForm";
 import CotacaoColeta from "./pages/CotacaoColeta";
 import CotacaoComparativo from "./pages/CotacaoComparativo";
@@ -105,6 +106,7 @@ function Router() {
 
       {/* ── COTAÇÃO DE PREÇOS (layout próprio mobile-first) ─────────── */}
       <Route path="/cotacoes">{() => <ProtectedRoute><Cotacoes /></ProtectedRoute>}</Route>
+      <Route path="/cotacoes-gestao">{() => <P><CotacoesGestao /></P>}</Route>
       <Route path="/cotacoes/nova">{() => <ProtectedRoute><CotacaoSessaoForm /></ProtectedRoute>}</Route>
       <Route path="/cotacoes/locais">{() => <ProtectedRoute><CotacaoLocais /></ProtectedRoute>}</Route>
       <Route path="/cotacoes/:id/editar">{() => <ProtectedRoute><CotacaoSessaoForm /></ProtectedRoute>}</Route>

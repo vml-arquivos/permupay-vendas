@@ -55,7 +55,8 @@ const menuItems = [
   { icon: Calculator, label: "Simulações", path: "/simulacoes" },
   { icon: Layers, label: "Entrada de Produtos", path: "/lotes" },
   { icon: ClipboardList, label: "Pedidos", path: "/pedidos" },
-  { icon: ShoppingCart, label: "Cotações", path: "/cotacoes" },
+  { icon: ShoppingCart, label: "Cotações (Mobile)", path: "/cotacoes" },
+  { icon: BarChart3,    label: "Gestão Cotações",   path: "/cotacoes-gestao" },
   { icon: Heart, label: "Lista de Desejos", path: "/desejos-admin" },
   { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
 ];
