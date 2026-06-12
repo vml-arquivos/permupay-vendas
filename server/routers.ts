@@ -21,6 +21,7 @@ import * as dbImages from "./db.images";
 import * as dbOrders from "./db.orders";
 import * as dbSettings from "./db.settings";
 import * as dbPayment from "./db.payment-settings";
+import * as dbCotacao from "./db.cotacao";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
 
@@ -902,6 +903,178 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         return db.deleteUser(input.userId, ctx.user.id);
       }),
+  }),
+
+  // ── Cotação de Preços ──────────────────────────────────────────────────────
+  cotacao: router({
+    // ── Locais ────────────────────────────────────────────────────────────
+    locais: router({
+      listar: protectedProcedure.query(({ ctx }) =>
+        dbCotacao.listarLocais(ctx.user.id)
+      ),
+
+      criar: protectedProcedure
+        .input(
+          z.object({
+            nome: z.string().min(1).max(200),
+            endereco: z.string().optional(),
+            lat: z.string().optional(),
+            lng: z.string().optional(),
+            tipoComercio: z.string().max(100).optional(),
+            custoOperacionalPadrao: z.string().optional(),
+          })
+        )
+        .mutation(({ input, ctx }) => dbCotacao.criarLocal(ctx.user.id, input)),
+
+      atualizar: protectedProcedure
+        .input(
+          z.object({
+            id: z.number(),
+            nome: z.string().min(1).max(200).optional(),
+            endereco: z.string().optional(),
+            lat: z.string().optional(),
+            lng: z.string().optional(),
+            tipoComercio: z.string().max(100).optional(),
+            custoOperacionalPadrao: z.string().optional(),
+            fotoFachada: z.string().optional(),
+          })
+        )
+        .mutation(({ input, ctx }) => {
+          const { id, ...data } = input;
+          return dbCotacao.atualizarLocal(id, ctx.user.id, data);
+        }),
+
+      remover: protectedProcedure
+        .input(z.object({ id: z.number() }))
+        .mutation(({ input, ctx }) =>
+          dbCotacao.removerLocal(input.id, ctx.user.id)
+        ),
+    }),
+
+    // ── Sessões ───────────────────────────────────────────────────────────
+    sessoes: router({
+      listar: protectedProcedure.query(({ ctx }) =>
+        dbCotacao.listarSessoes(ctx.user.id)
+      ),
+
+      obter: protectedProcedure
+        .input(z.object({ id: z.number() }))
+        .query(({ input, ctx }) => dbCotacao.obterSessao(input.id, ctx.user.id)),
+
+      criar: protectedProcedure
+        .input(
+          z.object({
+            titulo: z.string().min(1).max(200),
+            observacao: z.string().optional(),
+            produtos: z
+              .array(
+                z.object({
+                  produtoId: z.number(),
+                  quantidade: z.number().min(0.001).default(1),
+                  unidade: z.string().max(20).default("un"),
+                  obrigatorio: z.boolean().default(false),
+                  ordem: z.number().int().optional(),
+                })
+              )
+              .min(1),
+          })
+        )
+        .mutation(({ input, ctx }) => dbCotacao.criarSessao(ctx.user.id, input)),
+
+      atualizar: protectedProcedure
+        .input(
+          z.object({
+            id: z.number(),
+            titulo: z.string().min(1).max(200).optional(),
+            status: z
+              .enum(["em_andamento", "concluida", "cancelada"])
+              .optional(),
+            observacao: z.string().optional(),
+          })
+        )
+        .mutation(({ input, ctx }) => {
+          const { id, ...data } = input;
+          return dbCotacao.atualizarSessao(id, ctx.user.id, data);
+        }),
+
+      remover: protectedProcedure
+        .input(z.object({ id: z.number() }))
+        .mutation(({ input, ctx }) =>
+          dbCotacao.removerSessao(input.id, ctx.user.id)
+        ),
+    }),
+
+    // ── Preços ────────────────────────────────────────────────────────────
+    precos: router({
+      registrar: protectedProcedure
+        .input(
+          z.object({
+            sessaoId: z.number(),
+            sessaoProdutoId: z.number(),
+            localId: z.number(),
+            precoUnitario: z.number().min(0).nullable().optional(),
+            encontrado: z.boolean().default(true),
+            observacao: z.string().optional(),
+            uuidLocal: z.string().optional(),
+            fotoPreco: z.string().optional(),
+          })
+        )
+        .mutation(({ input }) => dbCotacao.registrarPreco(input)),
+
+      lote: protectedProcedure
+        .input(
+          z.object({
+            itens: z.array(
+              z.object({
+                sessaoId: z.number(),
+                sessaoProdutoId: z.number(),
+                localId: z.number(),
+                precoUnitario: z.number().min(0).nullable().optional(),
+                encontrado: z.boolean().default(true),
+                observacao: z.string().optional(),
+                uuidLocal: z.string().optional(),
+              })
+            ),
+          })
+        )
+        .mutation(({ input }) => dbCotacao.registrarPrecoLote(input.itens)),
+
+      listarSessao: protectedProcedure
+        .input(z.object({ sessaoId: z.number() }))
+        .query(({ input }) => dbCotacao.listarPrecosSessao(input.sessaoId)),
+    }),
+
+    // ── Comparativo ───────────────────────────────────────────────────────
+    comparativo: protectedProcedure
+      .input(z.object({ sessaoId: z.number() }))
+      .query(({ input, ctx }) =>
+        dbCotacao.gerarComparativo(input.sessaoId, ctx.user.id)
+      ),
+
+    // ── Sync offline ──────────────────────────────────────────────────────
+    syncUpload: protectedProcedure
+      .input(
+        z.object({
+          precos: z.array(
+            z.object({
+              sessaoId: z.number(),
+              sessaoProdutoId: z.number(),
+              localId: z.number(),
+              precoUnitario: z.number().min(0).nullable().optional(),
+              encontrado: z.boolean().default(true),
+              observacao: z.string().optional(),
+              uuidLocal: z.string().optional(),
+            })
+          ),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbCotacao.syncUpload(ctx.user.id, input)
+      ),
+
+    syncDownload: protectedProcedure.query(({ ctx }) =>
+      dbCotacao.syncDownload(ctx.user.id)
+    ),
   }),
 });
 

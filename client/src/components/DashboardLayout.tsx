@@ -39,6 +39,7 @@ import {
   ClipboardList,
   CreditCard,
   Tag,
+  ShoppingCart,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -54,6 +55,7 @@ const menuItems = [
   { icon: Calculator, label: "Simulações", path: "/simulacoes" },
   { icon: Layers, label: "Entrada de Produtos", path: "/lotes" },
   { icon: ClipboardList, label: "Pedidos", path: "/pedidos" },
+  { icon: ShoppingCart, label: "Cotações", path: "/cotacoes" },
   { icon: Heart, label: "Lista de Desejos", path: "/desejos-admin" },
   { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
 ];

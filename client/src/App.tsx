@@ -31,6 +31,13 @@ import Relatorios from "./pages/Relatorios";
 import Pedidos from "./pages/Pedidos";
 import CategoriasAdmin from "./pages/CategoriasAdmin";
 
+// Cotação de preços
+import Cotacoes from "./pages/Cotacoes";
+import CotacaoSessaoForm from "./pages/CotacaoSessaoForm";
+import CotacaoColeta from "./pages/CotacaoColeta";
+import CotacaoComparativo from "./pages/CotacaoComparativo";
+import CotacaoLocais from "./pages/CotacaoLocais";
+
 // PL = Protected + Layout (para páginas sem DashboardLayout interno)
 const PL = ({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) => (
   <ProtectedRoute adminOnly={adminOnly}>
@@ -95,6 +102,20 @@ function Router() {
       <Route path="/categorias">{() => <P adminOnly><CategoriasAdmin /></P>}</Route>
       <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
       <Route path="/configuracoes-pagamento">{() => <P><ConfiguracoesPagamento /></P>}</Route>
+
+      {/* ── COTAÇÃO DE PREÇOS ──────────────────────────────────────── */}
+      <Route path="/cotacoes">{() => <P><Cotacoes /></P>}</Route>
+      <Route path="/cotacoes/nova">{() => <P><CotacaoSessaoForm /></P>}</Route>
+      <Route path="/cotacoes/locais">{() => <P><CotacaoLocais /></P>}</Route>
+      <Route path="/cotacoes/:id/editar">
+        {() => <P><CotacaoSessaoForm /></P>}
+      </Route>
+      <Route path="/cotacoes/:id/coletar">
+        {() => <P><CotacaoColeta /></P>}
+      </Route>
+      <Route path="/cotacoes/:id/comparativo">
+        {() => <P><CotacaoComparativo /></P>}
+      </Route>
 
       <Route component={NotFound} />
     </Switch>
