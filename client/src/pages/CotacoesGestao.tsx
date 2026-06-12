@@ -20,9 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
+// Dialog components removidos — detalhes são exibidos inline agora.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -388,6 +386,12 @@ export default function CotacoesGestao() {
 
   return (
     <DashboardLayout>
+      {/*
+        Layout master-detail: exibimos a lista de sessões e, quando uma sessão é
+        selecionada, renderizamos os detalhes logo abaixo (ou ao lado em
+        telas largas). O modal anterior foi removido para melhorar
+        usabilidade em desktop.
+      */}
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -447,7 +451,7 @@ export default function CotacoesGestao() {
         </div>
 
         {/* Tabela de sessões */}
-        <Card>
+        <Card className="md:overflow-y-auto">
           <CardHeader>
             <CardTitle className="text-base">Sessões de Cotação</CardTitle>
           </CardHeader>
@@ -600,22 +604,13 @@ export default function CotacoesGestao() {
             </CardContent>
           </Card>
         )}
-      </div>
-
-      {/* Dialog de detalhes */}
-      <Dialog open={detalheSessaoId !== null} onOpenChange={open => { if (!open) setDetalheSessaoId(null); }}>
-        <DialogContent className="max-w-5xl w-full max-h-[90vh] overflow-y-auto p-0">
-          <DialogHeader className="px-6 pt-6 pb-0">
-            <DialogTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              Detalhes da Cotação
-            </DialogTitle>
-          </DialogHeader>
-          {detalheSessaoId && (
+        {/* Detalhes da sessão selecionada */}
+        {detalheSessaoId !== null && (
+          <div className="mt-6">
             <DetalhesSessao sessaoId={detalheSessaoId} onClose={() => setDetalheSessaoId(null)} />
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        )}
+      </div>
     </DashboardLayout>
   );
 }

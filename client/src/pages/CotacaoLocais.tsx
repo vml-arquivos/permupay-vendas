@@ -23,8 +23,41 @@ interface Form {
   id?: number; nome: string; endereco: string;
   tipoComercio: string; custo: string; lat: string; lng: string;
   fotoFachada: string; // URL ou dataUrl de preview
+  // Campos adicionais para cadastro detalhado do local
+  cnpj: string;
+  telefone: string;
+  whatsapp: string;
+  cep: string;
+  logradouro: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  referencia: string;
+  logoUrl: string;
 }
-const EMPTY: Form = { nome: "", endereco: "", tipoComercio: "", custo: "0", lat: "", lng: "", fotoFachada: "" };
+const EMPTY: Form = {
+  nome: "",
+  endereco: "",
+  tipoComercio: "",
+  custo: "0",
+  lat: "",
+  lng: "",
+  fotoFachada: "",
+  cnpj: "",
+  telefone: "",
+  whatsapp: "",
+  cep: "",
+  logradouro: "",
+  numero: "",
+  complemento: "",
+  bairro: "",
+  cidade: "",
+  estado: "",
+  referencia: "",
+  logoUrl: "",
+};
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -67,9 +100,26 @@ export default function CotacaoLocais() {
 
   function openEdit(l: any) {
     setForm({
-      id: l.id, nome: l.nome, endereco: l.endereco ?? "",
-      tipoComercio: l.tipoComercio ?? "", custo: String(l.custoOperacionalPadrao ?? "0"),
-      lat: String(l.lat ?? ""), lng: String(l.lng ?? ""), fotoFachada: l.fotoFachada ?? "",
+      id: l.id,
+      nome: l.nome,
+      endereco: l.endereco ?? "",
+      tipoComercio: l.tipoComercio ?? "",
+      custo: String(l.custoOperacionalPadrao ?? "0"),
+      lat: String(l.lat ?? ""),
+      lng: String(l.lng ?? ""),
+      fotoFachada: l.fotoFachada ?? "",
+      cnpj: l.cnpj ?? "",
+      telefone: l.telefone ?? "",
+      whatsapp: l.whatsapp ?? "",
+      cep: l.cep ?? "",
+      logradouro: l.logradouro ?? "",
+      numero: l.numero ?? "",
+      complemento: l.complemento ?? "",
+      bairro: l.bairro ?? "",
+      cidade: l.cidade ?? "",
+      estado: l.estado ?? "",
+      referencia: l.referencia ?? "",
+      logoUrl: l.logoUrl ?? "",
     });
     setFotoPreview(l.fotoFachada ?? "");
     setSheet(true);
@@ -106,6 +156,18 @@ export default function CotacaoLocais() {
       lat: form.lat || undefined,
       lng: form.lng || undefined,
       fotoFachada: form.fotoFachada || undefined,
+      cnpj: form.cnpj || undefined,
+      telefone: form.telefone || undefined,
+      whatsapp: form.whatsapp || undefined,
+      cep: form.cep || undefined,
+      logradouro: form.logradouro || undefined,
+      numero: form.numero || undefined,
+      complemento: form.complemento || undefined,
+      bairro: form.bairro || undefined,
+      cidade: form.cidade || undefined,
+      estado: form.estado || undefined,
+      referencia: form.referencia || undefined,
+      logoUrl: form.logoUrl || undefined,
     };
     if (form.id) atualizar.mutate({ id: form.id, ...payload });
     else criar.mutate(payload);
@@ -271,6 +333,109 @@ export default function CotacaoLocais() {
               <Field label="Endereço">
                 <input className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30" placeholder="Rua, número, bairro" value={form.endereco} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} />
               </Field>
+
+              {/* Campos adicionais para informações detalhadas do local */}
+              <Field label="CNPJ">
+                <input
+                  className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="Somente números"
+                  value={form.cnpj}
+                  onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))}
+                />
+              </Field>
+
+              <Field label="Telefone">
+                <input
+                  className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="DDD e número"
+                  value={form.telefone}
+                  onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))}
+                />
+              </Field>
+
+              <Field label="WhatsApp">
+                <input
+                  className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="DDD e número"
+                  value={form.whatsapp}
+                  onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))}
+                />
+              </Field>
+
+              <Field label="CEP">
+                <input
+                  className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="Somente números"
+                  value={form.cep}
+                  onChange={e => setForm(f => ({ ...f, cep: e.target.value }))}
+                />
+              </Field>
+
+              <Field label="Logradouro">
+                <input
+                  className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="Rua ou avenida"
+                  value={form.logradouro}
+                  onChange={e => setForm(f => ({ ...f, logradouro: e.target.value }))}
+                />
+              </Field>
+
+              <div className="flex gap-2">
+                <Field label="Número">
+                  <input
+                    className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="Nº"
+                    value={form.numero}
+                    onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
+                  />
+                </Field>
+                <Field label="Complemento">
+                  <input
+                    className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="Apto, sala, etc."
+                    value={form.complemento}
+                    onChange={e => setForm(f => ({ ...f, complemento: e.target.value }))}
+                  />
+                </Field>
+              </div>
+
+              <div className="flex gap-2">
+                <Field label="Bairro">
+                  <input
+                    className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="Bairro"
+                    value={form.bairro}
+                    onChange={e => setForm(f => ({ ...f, bairro: e.target.value }))}
+                  />
+                </Field>
+                <Field label="Cidade">
+                  <input
+                    className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="Cidade"
+                    value={form.cidade}
+                    onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))}
+                  />
+                </Field>
+              </div>
+
+              <div className="flex gap-2">
+                <Field label="Estado">
+                  <input
+                    className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="UF"
+                    value={form.estado}
+                    onChange={e => setForm(f => ({ ...f, estado: e.target.value.toUpperCase().slice(0,2) }))}
+                  />
+                </Field>
+                <Field label="Referência">
+                  <input
+                    className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="Ponto de referência"
+                    value={form.referencia}
+                    onChange={e => setForm(f => ({ ...f, referencia: e.target.value }))}
+                  />
+                </Field>
+              </div>
 
               <Field label="Custo de deslocamento (R$)">
                 <div className="relative">

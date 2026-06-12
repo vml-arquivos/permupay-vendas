@@ -47,6 +47,55 @@ export const cotacaoLocais = pgTable("permupay_cotacao_locais", {
   lat: decimal("lat", { precision: 10, scale: 8 }),
   lng: decimal("lng", { precision: 11, scale: 8 }),
   fotoFachada: varchar("foto_fachada", { length: 500 }),
+  /**
+   * Documento do comércio (CNPJ). Armazena apenas números sem máscara
+   * para facilitar futuras integrações. Opcional.
+   */
+  cnpj: varchar("cnpj", { length: 20 }),
+  /**
+   * Telefone fixo do comércio. Aceita apenas números, opcional.
+   */
+  telefone: varchar("telefone", { length: 20 }),
+  /**
+   * Número de WhatsApp do contato. Aceita apenas números, opcional.
+   */
+  whatsapp: varchar("whatsapp", { length: 20 }),
+  /**
+   * CEP do endereço. Armazena somente números, opcional.
+   */
+  cep: varchar("cep", { length: 20 }),
+  /**
+   * Logradouro do endereço (rua, avenida, etc.). Opcional.
+   */
+  logradouro: text("logradouro"),
+  /**
+   * Número do endereço. Opcional.
+   */
+  numero: varchar("numero", { length: 20 }),
+  /**
+   * Complemento do endereço. Opcional.
+   */
+  complemento: varchar("complemento", { length: 50 }),
+  /**
+   * Bairro do endereço. Opcional.
+   */
+  bairro: varchar("bairro", { length: 100 }),
+  /**
+   * Cidade do endereço. Opcional.
+   */
+  cidade: varchar("cidade", { length: 100 }),
+  /**
+   * UF do endereço em duas letras (p.ex. "DF"). Opcional.
+   */
+  estado: varchar("estado", { length: 2 }),
+  /**
+   * Ponto de referência adicional para o endereço. Opcional.
+   */
+  referencia: text("referencia"),
+  /**
+   * Logotipo do comércio. URL de um arquivo no storage. Opcional.
+   */
+  logoUrl: varchar("logo_url", { length: 500 }),
   tipoComercio: varchar("tipo_comercio", { length: 100 }),
   custoOperacionalPadrao: decimal("custo_operacional_padrao", {
     precision: 10,

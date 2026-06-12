@@ -79,6 +79,19 @@ export async function criarLocal(
     lng?: string;
     tipoComercio?: string;
     custoOperacionalPadrao?: string;
+    // Novos campos adicionais
+    cnpj?: string;
+    telefone?: string;
+    whatsapp?: string;
+    cep?: string;
+    logradouro?: string;
+    numero?: string;
+    complemento?: string;
+    bairro?: string;
+    cidade?: string;
+    estado?: string;
+    referencia?: string;
+    logoUrl?: string;
   }
 ) {
   const db = await getDb();
@@ -93,6 +106,18 @@ export async function criarLocal(
       lng: data.lng,
       tipoComercio: data.tipoComercio,
       custoOperacionalPadrao: data.custoOperacionalPadrao ?? "0",
+      cnpj: data.cnpj,
+      telefone: data.telefone,
+      whatsapp: data.whatsapp,
+      cep: data.cep,
+      logradouro: data.logradouro,
+      numero: data.numero,
+      complemento: data.complemento,
+      bairro: data.bairro,
+      cidade: data.cidade,
+      estado: data.estado,
+      referencia: data.referencia,
+      logoUrl: data.logoUrl,
     })
     .returning();
   return local;
@@ -109,6 +134,19 @@ export async function atualizarLocal(
     tipoComercio: string;
     custoOperacionalPadrao: string;
     fotoFachada: string;
+    // Novos campos adicionais
+    cnpj: string;
+    telefone: string;
+    whatsapp: string;
+    cep: string;
+    logradouro: string;
+    numero: string;
+    complemento: string;
+    bairro: string;
+    cidade: string;
+    estado: string;
+    referencia: string;
+    logoUrl: string;
   }>
 ) {
   const db = await getDb();

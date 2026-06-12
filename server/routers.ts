@@ -922,6 +922,19 @@ export const appRouter = router({
             lng: z.string().optional(),
             tipoComercio: z.string().max(100).optional(),
             custoOperacionalPadrao: z.string().optional(),
+            // Novos campos opcionais para detalhes do local
+            cnpj: z.string().optional(),
+            telefone: z.string().optional(),
+            whatsapp: z.string().optional(),
+            cep: z.string().optional(),
+            logradouro: z.string().optional(),
+            numero: z.string().optional(),
+            complemento: z.string().optional(),
+            bairro: z.string().optional(),
+            cidade: z.string().optional(),
+            estado: z.string().optional(),
+            referencia: z.string().optional(),
+            logoUrl: z.string().optional(),
           })
         )
         .mutation(({ input, ctx }) => dbCotacao.criarLocal(ctx.user.id, input)),
@@ -937,6 +950,19 @@ export const appRouter = router({
             tipoComercio: z.string().max(100).optional(),
             custoOperacionalPadrao: z.string().optional(),
             fotoFachada: z.string().optional(),
+            // Campos opcionais adicionais
+            cnpj: z.string().optional(),
+            telefone: z.string().optional(),
+            whatsapp: z.string().optional(),
+            cep: z.string().optional(),
+            logradouro: z.string().optional(),
+            numero: z.string().optional(),
+            complemento: z.string().optional(),
+            bairro: z.string().optional(),
+            cidade: z.string().optional(),
+            estado: z.string().optional(),
+            referencia: z.string().optional(),
+            logoUrl: z.string().optional(),
           })
         )
         .mutation(({ input, ctx }) => {
