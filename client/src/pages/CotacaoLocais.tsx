@@ -1,437 +1,264 @@
 /**
- * client/src/pages/CotacaoLocais.tsx
- *
- * CRUD de locais/comércios onde os preços são pesquisados.
+ * CotacaoLocais.tsx — Gerenciamento de locais de pesquisa
+ * PWA mobile-first com sheet de criação/edição inline
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  ArrowLeft,
-  MapPin,
-  Plus,
-  Pencil,
-  Trash2,
-  Store,
-  Navigation,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  ArrowLeft, Plus, Pencil, Trash2, MapPin, Navigation, Store, X, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 
-interface LocalForm {
-  id?: number;
-  nome: string;
-  endereco: string;
-  tipoComercio: string;
-  custoOperacionalPadrao: string;
-  lat: string;
-  lng: string;
+const TIPOS = ["Supermercado","Atacado","Feira","Hortifrúti","Açougue","Padaria","Farmácia","Outro"];
+
+interface Form {
+  id?: number; nome: string; endereco: string;
+  tipoComercio: string; custo: string; lat: string; lng: string;
 }
-
-const DEFAULT_FORM: LocalForm = {
-  nome: "",
-  endereco: "",
-  tipoComercio: "",
-  custoOperacionalPadrao: "0",
-  lat: "",
-  lng: "",
-};
-
-const TIPOS = [
-  "Supermercado",
-  "Atacado",
-  "Feira",
-  "Hortifrúti",
-  "Açougue",
-  "Padaria",
-  "Farmácia",
-  "Mercearia",
-  "Outro",
-];
+const EMPTY: Form = { nome: "", endereco: "", tipoComercio: "", custo: "0", lat: "", lng: "" };
 
 export default function CotacaoLocais() {
-  const [, navigate] = useLocation();
+  const [, nav] = useLocation();
   const utils = trpc.useUtils();
 
-  const [dialogAberto, setDialogAberto] = useState(false);
-  const [form, setForm] = useState<LocalForm>(DEFAULT_FORM);
-  const [capturandoGPS, setCapturandoGPS] = useState(false);
+  const [sheet, setSheet] = useState(false);
+  const [form, setForm]   = useState<Form>(EMPTY);
+  const [gps, setGps]     = useState(false);
+  const [filtro, setFiltro] = useState("");
 
   const { data: locais, isLoading } = trpc.cotacao.locais.listar.useQuery();
-
-  const criar = trpc.cotacao.locais.criar.useMutation({
-    onSuccess: () => {
-      utils.cotacao.locais.listar.invalidate();
-      setDialogAberto(false);
-      setForm(DEFAULT_FORM);
-      toast.success("Local cadastrado");
-    },
-    onError: (err) => toast.error(err.message),
+  const criar    = trpc.cotacao.locais.criar.useMutation({
+    onSuccess: () => { utils.cotacao.locais.listar.invalidate(); close(); toast.success("Local cadastrado"); },
+    onError: (e: any) => toast.error(e.message),
   });
-
   const atualizar = trpc.cotacao.locais.atualizar.useMutation({
-    onSuccess: () => {
-      utils.cotacao.locais.listar.invalidate();
-      setDialogAberto(false);
-      setForm(DEFAULT_FORM);
-      toast.success("Local atualizado");
-    },
-    onError: (err) => toast.error(err.message),
+    onSuccess: () => { utils.cotacao.locais.listar.invalidate(); close(); toast.success("Local atualizado"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const remover  = trpc.cotacao.locais.remover.useMutation({
+    onSuccess: () => { utils.cotacao.locais.listar.invalidate(); toast.success("Local removido"); },
+    onError: (e: any) => toast.error(e.message),
   });
 
-  const remover = trpc.cotacao.locais.remover.useMutation({
-    onSuccess: () => {
-      utils.cotacao.locais.listar.invalidate();
-      toast.success("Local removido");
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  function abrirCriar() {
-    setForm(DEFAULT_FORM);
-    setDialogAberto(true);
+  function close() { setSheet(false); setForm(EMPTY); }
+  function openNew() { setForm(EMPTY); setSheet(true); }
+  function openEdit(l: any) {
+    setForm({ id: l.id, nome: l.nome, endereco: l.endereco ?? "", tipoComercio: l.tipoComercio ?? "", custo: String(l.custoOperacionalPadrao ?? "0"), lat: String(l.lat ?? ""), lng: String(l.lng ?? "") });
+    setSheet(true);
   }
 
-  function abrirEditar(local: any) {
-    setForm({
-      id: local.id,
-      nome: local.nome,
-      endereco: local.endereco ?? "",
-      tipoComercio: local.tipoComercio ?? "",
-      custoOperacionalPadrao: local.custoOperacionalPadrao ?? "0",
-      lat: local.lat ?? "",
-      lng: local.lng ?? "",
-    });
-    setDialogAberto(true);
-  }
-
-  function capturarGPS() {
-    if (!navigator.geolocation) {
-      toast.error("GPS não disponível neste dispositivo");
-      return;
-    }
-    setCapturandoGPS(true);
+  function captureGPS() {
+    if (!navigator.geolocation) { toast.error("GPS não disponível"); return; }
+    setGps(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setForm((prev) => ({
-          ...prev,
-          lat: String(pos.coords.latitude.toFixed(8)),
-          lng: String(pos.coords.longitude.toFixed(8)),
-        }));
-        setCapturandoGPS(false);
-        toast.success("Coordenadas capturadas!");
-      },
-      (err) => {
-        setCapturandoGPS(false);
-        toast.error("Não foi possível obter a localização: " + err.message);
-      }
+      p => { setForm(f => ({ ...f, lat: p.coords.latitude.toFixed(7), lng: p.coords.longitude.toFixed(7) })); setGps(false); toast.success("Localização capturada!"); },
+      e => { setGps(false); toast.error("GPS: " + e.message); }
     );
   }
 
-  function handleSalvar() {
-    if (!form.nome.trim()) {
-      toast.error("Informe o nome do local");
-      return;
-    }
+  function save() {
+    if (!form.nome.trim()) { toast.error("Informe o nome"); return; }
     const payload = {
       nome: form.nome.trim(),
       endereco: form.endereco || undefined,
       tipoComercio: form.tipoComercio || undefined,
-      custoOperacionalPadrao: form.custoOperacionalPadrao || "0",
+      custoOperacionalPadrao: form.custo || "0",
       lat: form.lat || undefined,
       lng: form.lng || undefined,
     };
-
-    if (form.id) {
-      atualizar.mutate({ id: form.id, ...payload });
-    } else {
-      criar.mutate(payload);
-    }
+    if (form.id) atualizar.mutate({ id: form.id, ...payload });
+    else criar.mutate(payload);
   }
 
-  const isSaving = criar.isPending || atualizar.isPending;
+  const saving = criar.isPending || atualizar.isPending;
+  const lista = (locais ?? []).filter(l => !filtro || l.nome.toLowerCase().includes(filtro.toLowerCase()));
 
   return (
-    <DashboardLayout>
-      <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <>
+      <div className="min-h-svh bg-gray-50 flex flex-col max-w-md mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate("/cotacoes")}
-            >
+        <div className="bg-[oklch(0.30_0.13_240)] text-white px-4 pt-10 pb-5">
+          <div className="flex items-center gap-3 mb-4">
+            <button onClick={() => nav("/cotacoes")} className="h-9 w-9 rounded-full flex items-center justify-center hover:bg-white/10">
               <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-xl font-bold flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-primary" />
-                Locais de Pesquisa
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Comércios onde você pesquisa preços
-              </p>
+            </button>
+            <div className="flex-1">
+              <h1 className="text-base font-bold">Locais de Pesquisa</h1>
+              <p className="text-xs opacity-60">Onde você vai coletar preços</p>
             </div>
+            <button onClick={openNew} className="h-9 w-9 rounded-full flex items-center justify-center bg-white/15 hover:bg-white/25">
+              <Plus className="h-5 w-5" />
+            </button>
           </div>
-          <Button onClick={abrirCriar}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo local
-          </Button>
+          {/* Busca */}
+          <div className="bg-white/10 rounded-xl flex items-center gap-2 px-3 py-2">
+            <MapPin className="h-4 w-4 opacity-50 shrink-0" />
+            <input
+              className="flex-1 bg-transparent text-white text-sm placeholder:text-white/40 outline-none"
+              placeholder="Buscar local..."
+              value={filtro}
+              onChange={e => setFiltro(e.target.value)}
+            />
+            {filtro && <button onClick={() => setFiltro("")} className="text-white/50 hover:text-white"><X className="h-4 w-4" /></button>}
+          </div>
         </div>
 
-        {/* Lista */}
-        {isLoading ? (
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <Skeleton key={i} className="h-20 w-full" />
-            ))}
-          </div>
-        ) : !locais || locais.length === 0 ? (
-          <div className="text-center py-14 text-muted-foreground border-2 border-dashed rounded-xl">
-            <Store className="h-12 w-12 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Nenhum local ainda</p>
-            <p className="text-sm mt-1 mb-4">
-              Cadastre os locais onde você pesquisa preços
-            </p>
-            <Button variant="outline" onClick={abrirCriar}>
-              <Plus className="h-4 w-4 mr-2" />
-              Cadastrar primeiro local
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {locais.map((local) => (
-              <Card key={local.id} className="group">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <Store className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold">{local.nome}</div>
-                      {local.tipoComercio && (
-                        <div className="text-xs text-muted-foreground">
-                          {local.tipoComercio}
-                        </div>
-                      )}
-                      {local.endereco && (
-                        <div className="text-sm text-muted-foreground mt-0.5 truncate">
-                          {local.endereco}
-                        </div>
-                      )}
-                      <div className="text-xs text-muted-foreground mt-1">
-                        Custo deslocamento:{" "}
-                        <span className="font-medium">
-                          {parseFloat(
-                            String(local.custoOperacionalPadrao ?? "0")
-                          ).toLocaleString("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                          })}
+        <div className="flex-1 overflow-y-auto pb-28">
+          <div className="px-4 py-4 space-y-2">
+            {isLoading && [0,1,2].map(i => <Skeleton key={i} className="h-20 rounded-2xl" />)}
+
+            {!isLoading && lista.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
+                <div className="h-20 w-20 rounded-3xl bg-primary/10 flex items-center justify-center">
+                  <Store className="h-10 w-10 text-primary" />
+                </div>
+                <div>
+                  <p className="font-semibold">{filtro ? "Nenhum resultado" : "Nenhum local ainda"}</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {filtro ? "Tente outro nome" : "Cadastre onde você pesquisa preços"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {lista.map(l => (
+              <div key={l.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <Store className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{l.nome}</p>
+                    {l.tipoComercio && <p className="text-xs text-muted-foreground">{l.tipoComercio}</p>}
+                    {l.endereco && <p className="text-xs text-muted-foreground truncate mt-0.5">{l.endereco}</p>}
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                        Desl. {parseFloat(String(l.custoOperacionalPadrao ?? "0")).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </span>
+                      {l.lat && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                          <Navigation className="h-3 w-3" /> GPS
                         </span>
-                        {local.lat && (
-                          <span className="ml-2">
-                            · GPS: {local.lat}, {local.lng}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8"
-                        onClick={() => abrirEditar(local)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Remover local?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              O local será desativado. Os dados de cotação já
-                              coletados serão mantidos.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-destructive hover:bg-destructive/90"
-                              onClick={() => remover.mutate({ id: local.id })}
-                            >
-                              Remover
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      )}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => openEdit(l)} className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-gray-100 active:bg-gray-200">
+                      <Pencil className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-red-50 active:bg-red-100">
+                          <Trash2 className="h-4 w-4 text-red-400" />
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Remover "{l.nome}"?</AlertDialogTitle>
+                          <AlertDialogDescription>O local será desativado. Histórico de preços mantido.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={() => remover.mutate({ id: l.id })}>
+                            Remover
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
-        )}
+        </div>
+
+        {/* FAB */}
+        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-4 pb-6 pt-3 bg-gradient-to-t from-gray-50 to-transparent">
+          <button onClick={openNew} className="w-full h-14 rounded-2xl bg-[oklch(0.30_0.13_240)] text-white font-semibold shadow-lg flex items-center justify-center gap-2 active:scale-[0.97] transition-transform text-base">
+            <Plus className="h-5 w-5" /> Novo Local
+          </button>
+        </div>
       </div>
 
-      {/* Dialog criar/editar */}
-      <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {form.id ? "Editar local" : "Novo local"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <Label htmlFor="nome">Nome *</Label>
-              <Input
-                id="nome"
-                placeholder="Ex: Atacadão do Plano Piloto"
-                value={form.nome}
-                onChange={(e) => setForm((p) => ({ ...p, nome: e.target.value }))}
-                className="mt-1"
-              />
+      {/* Bottom Sheet criar/editar */}
+      {sheet && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={close} />
+          <div className="relative bg-white rounded-t-3xl max-w-md mx-auto w-full max-h-[85svh] flex flex-col shadow-2xl">
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="h-1 w-10 bg-gray-200 rounded-full" />
             </div>
-            <div>
-              <Label htmlFor="tipo">Tipo de comércio</Label>
-              <div className="flex gap-2 mt-1">
-                <Input
-                  id="tipo"
-                  placeholder="Ex: Supermercado"
-                  value={form.tipoComercio}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, tipoComercio: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                {TIPOS.map((t) => (
-                  <button
-                    key={t}
-                    className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                      form.tipoComercio === t
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border hover:bg-accent"
-                    }`}
-                    onClick={() =>
-                      setForm((p) => ({ ...p, tipoComercio: t }))
-                    }
-                  >
-                    {t}
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+              <h2 className="font-bold text-base">{form.id ? "Editar local" : "Novo local"}</h2>
+              <button onClick={close} className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-gray-100">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {/* Formulário */}
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              <Field label="Nome *">
+                <input autoFocus className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30" placeholder="Ex: Atacadão Asa Norte" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+              </Field>
+
+              <Field label="Tipo de comércio">
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {TIPOS.map(t => (
+                    <button key={t} onClick={() => setForm(f => ({ ...f, tipoComercio: f.tipoComercio === t ? "" : t }))}
+                      className={`text-xs px-3 py-1 rounded-full border transition-colors ${form.tipoComercio === t ? "bg-primary text-white border-primary" : "border-gray-200 text-muted-foreground hover:border-primary/50"}`}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              <Field label="Endereço">
+                <input className="w-full text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30" placeholder="Rua, número, bairro" value={form.endereco} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} />
+              </Field>
+
+              <Field label="Custo de deslocamento (R$)">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">R$</span>
+                  <input type="number" min="0" step="0.5" className="w-full text-sm bg-gray-50 rounded-xl pl-9 pr-3 py-2.5 outline-none focus:ring-2 focus:ring-primary/30" placeholder="0,00" value={form.custo} onChange={e => setForm(f => ({ ...f, custo: e.target.value }))} />
+                </div>
+              </Field>
+
+              <Field label="Coordenadas GPS">
+                <div className="flex gap-2">
+                  <input className="flex-1 text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none" placeholder="Latitude" value={form.lat} onChange={e => setForm(f => ({ ...f, lat: e.target.value }))} />
+                  <input className="flex-1 text-sm bg-gray-50 rounded-xl px-3 py-2.5 outline-none" placeholder="Longitude" value={form.lng} onChange={e => setForm(f => ({ ...f, lng: e.target.value }))} />
+                  <button onClick={captureGPS} disabled={gps} className="h-10 w-10 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center active:bg-primary/20 disabled:opacity-50">
+                    <Navigation className={`h-4 w-4 ${gps ? "animate-pulse" : ""}`} />
                   </button>
-                ))}
-              </div>
+                </div>
+              </Field>
             </div>
-            <div>
-              <Label htmlFor="endereco">Endereço</Label>
-              <Input
-                id="endereco"
-                placeholder="Rua, número, bairro"
-                value={form.endereco}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, endereco: e.target.value }))
-                }
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="custo">Custo de deslocamento (R$)</Label>
-              <Input
-                id="custo"
-                type="number"
-                min="0"
-                step="0.50"
-                placeholder="0,00"
-                value={form.custoOperacionalPadrao}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    custoOperacionalPadrao: e.target.value,
-                  }))
-                }
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <div className="flex items-center justify-between">
-                <Label>Coordenadas GPS</Label>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={capturarGPS}
-                  disabled={capturandoGPS}
-                  className="h-7 text-xs"
-                >
-                  <Navigation className="h-3 w-3 mr-1" />
-                  {capturandoGPS ? "Capturando..." : "Capturar atual"}
-                </Button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mt-1">
-                <Input
-                  placeholder="Latitude"
-                  value={form.lat}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, lat: e.target.value }))
-                  }
-                />
-                <Input
-                  placeholder="Longitude"
-                  value={form.lng}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, lng: e.target.value }))
-                  }
-                />
-              </div>
+            {/* Botão salvar */}
+            <div className="px-5 pb-8 pt-3 border-t border-gray-100">
+              <button onClick={save} disabled={saving} className="w-full h-13 py-3.5 rounded-2xl bg-[oklch(0.30_0.13_240)] text-white font-semibold text-base flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-50">
+                {saving ? "Salvando..." : <><Check className="h-5 w-5" />{form.id ? "Salvar" : "Cadastrar"}</>}
+              </button>
             </div>
           </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDialogAberto(false)}
-            >
-              Cancelar
-            </Button>
-            <Button onClick={handleSalvar} disabled={isSaving}>
-              {isSaving ? "Salvando..." : form.id ? "Salvar" : "Cadastrar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </DashboardLayout>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">{label}</label>
+      {children}
+    </div>
   );
 }

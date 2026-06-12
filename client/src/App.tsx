@@ -103,19 +103,13 @@ function Router() {
       <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
       <Route path="/configuracoes-pagamento">{() => <P><ConfiguracoesPagamento /></P>}</Route>
 
-      {/* ── COTAÇÃO DE PREÇOS ──────────────────────────────────────── */}
-      <Route path="/cotacoes">{() => <P><Cotacoes /></P>}</Route>
-      <Route path="/cotacoes/nova">{() => <P><CotacaoSessaoForm /></P>}</Route>
-      <Route path="/cotacoes/locais">{() => <P><CotacaoLocais /></P>}</Route>
-      <Route path="/cotacoes/:id/editar">
-        {() => <P><CotacaoSessaoForm /></P>}
-      </Route>
-      <Route path="/cotacoes/:id/coletar">
-        {() => <P><CotacaoColeta /></P>}
-      </Route>
-      <Route path="/cotacoes/:id/comparativo">
-        {() => <P><CotacaoComparativo /></P>}
-      </Route>
+      {/* ── COTAÇÃO DE PREÇOS (layout próprio mobile-first) ─────────── */}
+      <Route path="/cotacoes">{() => <ProtectedRoute><Cotacoes /></ProtectedRoute>}</Route>
+      <Route path="/cotacoes/nova">{() => <ProtectedRoute><CotacaoSessaoForm /></ProtectedRoute>}</Route>
+      <Route path="/cotacoes/locais">{() => <ProtectedRoute><CotacaoLocais /></ProtectedRoute>}</Route>
+      <Route path="/cotacoes/:id/editar">{() => <ProtectedRoute><CotacaoSessaoForm /></ProtectedRoute>}</Route>
+      <Route path="/cotacoes/:id/coletar">{() => <ProtectedRoute><CotacaoColeta /></ProtectedRoute>}</Route>
+      <Route path="/cotacoes/:id/comparativo">{() => <ProtectedRoute><CotacaoComparativo /></ProtectedRoute>}</Route>
 
       <Route component={NotFound} />
     </Switch>

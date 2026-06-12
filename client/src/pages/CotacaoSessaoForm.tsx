@@ -1,404 +1,270 @@
 /**
- * client/src/pages/CotacaoSessaoForm.tsx
- *
- * Criação e edição de sessão de cotação (lista de produtos + metadados).
+ * CotacaoSessaoForm.tsx — Criar nova sessão de cotação
+ * PWA mobile-first — seletor de produtos rápido com busca inline
  */
 
 import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-} from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  ArrowLeft,
-  Plus,
-  Trash2,
-  Search,
-  GripVertical,
-  AlertCircle,
+  ArrowLeft, Search, Plus, Trash2, AlertCircle, ChevronRight,
+  Package, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 
-interface ProdutoSelecionado {
-  produtoId: number;
-  nome: string;
-  categoria: string;
-  quantidade: number;
-  unidade: string;
-  obrigatorio: boolean;
-  ordem: number;
+interface Prod {
+  produtoId: number; nome: string; categoria: string;
+  quantidade: number; unidade: string; obrigatorio: boolean; ordem: number;
 }
 
 export default function CotacaoSessaoForm() {
   const params = useParams<{ id?: string }>();
   const sessaoId = params.id ? Number(params.id) : null;
-  const [, navigate] = useLocation();
+  const [, nav] = useLocation();
   const utils = trpc.useUtils();
 
-  // Form state
-  const [titulo, setTitulo] = useState("");
-  const [observacao, setObservacao] = useState("");
-  const [produtos, setProdutos] = useState<ProdutoSelecionado[]>([]);
-  const [buscaAberta, setBuscaAberta] = useState(false);
-  const [buscaProduto, setBuscaProduto] = useState("");
+  const [titulo, setTitulo]     = useState("");
+  const [busca, setBusca]       = useState("");
+  const [mostrarBusca, setMostrarBusca] = useState(false);
+  const [produtos, setProdutos] = useState<Prod[]>([]);
 
-  // Dados do servidor
-  const { data: todosOsProdutos, isLoading: loadingProdutos } =
-    trpc.products.list.useQuery();
-  const { data: sessaoExistente, isLoading: loadingSessao } =
-    trpc.cotacao.sessoes.obter.useQuery(
-      { id: sessaoId! },
-      { enabled: !!sessaoId }
-    );
+  const { data: todosProd, isLoading: loadProd } = trpc.products.list.useQuery();
+  const { data: sessaoExist, isLoading: loadSessao } = trpc.cotacao.sessoes.obter.useQuery(
+    { id: sessaoId! }, { enabled: !!sessaoId }
+  );
 
-  // Preencher form ao editar
   useEffect(() => {
-    if (sessaoExistente) {
-      setTitulo(sessaoExistente.titulo);
-      setObservacao(sessaoExistente.observacao ?? "");
-      setProdutos(
-        sessaoExistente.produtos.map((p) => ({
-          produtoId: p.produtoId,
-          nome: p.produtoNome,
-          categoria: p.produtoCategoria,
-          quantidade: parseFloat(String(p.quantidade)),
-          unidade: p.unidade ?? "un",
-          obrigatorio: p.obrigatorio,
-          ordem: p.ordem,
-        }))
-      );
+    if (sessaoExist) {
+      setTitulo(sessaoExist.titulo);
+      setProdutos(sessaoExist.produtos.map(p => ({
+        produtoId: p.produtoId, nome: p.produtoNome, categoria: p.produtoCategoria,
+        quantidade: parseFloat(String(p.quantidade)),
+        unidade: p.unidade ?? "un", obrigatorio: p.obrigatorio, ordem: p.ordem,
+      })));
     }
-  }, [sessaoExistente]);
+  }, [sessaoExist]);
 
-  const criarSessao = trpc.cotacao.sessoes.criar.useMutation({
-    onSuccess: (data) => {
+  const criar = trpc.cotacao.sessoes.criar.useMutation({
+    onSuccess: (d) => {
       utils.cotacao.sessoes.listar.invalidate();
-      toast.success("Sessão criada! Agora colete os preços.");
-      navigate(`/cotacoes/${data.id}/coletar`);
+      toast.success("Sessão criada!");
+      nav(`/cotacoes/${d.id}/coletar`);
     },
-    onError: (err) => toast.error(err.message),
+    onError: (e: any) => toast.error(e.message),
   });
-
-  const atualizarSessao = trpc.cotacao.sessoes.atualizar.useMutation({
+  const atualizar = trpc.cotacao.sessoes.atualizar.useMutation({
     onSuccess: () => {
       utils.cotacao.sessoes.listar.invalidate();
       toast.success("Sessão atualizada");
-      navigate("/cotacoes");
+      nav("/cotacoes");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
-  const produtosFiltrados =
-    todosOsProdutos?.filter(
-      (p) =>
-        !produtos.find((sp) => sp.produtoId === p.id) &&
-        p.name.toLowerCase().includes(buscaProduto.toLowerCase())
-    ) ?? [];
+  const filtrados = (todosProd ?? []).filter(p =>
+    !produtos.find(sp => sp.produtoId === p.id) &&
+    (busca === "" || p.name.toLowerCase().includes(busca.toLowerCase()))
+  );
 
-  function adicionarProduto(prod: {
-    id: number;
-    name: string;
-    category: string;
-  }) {
-    setProdutos((prev) => [
-      ...prev,
-      {
-        produtoId: prod.id,
-        nome: prod.name,
-        categoria: prod.category,
-        quantidade: 1,
-        unidade: "un",
-        obrigatorio: false,
-        ordem: prev.length,
-      },
-    ]);
-    setBuscaAberta(false);
-    setBuscaProduto("");
+  function add(p: any) {
+    setProdutos(prev => [...prev, {
+      produtoId: p.id, nome: p.name, categoria: p.category,
+      quantidade: 1, unidade: "un", obrigatorio: false, ordem: prev.length,
+    }]);
   }
 
-  function removerProduto(idx: number) {
-    setProdutos((prev) => prev.filter((_, i) => i !== idx));
-  }
+  function remove(idx: number) { setProdutos(prev => prev.filter((_, i) => i !== idx)); }
 
-  function atualizarProduto(idx: number, field: string, value: any) {
-    setProdutos((prev) =>
-      prev.map((p, i) => (i === idx ? { ...p, [field]: value } : p))
-    );
-  }
-
-  function handleSubmit() {
-    if (!titulo.trim()) {
-      toast.error("Informe um título para a cotação");
-      return;
-    }
-    if (produtos.length === 0) {
-      toast.error("Adicione pelo menos um produto");
-      return;
-    }
-
+  function save() {
+    if (!titulo.trim()) { toast.error("Informe o título"); return; }
+    if (produtos.length === 0) { toast.error("Adicione pelo menos um produto"); return; }
     if (sessaoId) {
-      atualizarSessao.mutate({
-        id: sessaoId,
-        titulo,
-        observacao: observacao || undefined,
-      });
+      atualizar.mutate({ id: sessaoId, titulo });
     } else {
-      criarSessao.mutate({
+      criar.mutate({
         titulo,
-        observacao: observacao || undefined,
         produtos: produtos.map((p, i) => ({
-          produtoId: p.produtoId,
-          quantidade: p.quantidade,
-          unidade: p.unidade,
-          obrigatorio: p.obrigatorio,
-          ordem: i,
+          produtoId: p.produtoId, quantidade: p.quantidade,
+          unidade: p.unidade, obrigatorio: p.obrigatorio, ordem: i,
         })),
       });
     }
   }
 
-  const isLoading = sessaoId ? loadingSessao : false;
-  const isSaving = criarSessao.isPending || atualizarSessao.isPending;
+  const saving = criar.isPending || atualizar.isPending;
 
   return (
-    <DashboardLayout>
-      <div className="p-6 max-w-2xl mx-auto space-y-6">
-        {/* Header */}
+    <div className="min-h-svh bg-gray-50 flex flex-col max-w-md mx-auto">
+      {/* Header */}
+      <div className="bg-[oklch(0.30_0.13_240)] text-white px-4 pt-10 pb-5">
         <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate("/cotacoes")}
-          >
+          <button onClick={() => nav("/cotacoes")} className="h-9 w-9 rounded-full flex items-center justify-center hover:bg-white/10 active:bg-white/20 shrink-0">
             <ArrowLeft className="h-5 w-5" />
-          </Button>
+          </button>
           <div>
-            <h1 className="text-xl font-bold">
-              {sessaoId ? "Editar Sessão" : "Nova Sessão de Cotação"}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {sessaoId
-                ? "Atualize os dados da sessão"
-                : "Defina os produtos que serão pesquisados"}
-            </p>
+            <h1 className="text-base font-bold">{sessaoId ? "Editar Sessão" : "Nova Sessão"}</h1>
+            <p className="text-xs opacity-60">{sessaoId ? "Altere os dados" : "Defina o que pesquisar"}</p>
           </div>
         </div>
-
-        {isLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-        ) : (
-          <>
-            {/* Dados básicos */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Identificação</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="titulo">Título da cotação *</Label>
-                  <Input
-                    id="titulo"
-                    placeholder="Ex: Compras semanais — Atacado"
-                    value={titulo}
-                    onChange={(e) => setTitulo(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="obs">Observação</Label>
-                  <Textarea
-                    id="obs"
-                    placeholder="Contexto adicional..."
-                    value={observacao}
-                    onChange={(e) => setObservacao(e.target.value)}
-                    className="mt-1 resize-none"
-                    rows={2}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Produtos (apenas na criação ou visualização) */}
-            {!sessaoId && (
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="text-base">
-                    Produtos a pesquisar
-                    {produtos.length > 0 && (
-                      <Badge variant="secondary" className="ml-2">
-                        {produtos.length}
-                      </Badge>
-                    )}
-                  </CardTitle>
-
-                  <Popover open={buscaAberta} onOpenChange={setBuscaAberta}>
-                    <PopoverTrigger asChild>
-                      <Button size="sm" variant="outline">
-                        <Search className="h-4 w-4 mr-2" />
-                        Adicionar
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="p-0 w-80" align="end">
-                      <Command>
-                        <CommandInput
-                          placeholder="Buscar produto..."
-                          value={buscaProduto}
-                          onValueChange={setBuscaProduto}
-                        />
-                        {loadingProdutos ? (
-                          <div className="p-4 text-center text-sm text-muted-foreground">
-                            Carregando...
-                          </div>
-                        ) : (
-                          <CommandGroup>
-                            <CommandEmpty>Nenhum produto encontrado</CommandEmpty>
-                            {produtosFiltrados.slice(0, 20).map((p) => (
-                              <CommandItem
-                                key={p.id}
-                                onSelect={() => adicionarProduto(p)}
-                                className="cursor-pointer"
-                              >
-                                <div>
-                                  <div className="font-medium">{p.name}</div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {p.category}
-                                  </div>
-                                </div>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        )}
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                </CardHeader>
-                <CardContent>
-                  {produtos.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
-                      <Plus className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                      <p className="text-sm">
-                        Adicione produtos para pesquisar os preços
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {produtos.map((p, i) => (
-                        <div
-                          key={p.produtoId}
-                          className="flex items-center gap-3 p-3 rounded-lg border bg-card"
-                        >
-                          <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm truncate">
-                              {p.nome}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {p.categoria}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <Input
-                              type="number"
-                              min="0.001"
-                              step="0.5"
-                              value={p.quantidade}
-                              onChange={(e) =>
-                                atualizarProduto(
-                                  i,
-                                  "quantidade",
-                                  parseFloat(e.target.value) || 1
-                                )
-                              }
-                              className="w-16 h-7 text-sm text-center"
-                            />
-                            <Input
-                              value={p.unidade}
-                              onChange={(e) =>
-                                atualizarProduto(i, "unidade", e.target.value)
-                              }
-                              className="w-14 h-7 text-sm"
-                              placeholder="un"
-                            />
-                            <div className="flex items-center gap-1">
-                              <Checkbox
-                                id={`obrig-${i}`}
-                                checked={p.obrigatorio}
-                                onCheckedChange={(v) =>
-                                  atualizarProduto(i, "obrigatorio", !!v)
-                                }
-                              />
-                              <Label
-                                htmlFor={`obrig-${i}`}
-                                className="text-xs text-muted-foreground cursor-pointer"
-                                title="Produto obrigatório — se não encontrado, o local é desqualificado"
-                              >
-                                <AlertCircle className="h-3.5 w-3.5" />
-                              </Label>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-destructive hover:text-destructive"
-                              onClick={() => removerProduto(i)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                      <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        Marque o ícone para tornar um produto obrigatório —
-                        locais que não tiverem o produto serão desqualificados do
-                        ranking
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Ações */}
-            <div className="flex gap-3 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => navigate("/cotacoes")}
-              >
-                Cancelar
-              </Button>
-              <Button onClick={handleSubmit} disabled={isSaving}>
-                {isSaving
-                  ? "Salvando..."
-                  : sessaoId
-                  ? "Salvar alterações"
-                  : "Criar e iniciar coleta"}
-              </Button>
-            </div>
-          </>
-        )}
       </div>
-    </DashboardLayout>
+
+      <div className="flex-1 overflow-y-auto pb-28">
+        <div className="px-4 py-4 space-y-4">
+          {/* Título */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
+              Título da cotação *
+            </label>
+            <input
+              className="w-full text-base font-medium bg-transparent outline-none placeholder:text-muted-foreground/50"
+              placeholder="Ex: Feira + Atacado — semana 23"
+              value={titulo}
+              onChange={e => setTitulo(e.target.value)}
+              autoFocus
+            />
+          </div>
+
+          {/* Produtos selecionados */}
+          {!sessaoId && (
+            <>
+              <div className="flex items-center justify-between px-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Produtos ({produtos.length})
+                </p>
+                <button
+                  onClick={() => setMostrarBusca(v => !v)}
+                  className="text-xs font-medium text-primary flex items-center gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Adicionar
+                </button>
+              </div>
+
+              {/* Busca inline */}
+              {mostrarBusca && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
+                    <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <input
+                      autoFocus
+                      className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground/50"
+                      placeholder="Buscar produto..."
+                      value={busca}
+                      onChange={e => setBusca(e.target.value)}
+                    />
+                    {busca && (
+                      <button onClick={() => setBusca("")} className="text-muted-foreground hover:text-foreground">
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-52 overflow-y-auto divide-y divide-gray-50">
+                    {loadProd && (
+                      <div className="p-4 text-center text-sm text-muted-foreground">Carregando...</div>
+                    )}
+                    {!loadProd && filtrados.length === 0 && (
+                      <div className="p-4 text-center text-sm text-muted-foreground">
+                        {busca ? "Nenhum resultado" : "Todos os produtos já adicionados"}
+                      </div>
+                    )}
+                    {filtrados.slice(0, 30).map(p => (
+                      <button
+                        key={p.id}
+                        className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                        onClick={() => { add(p); if (filtrados.length <= 1) setMostrarBusca(false); }}
+                      >
+                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <Package className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{p.name}</p>
+                          <p className="text-xs text-muted-foreground">{p.category}</p>
+                        </div>
+                        <Plus className="h-4 w-4 text-primary shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Lista de selecionados */}
+              {produtos.length === 0 ? (
+                <div className="bg-white rounded-2xl border-2 border-dashed border-gray-200 p-8 text-center">
+                  <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground/30" />
+                  <p className="text-sm text-muted-foreground">Adicione os produtos que serão pesquisados</p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
+                  {produtos.map((p, i) => (
+                    <div key={p.produtoId} className="px-4 py-3 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{p.nome}</p>
+                        <p className="text-xs text-muted-foreground">{p.categoria}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Qtd */}
+                        <div className="flex items-center gap-1">
+                          <button
+                            className="h-7 w-7 rounded-full bg-gray-100 flex items-center justify-center text-sm font-bold active:bg-gray-200"
+                            onClick={() => setProdutos(prev => prev.map((x, j) => j === i ? { ...x, quantidade: Math.max(0.5, x.quantidade - (x.quantidade <= 1 ? 0.5 : 1)) } : x))}
+                          >−</button>
+                          <span className="text-sm font-semibold w-7 text-center">{p.quantidade}</span>
+                          <button
+                            className="h-7 w-7 rounded-full bg-gray-100 flex items-center justify-center text-sm font-bold active:bg-gray-200"
+                            onClick={() => setProdutos(prev => prev.map((x, j) => j === i ? { ...x, quantidade: x.quantidade + 1 } : x))}
+                          >+</button>
+                        </div>
+                        {/* Unidade */}
+                        <input
+                          value={p.unidade}
+                          onChange={e => setProdutos(prev => prev.map((x, j) => j === i ? { ...x, unidade: e.target.value } : x))}
+                          className="w-10 text-xs text-center bg-gray-100 rounded-lg py-1 outline-none"
+                        />
+                        {/* Obrigatório */}
+                        <button
+                          title="Produto obrigatório"
+                          onClick={() => setProdutos(prev => prev.map((x, j) => j === i ? { ...x, obrigatorio: !x.obrigatorio } : x))}
+                          className={`h-6 w-6 rounded-full flex items-center justify-center transition-colors ${p.obrigatorio ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-400"}`}
+                        >
+                          <AlertCircle className="h-3.5 w-3.5" />
+                        </button>
+                        {/* Remover */}
+                        <button
+                          onClick={() => remove(i)}
+                          className="h-6 w-6 rounded-full flex items-center justify-center bg-red-50 text-red-500 active:bg-red-100 transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {produtos.length > 0 && (
+                <p className="text-xs text-muted-foreground px-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 text-amber-500" />
+                  Toque no <span className="font-medium">!</span> para marcar produto obrigatório — locais sem ele serão desqualificados
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Botão salvar fixo */}
+      <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-gradient-to-t from-gray-50 to-transparent max-w-md mx-auto">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="w-full h-14 rounded-2xl bg-[oklch(0.30_0.13_240)] text-white font-semibold shadow-lg flex items-center justify-center gap-2 active:scale-[0.97] transition-transform text-base disabled:opacity-50"
+        >
+          {saving ? "Salvando..." : sessaoId ? "Salvar alterações" : `Criar e ir a campo →`}
+        </button>
+      </div>
+    </div>
   );
 }

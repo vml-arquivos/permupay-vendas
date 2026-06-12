@@ -1,442 +1,348 @@
 /**
- * client/src/pages/CotacaoColeta.tsx
- *
- * Interface de coleta de preços em campo — otimizada para mobile.
- * Auto-save, progresso por local, troca rápida de local.
+ * CotacaoColeta.tsx — Interface de coleta de preços em campo
+ * PWA otimizada para mobile: inputs grandes, auto-save, feedback tátil,
+ * seletor de local, progresso, suporte offline
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  ArrowLeft,
-  MapPin,
-  CheckCircle2,
-  Circle,
-  Camera,
-  Plus,
-  ChevronDown,
-  WifiOff,
-  RefreshCw,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  ArrowLeft, MapPin, CheckCircle2, Circle, Plus, WifiOff,
+  RefreshCw, BarChart3, ChevronDown, AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCotacaoOffline } from "@/hooks/useCotacaoOffline";
 
-// Mapa de preços local para input controlado
-type PrecoMap = Record<string, string>; // key: `${sessaoProdutoId}-${localId}`
+type PMap = Record<string, string>; // `${spId}-${localId}` → valor
+type NSet = Set<string>;
 
 export default function CotacaoColeta() {
-  const params = useParams<{ id: string }>();
-  const sessaoId = Number(params.id);
-  const [, navigate] = useLocation();
-
-  const [localIdSelecionado, setLocalIdSelecionado] = useState<number | null>(null);
-  const [precos, setPrecos] = useState<PrecoMap>({});
-  const [naoEncontrados, setNaoEncontrados] = useState<Set<string>>(new Set());
-  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-
+  const { id } = useParams<{ id: string }>();
+  const sessaoId = Number(id);
+  const [, nav] = useLocation();
   const utils = trpc.useUtils();
 
-  // Dados da sessão e locais
-  const { data: sessao, isLoading } = trpc.cotacao.sessoes.obter.useQuery(
-    { id: sessaoId },
-    {
-      onSuccess: (data) => {
-        // Nenhum local selecionado ainda — seleciona o primeiro se disponível
-        if (!localIdSelecionado && locais && locais.length > 0) {
-          setLocalIdSelecionado(locais[0].id);
-        }
-      },
-    }
-  );
+  const [localId, setLocalId]     = useState<number | null>(null);
+  const [precos, setPrecos]       = useState<PMap>({});
+  const [naoAchados, setNaoAchados] = useState<NSet>(new Set());
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const { data: sessao, isLoading } = trpc.cotacao.sessoes.obter.useQuery({ id: sessaoId });
   const { data: locais } = trpc.cotacao.locais.listar.useQuery();
-  const { data: precosExistentes } = trpc.cotacao.precos.listarSessao.useQuery(
+  const { data: precosDB } = trpc.cotacao.precos.listarSessao.useQuery(
     { sessaoId },
     {
-      onSuccess: (data) => {
-        // Preenche map com preços já salvos
-        const novoMap: PrecoMap = {};
-        const novosNaoEncontrados = new Set<string>();
+      onSuccess(data) {
+        const m: PMap = {};
+        const n = new Set<string>();
         for (const p of data) {
-          const key = `${p.sessaoProdutoId}-${p.localId}`;
-          novoMap[key] =
-            p.precoUnitario != null ? String(p.precoUnitario) : "";
-          if (!p.encontrado) novosNaoEncontrados.add(key);
+          const k = `${p.sessaoProdutoId}-${p.localId}`;
+          m[k] = p.precoUnitario != null ? String(p.precoUnitario) : "";
+          if (!p.encontrado) n.add(k);
         }
-        setPrecos(novoMap);
-        setNaoEncontrados(novosNaoEncontrados);
-      },
+        setPrecos(m);
+        setNaoAchados(n);
+      }
     }
   );
 
-  // Hook offline
+  // Auto-seleciona 1º local
+  useEffect(() => {
+    if (locais && locais.length > 0 && !localId) setLocalId(locais[0].id);
+  }, [locais]);
+
   const { isOnline, pendingCount, syncNow } = useCotacaoOffline(sessaoId);
 
-  // Mutation de salvar preço
   const registrar = trpc.cotacao.precos.registrar.useMutation({
-    onSuccess: () => {
-      utils.cotacao.precos.listarSessao.invalidate({ sessaoId });
-    },
-    onError: (err) => {
-      toast.error("Erro ao salvar preço: " + err.message);
-    },
+    onSuccess: () => utils.cotacao.precos.listarSessao.invalidate({ sessaoId }),
   });
 
-  // Auto-save com debounce
-  const autoSave = useCallback(
-    (
-      sessaoProdutoId: number,
-      localId: number,
-      valor: string,
-      encontrado: boolean
-    ) => {
-      const key = `${sessaoProdutoId}-${localId}`;
-      if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
-      saveTimers.current[key] = setTimeout(() => {
-        const preco = parseFloat(valor);
-        if (encontrado && (isNaN(preco) || preco < 0)) return;
-        registrar.mutate({
-          sessaoId,
-          sessaoProdutoId,
-          localId,
-          precoUnitario: encontrado ? (isNaN(preco) ? null : preco) : null,
-          encontrado,
-        });
-        // Feedback tátil
-        if ("vibrate" in navigator) navigator.vibrate(30);
-        toast.success("Preço salvo", { duration: 1000, position: "bottom-center" });
-      }, 700);
-    },
-    [sessaoId, registrar]
+  const autoSave = useCallback((spId: number, lId: number, val: string, encontrado: boolean) => {
+    const k = `${spId}-${lId}`;
+    clearTimeout(timers.current[k]);
+    timers.current[k] = setTimeout(() => {
+      const preco = parseFloat(val.replace(",", "."));
+      registrar.mutate({
+        sessaoId, sessaoProdutoId: spId, localId: lId,
+        precoUnitario: encontrado && !isNaN(preco) ? preco : null,
+        encontrado,
+      });
+      if (navigator.vibrate) navigator.vibrate(25);
+      toast.success("Salvo", { duration: 800, position: "bottom-center", style: { fontSize: "13px" } });
+    }, 600);
+  }, [sessaoId, registrar]);
+
+  function handleValor(spId: number, val: string) {
+    if (!localId) return;
+    const k = `${spId}-${localId}`;
+    setPrecos(p => ({ ...p, [k]: val }));
+    if (!naoAchados.has(k)) autoSave(spId, localId, val, true);
+  }
+
+  function toggleNaoAchado(spId: number) {
+    if (!localId) return;
+    const k = `${spId}-${localId}`;
+    setNaoAchados(prev => {
+      const next = new Set(prev);
+      if (next.has(k)) { next.delete(k); autoSave(spId, localId, precos[k] ?? "", true); }
+      else { next.add(k); autoSave(spId, localId, "", false); }
+      return next;
+    });
+  }
+
+  // Focar próximo input após Enter
+  function handleEnter(e: React.KeyboardEvent, idx: number, prods: any[]) {
+    if (e.key === "Enter") {
+      const next = prods[idx + 1];
+      if (next && localId) {
+        const k = `${next.id}-${localId}`;
+        inputRefs.current[k]?.focus();
+      }
+    }
+  }
+
+  if (isLoading) return (
+    <div className="min-h-svh bg-gray-50 max-w-md mx-auto p-4 space-y-3">
+      {[0,1,2,3].map(i => <Skeleton key={i} className="h-20 rounded-2xl" />)}
+    </div>
   );
 
-  function handlePrecoChange(
-    sessaoProdutoId: number,
-    localId: number,
-    valor: string
-  ) {
-    const key = `${sessaoProdutoId}-${localId}`;
-    setPrecos((prev) => ({ ...prev, [key]: valor }));
-    const encontrado = !naoEncontrados.has(key);
-    autoSave(sessaoProdutoId, localId, valor, encontrado);
-  }
+  if (!sessao) return (
+    <div className="min-h-svh flex items-center justify-center text-muted-foreground">
+      Sessão não encontrada
+    </div>
+  );
 
-  function toggleNaoEncontrado(sessaoProdutoId: number, localId: number) {
-    const key = `${sessaoProdutoId}-${localId}`;
-    const atual = naoEncontrados.has(key);
-    if (atual) {
-      setNaoEncontrados((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    } else {
-      setNaoEncontrados((prev) => new Set([...prev, key]));
-    }
-    autoSave(sessaoProdutoId, localId, precos[key] ?? "", !atual);
-  }
+  const prods = sessao.produtos ?? [];
 
-  if (isLoading) {
-    return (
-      <DashboardLayout>
-        <div className="p-4 space-y-3 max-w-lg mx-auto">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full" />
-          ))}
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (!sessao) {
-    return (
-      <DashboardLayout>
-        <div className="p-6 text-center text-muted-foreground">
-          Sessão não encontrada
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  const localAtual = locais?.find((l) => l.id === localIdSelecionado);
-  const produtos = sessao.produtos ?? [];
-
-  // Cálculo de progresso no local atual
-  const cotadosNoLocal = localIdSelecionado
-    ? produtos.filter((p) => {
-        const key = `${p.id}-${localIdSelecionado}`;
-        return (
-          precos[key] !== undefined &&
-          precos[key] !== "" &&
-          !naoEncontrados.has(key)
-        );
-      }).length +
-      [...naoEncontrados].filter((k) =>
-        k.endsWith(`-${localIdSelecionado}`)
-      ).length
-    : 0;
-  const progressoPct =
-    produtos.length > 0 ? (cotadosNoLocal / produtos.length) * 100 : 0;
+  // Progresso
+  const cotados = localId ? prods.filter(p => {
+    const k = `${p.id}-${localId}`;
+    return (precos[k] !== undefined && precos[k] !== "" && !naoAchados.has(k)) || naoAchados.has(k);
+  }).length : 0;
+  const pct = prods.length > 0 ? Math.round((cotados / prods.length) * 100) : 0;
+  const concluido = pct === 100;
 
   return (
-    <DashboardLayout>
-      <div className="flex flex-col h-[calc(100vh-4rem)] max-w-lg mx-auto">
-        {/* Header fixo */}
-        <div className="px-4 pt-4 pb-3 border-b bg-background sticky top-0 z-10 space-y-3">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate("/cotacoes")}
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="flex-1 min-w-0">
-              <h1 className="font-bold truncate">{sessao.titulo}</h1>
-            </div>
-            {/* Status offline */}
-            {!isOnline ? (
-              <Badge
-                variant="outline"
-                className="text-amber-700 border-amber-300 bg-amber-50 text-xs gap-1"
-              >
-                <WifiOff className="h-3 w-3" />
-                Offline
-              </Badge>
-            ) : pendingCount > 0 ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs h-7 gap-1"
-                onClick={syncNow}
-              >
-                <RefreshCw className="h-3 w-3" />
-                Sync ({pendingCount})
-              </Button>
-            ) : null}
+    <div className="min-h-svh bg-gray-50 flex flex-col max-w-md mx-auto">
+      {/* Header */}
+      <div className="bg-[oklch(0.30_0.13_240)] text-white px-4 pt-10 pb-0 sticky top-0 z-20">
+        <div className="flex items-center gap-2 mb-3">
+          <button onClick={() => nav("/cotacoes")} className="h-9 w-9 rounded-full flex items-center justify-center hover:bg-white/10 active:bg-white/20 shrink-0">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold truncate">{sessao.titulo}</p>
+            <p className="text-xs opacity-60">{prods.length} produtos</p>
           </div>
-
-          {/* Seletor de local */}
-          <div className="flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-            <Select
-              value={localIdSelecionado?.toString() ?? ""}
-              onValueChange={(v) => setLocalIdSelecionado(Number(v))}
-            >
-              <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Selecione um local..." />
-              </SelectTrigger>
-              <SelectContent>
-                {locais?.map((l) => (
-                  <SelectItem key={l.id} value={l.id.toString()}>
-                    {l.nome}
-                    {l.tipoComercio && (
-                      <span className="text-muted-foreground text-xs ml-1">
-                        — {l.tipoComercio}
-                      </span>
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => navigate("/cotacoes/locais")}
-              title="Gerenciar locais"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* Barra de progresso */}
-          {localIdSelecionado && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>
-                  {cotadosNoLocal}/{produtos.length} produtos pesquisados
-                </span>
-                <span>{Math.round(progressoPct)}%</span>
-              </div>
-              <Progress value={progressoPct} className="h-2" />
-            </div>
-          )}
+          {/* Sync status */}
+          {!isOnline ? (
+            <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full flex items-center gap-1">
+              <WifiOff className="h-3 w-3" /> Offline
+            </span>
+          ) : pendingCount > 0 ? (
+            <button onClick={syncNow} className="text-xs bg-white/10 text-white px-2 py-1 rounded-full flex items-center gap-1 active:bg-white/20">
+              <RefreshCw className="h-3 w-3" /> {pendingCount}
+            </button>
+          ) : null}
+          <button onClick={() => nav(`/cotacoes/${sessaoId}/comparativo`)} className="h-9 w-9 rounded-full flex items-center justify-center hover:bg-white/10 active:bg-white/20 shrink-0">
+            <BarChart3 className="h-5 w-5" />
+          </button>
         </div>
 
-        {/* Lista de produtos */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 pb-6">
-          {!localIdSelecionado ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <MapPin className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p>Selecione um local para começar a coletar preços</p>
-              {(!locais || locais.length === 0) && (
-                <Button
-                  className="mt-4"
-                  variant="outline"
-                  onClick={() => navigate("/cotacoes/locais")}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Cadastrar primeiro local
-                </Button>
-              )}
-            </div>
-          ) : (
-            <>
-              {produtos.map((p) => {
-                const key = `${p.id}-${localIdSelecionado}`;
-                const valor = precos[key] ?? "";
-                const naoAchado = naoEncontrados.has(key);
-                const cotado =
-                  (valor !== "" && !naoAchado) || naoAchado;
+        {/* Seletor de local */}
+        <div className="mb-3">
+          <div className="flex items-center gap-2 bg-white/10 rounded-xl px-3 py-2">
+            <MapPin className="h-4 w-4 opacity-70 shrink-0" />
+            <select
+              className="flex-1 bg-transparent text-white text-sm font-medium outline-none appearance-none"
+              value={localId?.toString() ?? ""}
+              onChange={e => setLocalId(Number(e.target.value))}
+            >
+              <option value="" disabled className="text-black">Selecionar local...</option>
+              {(locais ?? []).map(l => (
+                <option key={l.id} value={l.id} className="text-black">
+                  {l.nome}{l.tipoComercio ? ` — ${l.tipoComercio}` : ""}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+          </div>
+        </div>
 
-                return (
-                  <Card
-                    key={p.id}
-                    className={`transition-colors ${
-                      cotado
-                        ? "border-green-200 bg-green-50/50"
-                        : "border-border"
-                    }`}
-                  >
-                    <CardContent className="p-3">
-                      <div className="flex items-start gap-3">
-                        {/* Ícone de status */}
-                        <div className="mt-1 shrink-0">
-                          {cotado ? (
-                            <CheckCircle2 className="h-5 w-5 text-green-600" />
-                          ) : (
-                            <Circle className="h-5 w-5 text-muted-foreground" />
-                          )}
-                        </div>
-
-                        {/* Nome do produto */}
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm leading-tight">
-                            {p.produtoNome}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {p.quantidade} {p.unidade}
-                            {p.obrigatorio && (
-                              <span className="ml-1 text-amber-600">
-                                ★ obrigatório
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Campo de preço */}
-                        <div className="flex items-center gap-2 shrink-0">
-                          {!naoAchado && (
-                            <div className="relative">
-                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                                R$
-                              </span>
-                              <Input
-                                type="number"
-                                inputMode="decimal"
-                                min="0"
-                                step="0.01"
-                                placeholder="0,00"
-                                value={valor}
-                                onChange={(e) =>
-                                  handlePrecoChange(
-                                    p.id,
-                                    localIdSelecionado,
-                                    e.target.value
-                                  )
-                                }
-                                className="pl-8 w-28 text-right text-base font-semibold h-10"
-                              />
-                            </div>
-                          )}
-
-                          {/* Botão câmera */}
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-10 w-10 text-muted-foreground"
-                            title="Fotografar preço"
-                            onClick={() =>
-                              toast.info(
-                                "Funcionalidade de câmera disponível no app instalado"
-                              )
-                            }
-                          >
-                            <Camera className="h-5 w-5" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Toggle "Não encontrado" */}
-                      <div className="mt-2 flex justify-end">
-                        <button
-                          className={`text-xs px-2 py-0.5 rounded transition-colors ${
-                            naoAchado
-                              ? "bg-red-100 text-red-700 border border-red-200"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                          onClick={() =>
-                            toggleNaoEncontrado(p.id, localIdSelecionado)
-                          }
-                        >
-                          {naoAchado ? "✗ Não encontrado" : "Marcar como não encontrado"}
-                        </button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-
-              {/* Botão concluir local */}
-              {progressoPct === 100 && (
-                <div className="pt-2 text-center">
-                  <div className="text-green-600 font-medium text-sm mb-3">
-                    ✓ Todos os produtos pesquisados neste local!
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate(`/cotacoes/${sessaoId}/comparativo`)}
-                  >
-                    <BarChart3Icon />
-                    Ver comparativo
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
+        {/* Progresso */}
+        <div className="pb-3">
+          <div className="flex justify-between text-xs mb-1 opacity-70">
+            <span>{cotados}/{prods.length} pesquisados</span>
+            <span>{pct}%</span>
+          </div>
+          <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${concluido ? "bg-emerald-400" : "bg-amber-400"}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
         </div>
       </div>
-    </DashboardLayout>
-  );
-}
 
-// Ícone auxiliar
-function BarChart3Icon() {
-  return (
-    <svg
-      className="h-4 w-4 mr-2"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <line x1="18" y1="20" x2="18" y2="10" />
-      <line x1="12" y1="20" x2="12" y2="4" />
-      <line x1="6" y1="20" x2="6" y2="14" />
-    </svg>
+      {/* Lista de produtos */}
+      <div className="flex-1 overflow-y-auto pb-28">
+        {!localId ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-4 px-8">
+            <MapPin className="h-12 w-12 text-muted-foreground/30" />
+            <div>
+              <p className="font-semibold">Selecione um local</p>
+              <p className="text-sm text-muted-foreground mt-1">Escolha onde você está agora</p>
+            </div>
+            {(!locais || locais.length === 0) && (
+              <button onClick={() => nav("/cotacoes/locais")} className="mt-2 text-sm text-primary font-medium flex items-center gap-1">
+                <Plus className="h-4 w-4" /> Cadastrar primeiro local
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="px-3 py-3 space-y-2">
+            {prods.map((p, idx) => {
+              const k = `${p.id}-${localId}`;
+              const val = precos[k] ?? "";
+              const naoAchado = naoAchados.has(k);
+              const salvo = (val !== "" && !naoAchado) || naoAchado;
+
+              return (
+                <div
+                  key={p.id}
+                  className={`rounded-2xl border transition-all ${
+                    salvo ? "bg-emerald-50 border-emerald-200" : "bg-white border-gray-100"
+                  } shadow-sm overflow-hidden`}
+                >
+                  <div className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      {/* Status icon */}
+                      <div className="shrink-0">
+                        {salvo ? (
+                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                        ) : (
+                          <Circle className="h-5 w-5 text-muted-foreground/30" />
+                        )}
+                      </div>
+
+                      {/* Nome */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate leading-tight">{p.produtoNome}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {p.quantidade} {p.unidade}
+                          {p.obrigatorio && <span className="ml-1.5 text-amber-600 font-medium">★</span>}
+                        </p>
+                      </div>
+
+                      {/* Input de preço */}
+                      {!naoAchado && (
+                        <div className="shrink-0">
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">R$</span>
+                            <input
+                              ref={el => { inputRefs.current[k] = el; }}
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              placeholder="0,00"
+                              value={val}
+                              onChange={e => handleValor(p.id, e.target.value)}
+                              onKeyDown={e => handleEnter(e, idx, prods)}
+                              className={`w-28 h-12 pl-9 pr-2 text-right text-lg font-bold rounded-xl outline-none border-2 transition-colors ${
+                                val ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-gray-50"
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Não encontrado */}
+                    {naoAchado && (
+                      <div className="mt-2 ml-8">
+                        <span className="text-sm text-red-500 font-medium">✗ Não encontrado neste local</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer com toggle */}
+                  <div className="px-4 pb-2 flex justify-end">
+                    <button
+                      onClick={() => toggleNaoAchado(p.id)}
+                      className={`text-xs px-3 py-1 rounded-full transition-colors ${
+                        naoAchado
+                          ? "bg-red-100 text-red-600 border border-red-200"
+                          : "text-muted-foreground hover:bg-gray-100"
+                      }`}
+                    >
+                      {naoAchado ? "↩ Encontrado afinal" : "Não encontrado aqui"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Concluído */}
+            {concluido && (
+              <div className="mt-4 bg-emerald-500 rounded-2xl p-5 text-white text-center">
+                <CheckCircle2 className="h-8 w-8 mx-auto mb-2" />
+                <p className="font-bold text-base">Local concluído!</p>
+                <p className="text-sm opacity-80 mt-1">Todos os produtos pesquisados</p>
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={() => {
+                      const idx = (locais ?? []).findIndex(l => l.id === localId);
+                      const next = (locais ?? [])[idx + 1];
+                      if (next) { setLocalId(next.id); window.scrollTo(0, 0); }
+                      else toast.info("Este foi o último local");
+                    }}
+                    className="flex-1 bg-white/20 hover:bg-white/30 text-white font-medium py-2.5 rounded-xl text-sm transition-colors"
+                  >
+                    Próximo local →
+                  </button>
+                  <button
+                    onClick={() => nav(`/cotacoes/${sessaoId}/comparativo`)}
+                    className="flex-1 bg-white text-emerald-700 font-bold py-2.5 rounded-xl text-sm"
+                  >
+                    Ver comparativo
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Bottom nav */}
+      {localId && !concluido && (
+        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto px-4 pb-6 pt-2 bg-gradient-to-t from-gray-50 to-transparent">
+          <div className="flex gap-2">
+            <button
+              onClick={() => nav("/cotacoes/locais")}
+              className="h-12 px-4 rounded-2xl border border-gray-200 bg-white text-sm font-medium text-muted-foreground flex items-center gap-2 active:bg-gray-50"
+            >
+              <Plus className="h-4 w-4" />
+              Local
+            </button>
+            <button
+              onClick={() => nav(`/cotacoes/${sessaoId}/comparativo`)}
+              className="flex-1 h-12 rounded-2xl bg-[oklch(0.30_0.13_240)] text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.97] transition-transform shadow-lg"
+            >
+              <BarChart3 className="h-4 w-4" />
+              Ver comparativo
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
