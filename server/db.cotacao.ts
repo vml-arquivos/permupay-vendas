@@ -293,6 +293,61 @@ export async function atualizarSessao(
   return sessao;
 }
 
+
+export async function adicionarProdutoSessao(
+  usuarioId: number,
+  data: {
+    sessaoId: number;
+    produtoId: number;
+    quantidade?: number;
+    unidade?: string;
+    obrigatorio?: boolean;
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database indisponível");
+
+  const [sessao] = await db
+    .select({ id: cotacaoSessoes.id })
+    .from(cotacaoSessoes)
+    .where(and(eq(cotacaoSessoes.id, data.sessaoId), eq(cotacaoSessoes.usuarioId, usuarioId)))
+    .limit(1);
+  if (!sessao) throw new Error("Sessão não encontrada");
+
+  const [produto] = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(eq(products.id, data.produtoId))
+    .limit(1);
+  if (!produto) throw new Error("Produto não encontrado");
+
+  const duplicado = await db
+    .select({ id: cotacaoSessaoProdutos.id })
+    .from(cotacaoSessaoProdutos)
+    .where(and(eq(cotacaoSessaoProdutos.sessaoId, data.sessaoId), eq(cotacaoSessaoProdutos.produtoId, data.produtoId)))
+    .limit(1);
+  if (duplicado.length > 0) throw new Error("Este produto já está na cotação");
+
+  const [ordemAtual] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(cotacaoSessaoProdutos)
+    .where(eq(cotacaoSessaoProdutos.sessaoId, data.sessaoId));
+
+  const [item] = await db
+    .insert(cotacaoSessaoProdutos)
+    .values({
+      sessaoId: data.sessaoId,
+      produtoId: data.produtoId,
+      quantidade: String(data.quantidade ?? 1),
+      unidade: data.unidade ?? "un",
+      obrigatorio: data.obrigatorio ?? false,
+      ordem: ordemAtual?.total ?? 0,
+    })
+    .returning();
+
+  return item;
+}
+
 export async function removerSessao(id: number, usuarioId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database indisponível");

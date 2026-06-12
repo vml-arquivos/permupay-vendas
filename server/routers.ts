@@ -205,6 +205,38 @@ export const appRouter = router({
         db.createProduct({ ...input, userId: ctx.user.id })
       ),
 
+    quickCreate: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1).max(200),
+          category: z.enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"]).default("OUTRO"),
+          notes: z.string().optional(),
+          published: z.boolean().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        db.createProduct({
+          name: input.name.trim(),
+          category: input.category,
+          costPrice: 0,
+          packagingCost: 0,
+          inboundShippingCost: 0,
+          operationalCost: 0,
+          desiredMarginRate: 0,
+          desiredMarginValue: 0,
+          marginMode: "PERCENT",
+          taxRegime: "SIMPLES_NACIONAL",
+          estimatedTaxRate: 0,
+          notes: input.notes,
+          active: true,
+          costCurrency: "BRL",
+          stockQuantity: 0,
+          minimumStock: 0,
+          published: input.published ?? false,
+          userId: ctx.user.id,
+        })
+      ),
+
     list: protectedProcedure.query(() => db.listProducts()),
 
     nextId: protectedProcedure.query(() => db.getNextProductId()),
@@ -1102,6 +1134,18 @@ export const appRouter = router({
       obter: protectedProcedure
         .input(z.object({ id: z.number() }))
         .query(({ input, ctx }) => dbCotacao.obterSessao(input.id, ctx.user.id)),
+
+      adicionarProduto: protectedProcedure
+        .input(
+          z.object({
+            sessaoId: z.number(),
+            produtoId: z.number(),
+            quantidade: z.number().min(0.001).default(1),
+            unidade: z.string().max(20).default("un"),
+            obrigatorio: z.boolean().default(false),
+          })
+        )
+        .mutation(({ input, ctx }) => dbCotacao.adicionarProdutoSessao(ctx.user.id, input)),
 
       criar: protectedProcedure
         .input(
