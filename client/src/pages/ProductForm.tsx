@@ -39,6 +39,15 @@ import { CurrencyInput, parseCurrencyValue } from "@/components/CurrencyInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -94,6 +103,25 @@ interface FormState {
   desiredMarginValue: string;
   manualSalePrice: string;
 }
+
+type AiSuggestion = {
+  name: string;
+  category: string;
+  categoryLabel?: string;
+  shortDescription: string;
+  description: string;
+};
+
+type AiField = "name" | "category" | "categoryLabel" | "shortDescription" | "description";
+
+const AI_FIELDS: AiField[] = ["name", "category", "categoryLabel", "shortDescription", "description"];
+const AI_FIELD_LABELS: Record<AiField, string> = {
+  name: "Nome",
+  category: "Categoria",
+  categoryLabel: "Label de categoria",
+  shortDescription: "Descrição curta",
+  description: "Descrição completa",
+};
 
 const defaultForm: FormState = {
   name: "",
@@ -364,6 +392,15 @@ export default function ProductForm() {
   const [isSaving, setIsSaving] = useState(false);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
+  const [aiSuggestion, setAiSuggestion] = useState<AiSuggestion | null>(null);
+  const [aiSelections, setAiSelections] = useState<Record<AiField, boolean>>({
+    name: false,
+    category: false,
+    categoryLabel: false,
+    shortDescription: false,
+    description: false,
+  });
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
 
   const productQuery = trpc.products.byId.useQuery(
     { id: productId! },
@@ -392,8 +429,45 @@ export default function ProductForm() {
   const utils = trpc.useUtils();
   const addImageMutation = trpc.products.addImage.useMutation();
 
+  const uploadPendingImage = useCallback(async (file: File, targetProductId: number, persist = true) => {
+    const uploadResp = await fetch(
+      `/api/upload/image?productId=${targetProductId}&filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        body: file,
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+      },
+    );
+    if (!uploadResp.ok) throw new Error(`Falha no upload: ${uploadResp.statusText}`);
+    const { url } = await uploadResp.json() as { url: string };
+    if (persist) {
+      await addImageMutation.mutateAsync({
+        productId: targetProductId,
+        url,
+        storageKey: url,
+        altText: file.name,
+      });
+    }
+    return url;
+  }, [addImageMutation]);
+
   const globalSettings = trpc.paymentSettings.get.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
+  });
+
+  const suggestAiMutation = trpc.ai.suggestProductInfo.useMutation({
+    onSuccess: (suggestion) => {
+      setAiSuggestion(suggestion);
+      setAiSelections({
+        name: !form.name.trim(),
+        category: false,
+        categoryLabel: !form.categoryLabel.trim(),
+        shortDescription: !form.shortDescription.trim(),
+        description: !form.description.trim(),
+      });
+      setAiDialogOpen(true);
+    },
+    onError: (error) => toast.error(error.message),
   });
 
   const createProduct = trpc.products.create.useMutation({
@@ -401,22 +475,7 @@ export default function ProductForm() {
       if (pendingImages.length > 0) {
         for (const file of pendingImages) {
           try {
-            const uploadResp = await fetch(
-              `/api/upload/image?productId=${newProduct.id}&filename=${encodeURIComponent(file.name)}`,
-              {
-                method: "POST",
-                body: file,
-                headers: { "Content-Type": file.type || "application/octet-stream" },
-              }
-            );
-            if (!uploadResp.ok) throw new Error(`Falha no upload: ${uploadResp.statusText}`);
-            const { url } = await uploadResp.json();
-            await addImageMutation.mutateAsync({
-              productId: newProduct.id,
-              url,
-              storageKey: url,
-              altText: file.name,
-            });
+            await uploadPendingImage(file, newProduct.id);
           } catch {
             toast.warning(`Imagem "${file.name}" não pôde ser enviada. Produto criado normalmente.`);
           }
@@ -445,6 +504,27 @@ export default function ProductForm() {
     e.target.value = "";
   }, []);
 
+  const handleSuggestWithAi = useCallback(async () => {
+    const savedImageUrl = String((productQuery.data as any)?.imageUrl ?? "").trim();
+    let imageUrl = savedImageUrl || undefined;
+    if (pendingImages[0]) {
+      try {
+        imageUrl = await uploadPendingImage(pendingImages[0], 0, false);
+      } catch {
+        toast.error("Não foi possível preparar a imagem para a IA. Você ainda pode continuar o cadastro manualmente.");
+        return;
+      }
+    }
+    if (!imageUrl && !form.name.trim()) {
+      toast.error("Informe um nome ou selecione uma imagem para usar a IA.");
+      return;
+    }
+    suggestAiMutation.mutate({
+      ...(imageUrl ? { imageUrl } : {}),
+      ...(form.name.trim() ? { name: form.name.trim() } : {}),
+    });
+  }, [form.name, pendingImages, productQuery.data, suggestAiMutation, uploadPendingImage]);
+
   useEffect(() => {
     return () => { pendingPreviews.forEach((url) => URL.revokeObjectURL(url)); };
   }, [pendingPreviews]);
@@ -454,6 +534,21 @@ export default function ProductForm() {
       setForm((prev) => ({ ...prev, [field]: value })),
     []
   );
+
+  const applyAiSuggestion = useCallback(() => {
+    if (!aiSuggestion) return;
+    for (const field of AI_FIELDS) {
+      if (!aiSelections[field]) continue;
+      const value = String(aiSuggestion[field] ?? "");
+      if (field === "category") {
+        set("category")(value as ProductCategory);
+      } else {
+        set(field)(value);
+      }
+    }
+    setAiDialogOpen(false);
+    toast.success("Sugestões selecionadas aplicadas ao formulário.");
+  }, [aiSelections, aiSuggestion, set]);
 
   useEffect(() => {
     if (productQuery.data) {
@@ -1011,9 +1106,22 @@ export default function ProductForm() {
 
               {/* Galeria */}
               <div className="mt-4">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  {isEditing ? "Galeria de imagens" : "Imagens pré-seleção (após criar)"}
-                </p>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    {isEditing ? "Galeria de imagens" : "Imagens pré-seleção (após criar)"}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={handleSuggestWithAi}
+                    disabled={suggestAiMutation.isPending || (!form.name.trim() && pendingImages.length === 0 && !String((productQuery.data as any)?.imageUrl ?? "").trim())}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    {suggestAiMutation.isPending ? "Analisando..." : "Preencher com IA"}
+                  </Button>
+                </div>
                 {isEditing && productId ? (
                   <ImageGallery productId={productId} />
                 ) : pendingPreviews.length > 0 ? (
@@ -1414,6 +1522,58 @@ export default function ProductForm() {
           </div>
         </div>
       </div>
+
+      <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Revisar sugestão da IA</DialogTitle>
+            <DialogDescription>
+              Compare os valores sugeridos com o formulário e marque apenas os campos que deseja aplicar.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            {aiSuggestion && AI_FIELDS.map((field) => {
+              const suggestedValue = String(aiSuggestion[field] ?? "");
+              const currentValue = String(field === "category" ? form.category : form[field]);
+              return (
+                <div key={field} className="rounded-md border border-border p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-foreground">{AI_FIELD_LABELS[field]}</p>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id={`ai-${field}`}
+                        checked={aiSelections[field]}
+                        onCheckedChange={(checked) => setAiSelections((prev) => ({ ...prev, [field]: checked === true }))}
+                      />
+                      <Label htmlFor={`ai-${field}`} className="text-xs text-muted-foreground cursor-pointer">
+                        Usar esta sugestão
+                      </Label>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-md bg-primary/5 border border-primary/15 p-3">
+                      <p className="text-[10px] uppercase tracking-wider text-primary mb-1">Sugestão da IA</p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap break-words">{suggestedValue || "—"}</p>
+                    </div>
+                    <div className="rounded-md bg-muted/30 border border-border p-3">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Valor atual</p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap break-words">{currentValue || "—"}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setAiDialogOpen(false)}>Cancelar</Button>
+            <Button type="button" onClick={applyAiSuggestion} disabled={!Object.values(aiSelections).some(Boolean)}>
+              Aplicar selecionados
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

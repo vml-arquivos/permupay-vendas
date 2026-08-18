@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -23,6 +24,7 @@ import * as dbSettings from "./db.settings";
 import * as dbPayment from "./db.payment-settings";
 import * as dbCotacao from "./db.cotacao";
 import * as dbSellers from "./db.sellers";
+import * as dbAi from "./db.ai";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
 
@@ -491,6 +493,28 @@ export const appRouter = router({
     cancelQueue: protectedProcedure
       .input(z.object({ queueId: z.number() }))
       .mutation(({ input }) => dbBatches.cancelQueueEntry(input.queueId)),
+  }),
+
+  // ── IA para cadastro de produto ─────────────────────────────────────────────
+  ai: router({
+    suggestProductInfo: protectedProcedure
+      .input(
+        z.object({
+          imageUrl: z.string().url().optional(),
+          name: z.string().trim().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        try {
+          return await dbAi.suggestProductInfo(input);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Não foi possível obter a sugestão da IA agora.";
+          if (message === dbAi.AI_NOT_CONFIGURED_MESSAGE) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: dbAi.AI_NOT_CONFIGURED_MESSAGE });
+          }
+          throw new TRPCError({ code: "BAD_REQUEST", message });
+        }
+      }),
   }),
 
   // ── Marketplace / Vitrine pública ──────────────────────────────────────────
