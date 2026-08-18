@@ -10,9 +10,10 @@
  * - Aviso discreto: "Escolha a forma de pagamento na próxima etapa"
  * - Quantidade disponível em texto pequeno
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { captureReferralFromLocation } from "@/lib/referral";
 import {
   ArrowLeft, Share2, ShoppingBag, Heart, MessageCircle,
 } from "lucide-react";
@@ -61,6 +62,10 @@ export default function ProductPage() {
   const params = useParams<{ id?: string }>();
   const productId = params.id ? Number(params.id) : undefined;
   const [showBuyModal, setShowBuyModal] = useState(false);
+
+  useEffect(() => {
+    captureReferralFromLocation();
+  }, []);
 
   const q = trpc.marketplace.productById.useQuery(
     { id: productId! },

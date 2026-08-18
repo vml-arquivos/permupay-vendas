@@ -169,6 +169,13 @@
       "when": 1779850000000,
       "tag": "0024_extend_cotacao_locais",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1779860000000,
+      "tag": "0025_sellers_commissions",
+      "breakpoints": true
     }
   ]
 }

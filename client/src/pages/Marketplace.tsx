@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { captureReferralFromLocation } from "@/lib/referral";
 import {
   ArrowRight,
   ChevronLeft,
@@ -253,6 +254,10 @@ export default function Marketplace() {
 
   const shopProducts = useMemo(() => products.filter(isShopProduct), [products]);
   const quaseZeroProducts = useMemo(() => products.filter(isQuaseZeroProduct), [products]);
+
+  useEffect(() => {
+    captureReferralFromLocation();
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

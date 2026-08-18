@@ -11,6 +11,7 @@ import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { products, stockEntries } from "../drizzle/schema";
 import { orders, type Order, type InsertOrder } from "../drizzle/schema.orders";
+import { commissions, sellers } from "../drizzle/schema.sellers";
 
 type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 
@@ -50,7 +51,8 @@ export async function createOrder(data: {
   buyerContact: string;
   buyerContactType: string;
   paymentMethod: PaymentMethod;
-}): Promise<Order> {
+  referralCode?: string;
+}, requireReferral = false): Promise<Order> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -63,6 +65,23 @@ export async function createOrder(data: {
   const product = productRows[0];
   if (!product) throw new Error("Produto não encontrado");
   if (!product.published || !product.active) throw new Error("Produto não disponível");
+
+  let sellerId: number | null = null;
+  let normalizedReferralCode: string | null = null;
+  if (data.referralCode?.trim()) {
+    const sellerRows = await db
+      .select({ id: sellers.id, referralCode: sellers.referralCode })
+      .from(sellers)
+      .where(and(eq(sellers.referralCode, data.referralCode.trim().toUpperCase()), eq(sellers.active, true)))
+      .limit(1);
+    const seller = sellerRows[0];
+    if (!seller && requireReferral) throw new Error("Token de vendedor inválido ou inativo");
+    if (seller) {
+      sellerId = seller.id;
+      normalizedReferralCode = seller.referralCode;
+    }
+  }
+  if (requireReferral && !sellerId) throw new Error("Token de vendedor inválido ou inativo");
 
   const quantity = Math.max(1, Number(data.quantity || 1));
   const availableStock = Number(product.stockQuantity ?? 0);
@@ -88,6 +107,8 @@ export async function createOrder(data: {
       totalPrice,
       status: "AGUARDANDO_PAGAMENTO",
       expiresAt,
+      sellerId,
+      referralCode: normalizedReferralCode,
     } as InsertOrder)
     .returning();
 
@@ -239,6 +260,30 @@ export async function confirmOrder(
             WHERE queue_id = ${nextQueue.id}
           `);
         }
+      }
+    }
+
+    const sellerId = Number(existing.seller_id ?? 0);
+    if (sellerId > 0) {
+      const sellerResult = await tx.execute(sql`
+        SELECT id, commission_rate
+        FROM permupay_sellers
+        WHERE id = ${sellerId}
+        LIMIT 1
+      `) as any;
+      const seller = sellerResult?.rows?.[0];
+      if (seller) {
+        const orderTotal = Number(existing.total_price ?? 0);
+        const commissionRate = Number(seller.commission_rate ?? 5);
+        const commissionValue = Number((orderTotal * commissionRate / 100).toFixed(2));
+        await tx.insert(commissions).values({
+          orderId,
+          sellerId,
+          orderTotal,
+          commissionRate,
+          commissionValue,
+          status: "PENDENTE",
+        }).onConflictDoNothing({ target: commissions.orderId });
       }
     }
 

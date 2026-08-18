@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { getStoredReferralCode } from "@/lib/referral";
 
 type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 
@@ -80,6 +81,7 @@ export function BuyModal({
   const [contactType, setContactType] = useState<"WHATSAPP" | "EMAIL">("WHATSAPP");
   const [quantity, setQuantity] = useState(1);
   const [orderId, setOrderId] = useState<number | null>(null);
+  const referralCode = getStoredReferralCode();
 
   // Produto adicional
   const [extraProductId, setExtraProductId] = useState<number | "">("");
@@ -169,6 +171,7 @@ export function BuyModal({
         buyerContact: contact.trim(),
         buyerContactType: contactType,
         paymentMethod: method,
+        referralCode: referralCode ?? undefined,
       },
       {
         onSuccess: () => {
@@ -180,6 +183,7 @@ export function BuyModal({
               buyerContact: contact.trim(),
               buyerContactType: contactType,
               paymentMethod: method,
+              referralCode: referralCode ?? undefined,
             });
           }
         },

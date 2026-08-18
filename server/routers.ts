@@ -22,6 +22,7 @@ import * as dbOrders from "./db.orders";
 import * as dbSettings from "./db.settings";
 import * as dbPayment from "./db.payment-settings";
 import * as dbCotacao from "./db.cotacao";
+import * as dbSellers from "./db.sellers";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
 
@@ -129,6 +130,11 @@ const pricingDefaultsSchema = z.object({
 // ─── paymentSettingsSchema — EXPANDIDO (v13) ──────────────────────────────────
 // taxCash (PIX) AUSENTE — forçado como 0 no db.payment-settings.ts.
 // Todos os campos são opcionais para permitir PATCH parcial.
+
+const adminOnlyProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin") throw new Error("Acesso restrito ao administrador");
+  return next();
+});
 
 const paymentSettingsSchema = z.object({
   // Fiscal
@@ -639,6 +645,70 @@ export const appRouter = router({
       .mutation(({ input }) => dbWishlist.deleteCategory(input.id)),
   }),
 
+  // ── Vendedores externos e comissões ────────────────────────────────────────
+  sellers: router({
+    resolveByToken: publicProcedure
+      .input(z.object({ referralCode: z.string().min(1).max(32) }))
+      .query(({ input }) => dbSellers.getSellerByToken(input.referralCode)),
+
+    catalog: publicProcedure
+      .input(z.object({ referralCode: z.string().min(1).max(32) }))
+      .query(({ input }) => dbSellers.getExternalCatalog(input.referralCode)),
+
+    createDirectOrder: publicProcedure
+      .input(z.object({
+        referralCode: z.string().min(1).max(32),
+        productId: z.number(),
+        quantity: z.number().int().min(1).default(1),
+        buyerName: z.string().min(2, "Informe seu nome"),
+        buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
+        buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+        paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]),
+      }))
+      .mutation(({ input }) => dbSellers.createDirectOrder(input)),
+
+    list: adminOnlyProcedure.query(() => dbSellers.listSellers()),
+
+    create: adminOnlyProcedure
+      .input(z.object({
+        name: z.string().min(2),
+        email: z.string().email().optional().or(z.literal("")),
+        phone: z.string().optional(),
+        referralCode: z.string().max(32).optional(),
+        commissionRate: z.number().min(0).max(100).default(5),
+        active: z.boolean().default(true),
+      }))
+      .mutation(({ input }) => dbSellers.createSeller(input)),
+
+    update: adminOnlyProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(2).optional(),
+        email: z.string().email().nullable().optional().or(z.literal("")),
+        phone: z.string().nullable().optional(),
+        referralCode: z.string().max(32).optional(),
+        commissionRate: z.number().min(0).max(100).optional(),
+        active: z.boolean().optional(),
+      }))
+      .mutation(({ input }) => {
+        const { id, ...data } = input;
+        return dbSellers.updateSeller(id, data);
+      }),
+
+    delete: adminOnlyProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input }) => dbSellers.deleteSeller(input.id)),
+
+    commissions: router({
+      list: adminOnlyProcedure
+        .input(z.object({ sellerId: z.number().optional(), status: z.enum(["PENDENTE", "PAGO"]).optional() }).optional())
+        .query(({ input }) => dbSellers.listCommissions(input)),
+      markPaid: adminOnlyProcedure
+        .input(z.object({ id: z.number() }))
+        .mutation(({ input }) => dbSellers.markCommissionPaid(input.id)),
+    }),
+  }),
+
   // ── Pedidos ────────────────────────────────────────────────────────────────
   orders: router({
     create: publicProcedure
@@ -650,6 +720,7 @@ export const appRouter = router({
           buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
           buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
           paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]),
+          referralCode: z.string().max(32).optional(),
         })
       )
       .mutation(({ input }) => dbOrders.createOrder(input)),

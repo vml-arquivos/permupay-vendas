@@ -64,6 +64,7 @@ const menuItems = [
 const adminItems = [
   { icon: Users, label: "Usuários", path: "/usuarios" },
   { icon: Tag, label: "Categorias", path: "/categorias" },
+  { icon: Users, label: "Vendedores", path: "/vendedores" },
   { icon: Settings, label: "Configurações", path: "/configuracoes" },
   { icon: CreditCard, label: "Pagamento", path: "/configuracoes-pagamento" },
 ];

@@ -44,6 +44,10 @@ export const orders = pgTable("permupay_orders", {
   // Dados do pedido
   quantity: integer("quantity").notNull().default(1),
 
+  // Atribuição opcional de vendas externas
+  sellerId: integer("seller_id"),
+  referralCode: text("referral_code"),
+
   // Dados do comprador
   buyerName: text("buyer_name").notNull(),
   buyerContact: text("buyer_contact").notNull(),

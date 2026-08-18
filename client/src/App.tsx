@@ -30,6 +30,8 @@ import ConfiguracoesPagamento from "./pages/ConfiguracoesPagamento";
 import Relatorios from "./pages/Relatorios";
 import Pedidos from "./pages/Pedidos";
 import CategoriasAdmin from "./pages/CategoriasAdmin";
+import Vendedores from "./pages/Vendedores";
+import VendaDireta from "./pages/VendaDireta";
 
 // Cotação de preços
 import Cotacoes from "./pages/Cotacoes";
@@ -62,6 +64,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/simulador" component={PricingSimulator} />
       <Route path="/desejos" component={WishlistPublic} />
+      <Route path="/vendedor/:token" component={VendaDireta} />
 
       {/* ── DASHBOARD ─────────────────────────────────────────────────── */}
       <Route path="/dashboard">{() => <PL><Dashboard /></PL>}</Route>
@@ -101,6 +104,7 @@ function Router() {
       {/* ── SOMENTE ADMIN ─────────────────────────────────────────────── */}
       <Route path="/usuarios">{() => <P adminOnly><Usuarios /></P>}</Route>
       <Route path="/categorias">{() => <P adminOnly><CategoriasAdmin /></P>}</Route>
+      <Route path="/vendedores">{() => <P adminOnly><Vendedores /></P>}</Route>
       <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
       <Route path="/configuracoes-pagamento">{() => <P><ConfiguracoesPagamento /></P>}</Route>
 
