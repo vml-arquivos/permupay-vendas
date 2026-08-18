@@ -416,6 +416,24 @@ export const appSettings = pgTable("permupay_app_settings", {
 export type AppSetting = typeof appSettings.$inferSelect;
 export type InsertAppSetting = typeof appSettings.$inferInsert;
 
+// ─── Tabela: ai_suggestions_cache (agente interno) ────────────────────────────
+
+export const aiSuggestionsCache = pgTable("permupay_ai_suggestions_cache", {
+  id: serial("id").primaryKey(),
+  inputHash: varchar("input_hash", { length: 64 }).notNull(),
+  sourceType: text("source_type").notNull(),
+  matchedProductId: integer("matched_product_id").references(() => products.id, { onDelete: "set null" }),
+  suggestion: jsonb("suggestion").notNull(),
+  origin: text("origin").notNull(),
+  confidence: real("confidence").notNull().default(0),
+  hits: integer("hits").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type AiSuggestionCache = typeof aiSuggestionsCache.$inferSelect;
+export type InsertAiSuggestionCache = typeof aiSuggestionsCache.$inferInsert;
+
 // ─── Tabela: product_images (galeria de imagens) ──────────────────────────────
 
 export const productImages = pgTable("permupay_product_images", {
