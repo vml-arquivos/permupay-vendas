@@ -1,4 +1,4 @@
-import { useState } from "wouter";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency, formatPercent } from "../../../shared/pricingCalculator";
@@ -245,7 +245,7 @@ function PaymentMethodModal({
   const [selected, setSelected] = useState<string[]>([...ALL_METHODS]);
 
   const toggle = (m: string) =>
-    setSelected((prev) => prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]);
+    setSelected((prev: string[]) => prev.includes(m) ? prev.filter((x: string) => x !== m) : [...prev, m]);
 
   const toggleAll = () =>
     setSelected(selected.length === ALL_METHODS.length ? [] : [...ALL_METHODS]);
@@ -338,7 +338,7 @@ export default function Simulations() {
   const rows = (simulations as any[]).map(extractRow);
 
   const toggleSelect = (id: number) => {
-    setSelectedIds((prev) => {
+    setSelectedIds((prev: Set<number>) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;

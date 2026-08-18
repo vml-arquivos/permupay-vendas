@@ -38,25 +38,23 @@ export default function CotacaoColeta() {
   const { data: sessao, isLoading } = trpc.cotacao.sessoes.obter.useQuery({ id: sessaoId });
   const { data: locais } = trpc.cotacao.locais.listar.useQuery();
   const { data: todosProdutos } = trpc.products.list.useQuery();
-  trpc.cotacao.precos.listarSessao.useQuery(
-    { sessaoId },
-    {
-      onSuccess(data) {
-        const m: PMap = {};
-        const n = new Set<string>();
-        const f: FotoMap = {};
-        for (const p of data) {
-          const k = `${p.sessaoProdutoId}-${p.localId}`;
-          m[k] = p.precoUnitario != null ? String(p.precoUnitario) : "";
-          if (!p.encontrado) n.add(k);
-          if (p.fotoPreco) f[k] = p.fotoPreco;
-        }
-        setPrecos(m);
-        setNaoAchados(n);
-        setFotosPreview(f);
-      }
+  const { data: precosSalvos } = trpc.cotacao.precos.listarSessao.useQuery({ sessaoId });
+
+  useEffect(() => {
+    if (!precosSalvos) return;
+    const m: PMap = {};
+    const n = new Set<string>();
+    const f: FotoMap = {};
+    for (const p of precosSalvos) {
+      const k = `${p.sessaoProdutoId}-${p.localId}`;
+      m[k] = p.precoUnitario != null ? String(p.precoUnitario) : "";
+      if (!p.encontrado) n.add(k);
+      if (p.fotoPreco) f[k] = p.fotoPreco;
     }
-  );
+    setPrecos(m);
+    setNaoAchados(n);
+    setFotosPreview(f);
+  }, [precosSalvos]);
 
   useEffect(() => {
     if (locais && locais.length > 0 && !localId) setLocalId(locais[0].id);
