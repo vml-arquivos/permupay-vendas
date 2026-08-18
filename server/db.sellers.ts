@@ -5,19 +5,38 @@ import * as dbOrders from "./db.orders";
 import { products } from "../drizzle/schema";
 import { commissions, sellers, type InsertSeller, type Seller } from "../drizzle/schema.sellers";
 
+export type SellerType = "INTERNO" | "EXTERNO";
+export type CommissionType = "PERCENT" | "FIXED";
+export type CommissionStatus = "PENDENTE" | "PAGO" | "PAGA" | "CANCELADA";
+
 function normalizeCode(value: string): string {
-  return value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 32);
+  return value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 60);
 }
 
 function generatedCode(): string {
   return `VEN-${randomBytes(5).toString("hex").toUpperCase()}`;
 }
 
+function generatedAccessToken(): string {
+  return randomBytes(32).toString("hex");
+}
+
+function validateCommission(type: CommissionType, value: number): void {
+  if (!Number.isFinite(value) || value < 0 || (type === "PERCENT" && value > 100)) {
+    throw new Error(type === "PERCENT" ? "A comissão percentual deve estar entre 0% e 100%" : "A comissão fixa não pode ser negativa");
+  }
+}
+
 export async function createSeller(data: {
   name: string;
+  type?: SellerType;
   email?: string;
   phone?: string;
+  contact?: string;
   referralCode?: string;
+  accessToken?: string | null;
+  commissionType?: CommissionType;
+  commissionValue?: number;
   commissionRate?: number;
   active?: boolean;
   userId?: number | null;
@@ -27,19 +46,24 @@ export async function createSeller(data: {
 
   const name = data.name.trim();
   if (!name) throw new Error("Nome do vendedor é obrigatório");
-  const commissionRate = Number(data.commissionRate ?? 5);
-  if (!Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 100) {
-    throw new Error("A comissão deve estar entre 0% e 100%");
-  }
+  const type = data.type ?? "EXTERNO";
+  const commissionType = data.commissionType ?? "PERCENT";
+  const commissionValue = Number(data.commissionValue ?? data.commissionRate ?? 0);
+  validateCommission(commissionType, commissionValue);
   const referralCode = normalizeCode(data.referralCode || generatedCode());
-  if (!referralCode) throw new Error("Token de indicação inválido");
+  if (!referralCode) throw new Error("Código de indicação inválido");
 
   const [created] = await db.insert(sellers).values({
     name,
+    type,
     email: data.email?.trim() || null,
     phone: data.phone?.trim() || null,
+    contact: data.contact?.trim() || data.phone?.trim() || null,
     referralCode,
-    commissionRate,
+    accessToken: type === "EXTERNO" ? (data.accessToken?.trim() || generatedAccessToken()) : null,
+    commissionType,
+    commissionValue,
+    commissionRate: commissionType === "PERCENT" ? commissionValue : Number(data.commissionRate ?? 0),
     active: data.active ?? true,
     userId: data.userId ?? null,
   } satisfies InsertSeller).returning();
@@ -60,7 +84,7 @@ export async function getSellerById(id: number): Promise<Seller | null> {
   return seller ?? null;
 }
 
-export async function getSellerByToken(referralCode: string, onlyActive = true): Promise<Seller | null> {
+export async function getSellerByReferralCode(referralCode: string, onlyActive = true): Promise<Seller | null> {
   const db = await getDb();
   if (!db) return null;
   const code = normalizeCode(referralCode);
@@ -71,50 +95,77 @@ export async function getSellerByToken(referralCode: string, onlyActive = true):
   return seller ?? null;
 }
 
+export async function getSellerByAccessToken(accessToken: string, onlyActive = true): Promise<Seller | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const conditions = [eq(sellers.accessToken, accessToken.trim()), eq(sellers.type, "EXTERNO")];
+  if (onlyActive) conditions.push(eq(sellers.active, true));
+  const [seller] = await db.select().from(sellers).where(and(...conditions)).limit(1);
+  return seller ?? null;
+}
+
+export async function getSellerByToken(referralCode: string, accessToken: string, onlyActive = true): Promise<Seller | null> {
+  const seller = await getSellerByAccessToken(accessToken, onlyActive);
+  if (!seller || seller.referralCode !== normalizeCode(referralCode)) return null;
+  return seller;
+}
+
 export async function updateSeller(id: number, data: {
   name?: string;
+  type?: SellerType;
   email?: string | null;
   phone?: string | null;
+  contact?: string | null;
   referralCode?: string;
+  accessToken?: string | null;
+  commissionType?: CommissionType;
+  commissionValue?: number;
   commissionRate?: number;
   active?: boolean;
+  userId?: number | null;
 }): Promise<Seller> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const update: Partial<InsertSeller> = { updatedAt: new Date() };
   if (data.name !== undefined) update.name = data.name.trim();
+  if (data.type !== undefined) update.type = data.type;
   if (data.email !== undefined) update.email = data.email?.trim() || null;
   if (data.phone !== undefined) update.phone = data.phone?.trim() || null;
+  if (data.contact !== undefined) update.contact = data.contact?.trim() || null;
   if (data.referralCode !== undefined) update.referralCode = normalizeCode(data.referralCode);
-  if (data.commissionRate !== undefined) {
-    if (data.commissionRate < 0 || data.commissionRate > 100) throw new Error("A comissão deve estar entre 0% e 100%");
+  if (data.accessToken !== undefined) update.accessToken = data.accessToken?.trim() || null;
+  if (data.commissionType !== undefined) update.commissionType = data.commissionType;
+  if (data.commissionValue !== undefined || data.commissionType !== undefined) {
+    const commissionType = data.commissionType ?? "PERCENT";
+    const commissionValue = Number(data.commissionValue ?? 0);
+    validateCommission(commissionType, commissionValue);
+    update.commissionValue = commissionValue;
+    update.commissionRate = commissionType === "PERCENT" ? commissionValue : Number(data.commissionRate ?? 0);
+  } else if (data.commissionRate !== undefined) {
+    validateCommission("PERCENT", data.commissionRate);
     update.commissionRate = data.commissionRate;
+    update.commissionValue = data.commissionRate;
+    update.commissionType = "PERCENT";
   }
   if (data.active !== undefined) update.active = data.active;
+  if (data.userId !== undefined) update.userId = data.userId;
+  if (update.type === "INTERNO") update.accessToken = null;
   const [updated] = await db.update(sellers).set(update).where(eq(sellers.id, id)).returning();
   if (!updated) throw new Error("Vendedor não encontrado");
   return updated;
 }
 
-export async function deleteSeller(id: number): Promise<{ success: true }> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const existing = await getSellerById(id);
-  if (!existing) throw new Error("Vendedor não encontrado");
-  const commissionCount = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(commissions)
-    .where(eq(commissions.sellerId, id));
-  if (Number(commissionCount[0]?.count ?? 0) > 0) {
-    throw new Error("Vendedor com comissões históricas não pode ser apagado; inative-o para preservar o histórico.");
-  }
-  await db.delete(sellers).where(eq(sellers.id, id));
-  return { success: true };
+export async function deactivateSeller(id: number): Promise<Seller> {
+  return updateSeller(id, { active: false });
 }
 
-export async function getExternalCatalog(referralCode: string) {
-  const seller = await getSellerByToken(referralCode, true);
-  if (!seller) throw new Error("Token de vendedor inválido ou inativo");
+export async function deleteSeller(id: number): Promise<{ success: true }> {
+  return deactivateSeller(id).then(() => ({ success: true }));
+}
+
+export async function getExternalCatalog(accessToken: string) {
+  const seller = await getSellerByAccessToken(accessToken, true);
+  if (!seller) throw new Error("Código ou token de vendedor inválido ou inativo");
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const catalog = await db
@@ -134,32 +185,29 @@ export async function getExternalCatalog(referralCode: string) {
     .from(products)
     .where(and(eq(products.active, true), eq(products.published, true)))
     .orderBy(desc(products.updatedAt));
-  return { seller, products: catalog };
+  const { accessToken: _accessToken, ...safeSeller } = seller;
+  return { seller: safeSeller, products: catalog };
 }
 
 export async function createDirectOrder(data: {
-  referralCode: string;
+  sellerId?: number;
+  referralCode?: string;
+  accessToken?: string;
+  requestingUserId?: number | null;
   productId: number;
   quantity: number;
+  unitPrice: number;
   buyerName: string;
   buyerContact: string;
   buyerContactType: string;
   paymentMethod: "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
+  markAsPaid: boolean;
+  allowBelowCost?: boolean;
 }) {
-  const seller = await getSellerByToken(data.referralCode, true);
-  if (!seller) throw new Error("Token de vendedor inválido ou inativo");
-  return dbOrders.createOrder({
-    productId: data.productId,
-    quantity: data.quantity,
-    buyerName: data.buyerName,
-    buyerContact: data.buyerContact,
-    buyerContactType: data.buyerContactType,
-    paymentMethod: data.paymentMethod,
-    referralCode: seller.referralCode,
-  }, true);
+  return dbOrders.createSellerOrder(data);
 }
 
-export async function listCommissions(filters?: { sellerId?: number; status?: "PENDENTE" | "PAGO" }) {
+export async function listCommissions(filters?: { sellerId?: number; status?: CommissionStatus }) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
@@ -173,6 +221,9 @@ export async function listCommissions(filters?: { sellerId?: number; status?: "P
       orderTotal: commissions.orderTotal,
       commissionRate: commissions.commissionRate,
       commissionValue: commissions.commissionValue,
+      saleAmount: commissions.saleAmount,
+      costAmount: commissions.costAmount,
+      commissionAmount: commissions.commissionAmount,
       status: commissions.status,
       paidAt: commissions.paidAt,
       createdAt: commissions.createdAt,
@@ -190,7 +241,7 @@ export async function markCommissionPaid(id: number) {
   if (!db) throw new Error("Database not available");
   const [updated] = await db
     .update(commissions)
-    .set({ status: "PAGO", paidAt: new Date(), updatedAt: new Date() })
+    .set({ status: "PAGA", paidAt: new Date(), updatedAt: new Date() })
     .where(eq(commissions.id, id))
     .returning();
   if (!updated) throw new Error("Comissão não encontrada");

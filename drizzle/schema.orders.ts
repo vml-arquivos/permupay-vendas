@@ -15,6 +15,7 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 import { users } from "./schema";
+import { sellers } from "./schema.sellers";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -44,8 +45,9 @@ export const orders = pgTable("permupay_orders", {
   // Dados do pedido
   quantity: integer("quantity").notNull().default(1),
 
-  // Atribuição opcional de vendas externas
-  sellerId: integer("seller_id"),
+  // Canal e atribuição opcional da venda; pedidos antigos permanecem como VITRINE.
+  channel: text("channel").notNull().default("VITRINE"),
+  sellerId: integer("seller_id").references(() => sellers.id, { onDelete: "set null" }),
   referralCode: text("referral_code"),
 
   // Dados do comprador

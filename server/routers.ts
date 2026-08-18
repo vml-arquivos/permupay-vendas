@@ -648,34 +648,53 @@ export const appRouter = router({
   // ── Vendedores externos e comissões ────────────────────────────────────────
   sellers: router({
     resolveByToken: publicProcedure
-      .input(z.object({ referralCode: z.string().min(1).max(32) }))
-      .query(({ input }) => dbSellers.getSellerByToken(input.referralCode)),
+      .input(z.object({ accessToken: z.string().min(1).max(64) }))
+      .query(async ({ input }) => {
+        const seller = await dbSellers.getSellerByAccessToken(input.accessToken);
+        if (!seller) return null;
+        const { accessToken: _accessToken, ...safeSeller } = seller;
+        return safeSeller;
+      }),
 
     catalog: publicProcedure
-      .input(z.object({ referralCode: z.string().min(1).max(32) }))
-      .query(({ input }) => dbSellers.getExternalCatalog(input.referralCode)),
+      .input(z.object({ accessToken: z.string().min(1).max(64) }))
+      .query(({ input }) => dbSellers.getExternalCatalog(input.accessToken)),
 
     createDirectOrder: publicProcedure
       .input(z.object({
-        referralCode: z.string().min(1).max(32),
+        sellerId: z.number().optional(),
+        referralCode: z.string().max(60).optional(),
+        accessToken: z.string().max(64).optional(),
         productId: z.number(),
         quantity: z.number().int().min(1).default(1),
+        unitPrice: z.number().positive(),
         buyerName: z.string().min(2, "Informe seu nome"),
         buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
         buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
         paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]),
+        markAsPaid: z.boolean().default(false),
+        allowBelowCost: z.boolean().optional(),
       }))
-      .mutation(({ input }) => dbSellers.createDirectOrder(input)),
+      .mutation(({ input, ctx }) => dbSellers.createDirectOrder({
+        ...input,
+        requestingUserId: ctx.user?.id ?? null,
+        allowBelowCost: Boolean(ctx.user?.role === "admin" && input.allowBelowCost),
+      })),
 
     list: adminOnlyProcedure.query(() => dbSellers.listSellers()),
 
     create: adminOnlyProcedure
       .input(z.object({
         name: z.string().min(2),
+        type: z.enum(["INTERNO", "EXTERNO"]).default("EXTERNO"),
         email: z.string().email().optional().or(z.literal("")),
         phone: z.string().optional(),
-        referralCode: z.string().max(32).optional(),
-        commissionRate: z.number().min(0).max(100).default(5),
+        contact: z.string().optional(),
+        userId: z.number().int().nullable().optional(),
+        referralCode: z.string().max(60).optional(),
+        commissionType: z.enum(["PERCENT", "FIXED"]).default("PERCENT"),
+        commissionValue: z.number().min(0).default(0),
+        commissionRate: z.number().min(0).max(100).optional(),
         active: z.boolean().default(true),
       }))
       .mutation(({ input }) => dbSellers.createSeller(input)),
@@ -684,9 +703,15 @@ export const appRouter = router({
       .input(z.object({
         id: z.number(),
         name: z.string().min(2).optional(),
+        type: z.enum(["INTERNO", "EXTERNO"]).optional(),
         email: z.string().email().nullable().optional().or(z.literal("")),
         phone: z.string().nullable().optional(),
-        referralCode: z.string().max(32).optional(),
+        contact: z.string().nullable().optional(),
+        userId: z.number().int().nullable().optional(),
+        referralCode: z.string().max(60).optional(),
+        accessToken: z.string().max(64).nullable().optional(),
+        commissionType: z.enum(["PERCENT", "FIXED"]).optional(),
+        commissionValue: z.number().min(0).optional(),
         commissionRate: z.number().min(0).max(100).optional(),
         active: z.boolean().optional(),
       }))
@@ -701,7 +726,7 @@ export const appRouter = router({
 
     commissions: router({
       list: adminOnlyProcedure
-        .input(z.object({ sellerId: z.number().optional(), status: z.enum(["PENDENTE", "PAGO"]).optional() }).optional())
+        .input(z.object({ sellerId: z.number().optional(), status: z.enum(["PENDENTE", "PAGO", "PAGA", "CANCELADA"]).optional() }).optional())
         .query(({ input }) => dbSellers.listCommissions(input)),
       markPaid: adminOnlyProcedure
         .input(z.object({ id: z.number() }))

@@ -99,6 +99,7 @@ export async function createOrder(data: {
     .values({
       productId: data.productId,
       quantity,
+      channel: "VITRINE",
       buyerName: data.buyerName,
       buyerContact: data.buyerContact,
       buyerContactType: data.buyerContactType,
@@ -115,6 +116,135 @@ export async function createOrder(data: {
   return order;
 }
 
+async function applyStockDeductionForOrder(
+  tx: any,
+  order: any,
+  product: any,
+  stockUserId: number | null,
+  adminNotes?: string,
+): Promise<void> {
+  const orderId = Number(order.id);
+  const productId = Number(order.product_id);
+  const quantitySold = Number(order.quantity ?? 0);
+  const currentStock = Number(product.stock_quantity ?? 0);
+  if (currentStock < quantitySold) {
+    throw new Error(`Estoque insuficiente: disponível ${currentStock}, necessário ${quantitySold}`);
+  }
+
+  const newStock = currentStock - quantitySold;
+  await tx.execute(sql`
+    UPDATE permupay_products
+    SET stock_quantity = ${newStock}, updated_at = NOW()
+    WHERE id = ${productId}
+  `);
+  await tx.insert(stockEntries).values({
+    productId,
+    userId: stockUserId,
+    quantity: -quantitySold,
+    unitCost: Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0),
+    notes: `Saída por venda/reserva confirmada — Pedido #${orderId}${adminNotes ? ` | ${adminNotes}` : ""}`,
+  });
+
+  const activeQueueResult = await tx.execute(sql`
+    SELECT id, quantity_remaining
+    FROM permupay_stock_queue
+    WHERE product_id = ${productId} AND status = 'ATIVO'
+    ORDER BY activated_at ASC NULLS LAST, created_at ASC
+    LIMIT 1 FOR UPDATE
+  `) as any;
+  const activeQueue = activeQueueResult?.rows?.[0];
+  if (!activeQueue) return;
+
+  const remainingBefore = Number(activeQueue.quantity_remaining ?? 0);
+  const remainingAfter = Math.max(0, remainingBefore - quantitySold);
+  await tx.execute(sql`
+    UPDATE permupay_stock_queue
+    SET quantity_remaining = ${remainingAfter}, updated_at = NOW()
+    WHERE id = ${activeQueue.id}
+  `);
+  if (remainingAfter > 0 && newStock > 0) return;
+
+  await tx.execute(sql`
+    UPDATE permupay_stock_queue
+    SET status = 'ESGOTADO', quantity_remaining = 0, exhausted_at = NOW(), updated_at = NOW()
+    WHERE id = ${activeQueue.id}
+  `);
+  await tx.execute(sql`
+    UPDATE permupay_batch_items SET queue_status = 'ESGOTADO' WHERE queue_id = ${activeQueue.id}
+  `);
+
+  const nextQueueResult = await tx.execute(sql`
+    SELECT id, quantity, quantity_remaining, unit_cost,
+           suggested_price_pix, suggested_price_card, suggested_price_boleto, batch_id
+    FROM permupay_stock_queue
+    WHERE product_id = ${productId} AND status = 'EM_ESPERA'
+    ORDER BY position ASC, created_at ASC
+    LIMIT 1 FOR UPDATE
+  `) as any;
+  const nextQueue = nextQueueResult?.rows?.[0];
+  if (!nextQueue) return;
+
+  const nextQty = Number(nextQueue.quantity_remaining ?? nextQueue.quantity ?? 0);
+  await tx.execute(sql`
+    UPDATE permupay_stock_queue
+    SET status = 'ATIVO', quantity_remaining = ${nextQty},
+        activated_at = COALESCE(activated_at, NOW()), updated_at = NOW()
+    WHERE id = ${nextQueue.id}
+  `);
+  await tx.execute(sql`
+    UPDATE permupay_products
+    SET stock_quantity = ${nextQty},
+        average_cost_brl = ${Number(nextQueue.unit_cost ?? 0)},
+        final_unit_cost_brl = ${Number(nextQueue.unit_cost ?? 0)},
+        suggested_price_pix = ${Number(nextQueue.suggested_price_pix ?? 0)},
+        suggested_price_card = ${Number(nextQueue.suggested_price_card ?? 0)},
+        suggested_price_boleto = ${Number(nextQueue.suggested_price_boleto ?? 0)},
+        updated_at = NOW()
+    WHERE id = ${productId}
+  `);
+  await tx.insert(stockEntries).values({
+    productId,
+    batchId: nextQueue.batch_id ?? null,
+    userId: stockUserId,
+    quantity: nextQty,
+    unitCost: Number(nextQueue.unit_cost ?? 0),
+    notes: `[VIRADA FIFO] Lote fila #${nextQueue.id} promovido para ATIVO após confirmação do pedido #${orderId}`,
+  });
+  await tx.execute(sql`
+    UPDATE permupay_batch_items SET queue_status = 'ATIVO' WHERE queue_id = ${nextQueue.id}
+  `);
+}
+
+async function registerCommissionIfApplicable(tx: any, order: any, product: any): Promise<void> {
+  const sellerId = Number(order.seller_id ?? 0);
+  if (sellerId <= 0) return;
+  const sellerResult = await tx.execute(sql`
+    SELECT id, commission_type, commission_value, commission_rate
+    FROM permupay_sellers WHERE id = ${sellerId} LIMIT 1
+  `) as any;
+  const seller = sellerResult?.rows?.[0];
+  if (!seller) return;
+
+  const saleAmount = Number(order.total_price ?? 0);
+  const quantity = Number(order.quantity ?? 0);
+  const costAmount = Number((Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0) * quantity).toFixed(2));
+  const commissionType = String(seller.commission_type ?? "PERCENT");
+  const commissionValue = Number(seller.commission_value ?? seller.commission_rate ?? 0);
+  const commissionAmount = Number((commissionType === "FIXED" ? commissionValue : saleAmount * commissionValue / 100).toFixed(2));
+
+  await tx.insert(commissions).values({
+    orderId: Number(order.id),
+    sellerId,
+    orderTotal: saleAmount,
+    commissionRate: commissionType === "PERCENT" ? commissionValue : 0,
+    commissionValue: commissionAmount,
+    saleAmount,
+    costAmount,
+    commissionAmount,
+    status: "PENDENTE",
+  }).onConflictDoNothing({ target: commissions.orderId });
+}
+
 export async function confirmOrder(
   orderId: number,
   adminUserId: number,
@@ -126,181 +256,115 @@ export async function confirmOrder(
 
   return await db.transaction(async (tx) => {
     const orderResult = await tx.execute(sql`
-      SELECT *
-      FROM permupay_orders
-      WHERE id = ${orderId}
-      FOR UPDATE
+      SELECT * FROM permupay_orders WHERE id = ${orderId} FOR UPDATE
     `) as any;
     const existing = orderResult?.rows?.[0];
-
     if (!existing) throw new Error("Pedido não encontrado");
     if (!["AGUARDANDO_PAGAMENTO", "RESERVADO"].includes(String(existing.status))) {
       throw new Error(`Pedido não pode ser confirmado (status atual: ${existing.status})`);
     }
 
     const finalMethod = (paymentMethod ?? existing.payment_method) as PaymentMethod;
-
     const productResult = await tx.execute(sql`
-      SELECT *
-      FROM permupay_products
-      WHERE id = ${existing.product_id}
-      FOR UPDATE
+      SELECT * FROM permupay_products WHERE id = ${existing.product_id} FOR UPDATE
     `) as any;
     const product = productResult?.rows?.[0];
     if (!product) throw new Error("Produto não encontrado ao confirmar");
 
-    const quantitySold = Number(existing.quantity ?? 0);
-    const currentStock = Number(product.stock_quantity ?? 0);
-    if (currentStock < quantitySold) {
-      throw new Error(`Estoque insuficiente: disponível ${currentStock}, necessário ${quantitySold}`);
-    }
+    await applyStockDeductionForOrder(tx, existing, product, adminUserId, adminNotes);
+    await registerCommissionIfApplicable(tx, existing, product);
 
-    const newStock = currentStock - quantitySold;
-
-    await tx.execute(sql`
-      UPDATE permupay_products
-      SET stock_quantity = ${newStock}, updated_at = NOW()
-      WHERE id = ${existing.product_id}
-    `);
-
-    await tx.insert(stockEntries).values({
-      productId: Number(existing.product_id),
-      userId: adminUserId,
-      quantity: -quantitySold,
-      unitCost: Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0),
-      notes: `Saída por venda/reserva confirmada — Pedido #${orderId}${adminNotes ? ` | ${adminNotes}` : ""}`,
-    });
-
-    const activeQueueResult = await tx.execute(sql`
-      SELECT id, quantity_remaining
-      FROM permupay_stock_queue
-      WHERE product_id = ${existing.product_id}
-        AND status = 'ATIVO'
-      ORDER BY activated_at ASC NULLS LAST, created_at ASC
-      LIMIT 1
-      FOR UPDATE
-    `) as any;
-    const activeQueue = activeQueueResult?.rows?.[0];
-
-    if (activeQueue) {
-      const remainingBefore = Number(activeQueue.quantity_remaining ?? 0);
-      const remainingAfter = Math.max(0, remainingBefore - quantitySold);
-
-      await tx.execute(sql`
-        UPDATE permupay_stock_queue
-        SET quantity_remaining = ${remainingAfter}, updated_at = NOW()
-        WHERE id = ${activeQueue.id}
-      `);
-
-      if (remainingAfter <= 0 || newStock <= 0) {
-        await tx.execute(sql`
-          UPDATE permupay_stock_queue
-          SET status = 'ESGOTADO',
-              quantity_remaining = 0,
-              exhausted_at = NOW(),
-              updated_at = NOW()
-          WHERE id = ${activeQueue.id}
-        `);
-
-        await tx.execute(sql`
-          UPDATE permupay_batch_items
-          SET queue_status = 'ESGOTADO'
-          WHERE queue_id = ${activeQueue.id}
-        `);
-
-        const nextQueueResult = await tx.execute(sql`
-          SELECT id, quantity, quantity_remaining, unit_cost,
-                 suggested_price_pix, suggested_price_card, suggested_price_boleto,
-                 batch_id
-          FROM permupay_stock_queue
-          WHERE product_id = ${existing.product_id}
-            AND status = 'EM_ESPERA'
-          ORDER BY position ASC, created_at ASC
-          LIMIT 1
-          FOR UPDATE
-        `) as any;
-        const nextQueue = nextQueueResult?.rows?.[0];
-
-        if (nextQueue) {
-          const nextQty = Number(nextQueue.quantity_remaining ?? nextQueue.quantity ?? 0);
-
-          await tx.execute(sql`
-            UPDATE permupay_stock_queue
-            SET status = 'ATIVO',
-                quantity_remaining = ${nextQty},
-                activated_at = COALESCE(activated_at, NOW()),
-                updated_at = NOW()
-            WHERE id = ${nextQueue.id}
-          `);
-
-          await tx.execute(sql`
-            UPDATE permupay_products
-            SET stock_quantity         = ${nextQty},
-                average_cost_brl       = ${Number(nextQueue.unit_cost ?? 0)},
-                final_unit_cost_brl    = ${Number(nextQueue.unit_cost ?? 0)},
-                suggested_price_pix    = ${Number(nextQueue.suggested_price_pix ?? 0)},
-                suggested_price_card   = ${Number(nextQueue.suggested_price_card ?? 0)},
-                suggested_price_boleto = ${Number(nextQueue.suggested_price_boleto ?? 0)},
-                updated_at             = NOW()
-            WHERE id = ${existing.product_id}
-          `);
-
-          await tx.insert(stockEntries).values({
-            productId: Number(existing.product_id),
-            batchId: nextQueue.batch_id ?? null,
-            userId: adminUserId,
-            quantity: nextQty,
-            unitCost: Number(nextQueue.unit_cost ?? 0),
-            notes: `[VIRADA FIFO] Lote fila #${nextQueue.id} promovido para ATIVO após confirmação do pedido #${orderId}`,
-          });
-
-          await tx.execute(sql`
-            UPDATE permupay_batch_items
-            SET queue_status = 'ATIVO'
-            WHERE queue_id = ${nextQueue.id}
-          `);
-        }
-      }
-    }
-
-    const sellerId = Number(existing.seller_id ?? 0);
-    if (sellerId > 0) {
-      const sellerResult = await tx.execute(sql`
-        SELECT id, commission_rate
-        FROM permupay_sellers
-        WHERE id = ${sellerId}
-        LIMIT 1
-      `) as any;
-      const seller = sellerResult?.rows?.[0];
-      if (seller) {
-        const orderTotal = Number(existing.total_price ?? 0);
-        const commissionRate = Number(seller.commission_rate ?? 5);
-        const commissionValue = Number((orderTotal * commissionRate / 100).toFixed(2));
-        await tx.insert(commissions).values({
-          orderId,
-          sellerId,
-          orderTotal,
-          commissionRate,
-          commissionValue,
-          status: "PENDENTE",
-        }).onConflictDoNothing({ target: commissions.orderId });
-      }
-    }
-
-    const [updated] = await tx
-      .update(orders)
-      .set({
-        status: "PAGO",
-        paymentMethod: finalMethod,
-        confirmedAt: new Date(),
-        confirmedBy: adminUserId,
-        adminNotes: adminNotes ?? existing.admin_notes,
-        updatedAt: new Date(),
-      } as any)
-      .where(eq(orders.id, orderId))
-      .returning();
-
+    const [updated] = await tx.update(orders).set({
+      status: "PAGO",
+      paymentMethod: finalMethod,
+      confirmedAt: new Date(),
+      confirmedBy: adminUserId,
+      adminNotes: adminNotes ?? existing.admin_notes,
+      updatedAt: new Date(),
+    } as any).where(eq(orders.id, orderId)).returning();
     return updated;
+  });
+}
+
+export async function createSellerOrder(data: {
+  sellerId?: number;
+  referralCode?: string;
+  accessToken?: string;
+  requestingUserId?: number | null;
+  productId: number;
+  quantity: number;
+  unitPrice: number;
+  buyerName: string;
+  buyerContact: string;
+  buyerContactType: string;
+  paymentMethod: PaymentMethod;
+  markAsPaid: boolean;
+  allowBelowCost?: boolean;
+}): Promise<Order> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return db.transaction(async (tx) => {
+    const sellerResult = data.sellerId
+      ? await tx.execute(sql`SELECT * FROM permupay_sellers WHERE id = ${data.sellerId} AND active = TRUE LIMIT 1`) as any
+      : data.accessToken
+        ? await tx.execute(sql`SELECT * FROM permupay_sellers WHERE access_token = ${data.accessToken} AND type = 'EXTERNO' AND active = TRUE LIMIT 1`) as any
+        : data.referralCode
+          ? await tx.execute(sql`SELECT * FROM permupay_sellers WHERE referral_code = ${data.referralCode.trim().toUpperCase()} AND active = TRUE LIMIT 1`) as any
+          : { rows: [] };
+    const seller = sellerResult?.rows?.[0];
+    if (!seller) throw new Error("Vendedor inválido ou inativo");
+
+    const sellerType = String(seller.type ?? "EXTERNO");
+    if (sellerType === "EXTERNO") {
+      if (!data.accessToken || seller.access_token !== data.accessToken) throw new Error("Token de acesso do vendedor inválido");
+      if (data.markAsPaid) throw new Error("Vendas externas não podem ser marcadas como pagas pelo link público");
+    } else if (!data.requestingUserId || Number(seller.user_id) !== Number(data.requestingUserId)) {
+      throw new Error("Vendedor interno exige uma sessão autenticada do próprio vendedor");
+    }
+
+    const productResult = await tx.execute(sql`SELECT * FROM permupay_products WHERE id = ${data.productId} FOR UPDATE`) as any;
+    const product = productResult?.rows?.[0];
+    if (!product || product.active === false) throw new Error("Produto não encontrado ou inativo");
+
+    const quantity = Math.max(1, Math.floor(Number(data.quantity || 1)));
+    const currentStock = Number(product.stock_quantity ?? 0);
+    if (currentStock < quantity) throw new Error("Estoque insuficiente");
+
+    const unitPrice = Number(data.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0) throw new Error("Preço de venda inválido");
+    const finalCost = Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? product.cost_price ?? 0);
+    if (!data.allowBelowCost && unitPrice < finalCost) {
+      throw new Error(`O preço não pode ficar abaixo do custo do produto (R$ ${finalCost.toFixed(2)})`);
+    }
+
+    const totalPrice = Number((unitPrice * quantity).toFixed(2));
+    const expiresAt = new Date(Date.now() + 5 * 60 * 60 * 1000);
+    const channel = sellerType === "INTERNO" ? "VENDEDOR_INTERNO" : "VENDEDOR_EXTERNO";
+    const confirmedBy = data.requestingUserId ?? (seller.user_id ? Number(seller.user_id) : null);
+    const [created] = await tx.insert(orders).values({
+      productId: data.productId,
+      quantity,
+      channel,
+      sellerId: Number(seller.id),
+      referralCode: seller.referral_code,
+      buyerName: data.buyerName.trim(),
+      buyerContact: data.buyerContact.trim(),
+      buyerContactType: data.buyerContactType,
+      paymentMethod: data.paymentMethod,
+      unitPrice,
+      totalPrice,
+      status: data.markAsPaid ? "PAGO" : "AGUARDANDO_PAGAMENTO",
+      expiresAt,
+      confirmedAt: data.markAsPaid ? new Date() : null,
+      confirmedBy: data.markAsPaid ? confirmedBy : null,
+    } as InsertOrder).returning();
+
+    if (!data.markAsPaid) return created;
+    const orderForStock = { id: created.id, product_id: data.productId, quantity, total_price: totalPrice, seller_id: Number(seller.id) };
+    await applyStockDeductionForOrder(tx, orderForStock, product, confirmedBy, "Venda direta registrada como paga");
+    await registerCommissionIfApplicable(tx, orderForStock, product);
+    return created;
   });
 }
 

@@ -15,6 +15,8 @@ import { users } from "./schema";
 export const commissionStatusEnum = pgEnum("permupay_commission_status", [
   "PENDENTE",
   "PAGO",
+  "PAGA",
+  "CANCELADA",
 ]);
 
 export const sellers = pgTable("permupay_sellers", {
@@ -23,7 +25,13 @@ export const sellers = pgTable("permupay_sellers", {
   name: text("name").notNull(),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 40 }),
-  referralCode: varchar("referral_code", { length: 32 }).notNull().unique(),
+  type: text("type").notNull().default("EXTERNO"),
+  referralCode: varchar("referral_code", { length: 60 }).notNull().unique(),
+  accessToken: varchar("access_token", { length: 64 }),
+  contact: text("contact"),
+  commissionType: text("commission_type").notNull().default("PERCENT"),
+  commissionValue: real("commission_value").notNull().default(0),
+  // Campos legados da primeira versão; permanecem para compatibilidade e espelham o percentual quando aplicável.
   commissionRate: real("commission_rate").notNull().default(5),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -37,6 +45,9 @@ export const commissions = pgTable("permupay_commissions", {
   orderTotal: real("order_total").notNull(),
   commissionRate: real("commission_rate").notNull(),
   commissionValue: real("commission_value").notNull(),
+  saleAmount: real("sale_amount").notNull().default(0),
+  costAmount: real("cost_amount").notNull().default(0),
+  commissionAmount: real("commission_amount").notNull().default(0),
   status: commissionStatusEnum("status").notNull().default("PENDENTE"),
   paidAt: timestamp("paid_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
