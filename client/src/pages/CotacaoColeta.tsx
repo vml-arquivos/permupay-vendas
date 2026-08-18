@@ -8,10 +8,11 @@ import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MapPin, CheckCircle2, Circle, Plus, WifiOff, RefreshCw, BarChart3, ChevronDown, Camera, X, Package, Search, ExternalLink, Check } from "lucide-react";
+import { ArrowLeft, MapPin, CheckCircle2, Circle, Plus, WifiOff, RefreshCw, BarChart3, ChevronDown, Camera, Mic, ScanLine, X, Package, Search, ExternalLink, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useCotacaoOffline } from "@/hooks/useCotacaoOffline";
 import { useCameraUpload } from "@/hooks/useCameraUpload";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 
 type PMap = Record<string, string>;
 type NSet = Set<string>;
@@ -31,6 +32,8 @@ export default function CotacaoColeta() {
   const [buscaProduto, setBuscaProduto] = useState("");
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const [campoAtivo, setCampoAtivo] = useState<{ spId: number; lId: number } | null>(null);
 
   const { data: sessao, isLoading } = trpc.cotacao.sessoes.obter.useQuery({ id: sessaoId });
   const { data: locais } = trpc.cotacao.locais.listar.useQuery();
@@ -109,6 +112,58 @@ export default function CotacaoColeta() {
     }, 500);
   }, [sessaoId, registrar]);
 
+  const aplicarDitado = useCallback((text: string) => {
+    if (!campoAtivo || !localId) {
+      toast.info("Toque primeiro em um campo de preço para aplicar o ditado.");
+      return;
+    }
+    const match = text.replace(/,/g, ".").match(/\d+(?:\.\d{1,2})?/);
+    if (!match) {
+      toast.error("O ditado não trouxe um valor numérico reconhecível.");
+      return;
+    }
+    const value = match[0];
+    const key = `${campoAtivo.spId}-${campoAtivo.lId}`;
+    setPrecos((previous) => ({ ...previous, [key]: value }));
+    if (!naoAchados.has(key)) autoSave(campoAtivo.spId, campoAtivo.lId, value, true);
+  }, [autoSave, campoAtivo, localId, naoAchados]);
+
+  const voice = useVoiceRecorder({ onTranscript: aplicarDitado });
+
+  function abrirScanner() {
+    if (!("BarcodeDetector" in window)) {
+      toast.info("O escaneamento não é suportado neste navegador. Use a busca manual.");
+      return;
+    }
+    scanInputRef.current?.click();
+  }
+
+  async function processarScan(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const Detector = (window as any).BarcodeDetector;
+      const detector = new Detector();
+      const image = new Image();
+      const imageUrl = URL.createObjectURL(file);
+      image.src = imageUrl;
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("Não foi possível ler a imagem."));
+      });
+      const detected = await detector.detect(image);
+      URL.revokeObjectURL(imageUrl);
+      const value = detected?.[0]?.rawValue?.trim();
+      if (!value) throw new Error("Nenhum QR ou código de barras foi encontrado.");
+      setBuscaProduto(value);
+      setProdutoSheet(true);
+      toast.success("Código lido. Confira o produto antes de incluir.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao escanear o código.");
+    }
+  }
+
   function handleValor(spId: number, val: string) {
     if (!localId) return;
     const k = `${spId}-${localId}`;
@@ -168,6 +223,15 @@ export default function CotacaoColeta() {
 
   return (
     <div className="min-h-svh bg-gray-50 flex flex-col max-w-md mx-auto">
+      <input
+        ref={scanInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={processarScan}
+        className="hidden"
+        aria-label="Escanear QR ou código de barras"
+      />
       {/* Header fixo */}
       <div className="bg-[oklch(0.30_0.13_240)] text-white px-4 pt-10 pb-0 sticky top-0 z-20">
         <div className="flex items-center gap-2 mb-3">
@@ -178,6 +242,21 @@ export default function CotacaoColeta() {
             <p className="text-sm font-bold truncate">{sessao.titulo}</p>
             <p className="text-xs opacity-60">{prods.length} produtos</p>
           </div>
+          <button
+            onClick={abrirScanner}
+            title="Escanear QR ou código de barras"
+            className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white/10"
+          >
+            <ScanLine className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => (voice.recording ? voice.stop() : voice.start())}
+            disabled={!voice.supported || voice.uploading}
+            title={!voice.supported ? "Ditado não suportado neste navegador" : "Ditar preço"}
+            className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${voice.recording ? "bg-red-500 text-white animate-pulse" : "hover:bg-white/10"} disabled:opacity-40`}
+          >
+            <Mic className="h-4 w-4" />
+          </button>
           {!isOnline ? (
             <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full flex items-center gap-1">
               <WifiOff className="h-3 w-3" /> Offline
@@ -279,6 +358,7 @@ export default function CotacaoColeta() {
                             step="0.01"
                             placeholder="0,00"
                             value={val}
+                            onFocus={() => setCampoAtivo({ spId: p.id, lId: localId })}
                             onChange={e => handleValor(p.id, e.target.value)}
                             onKeyDown={e => handleEnter(e, idx, prods)}
                             className={`w-28 h-12 pl-9 pr-2 text-right text-lg font-bold rounded-xl outline-none border-2 transition-colors ${val ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-gray-50"}`}

@@ -10,7 +10,9 @@ import fs from "node:fs";
 const UPLOAD_DIR = process.env.UPLOAD_DIR ?? "/var/data/permupay/uploads";
 const PUBLIC_BASE_URL = process.env.APP_URL ?? "https://shoop.permupay.com.br";
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_AUDIO_MIME_TYPES = ["audio/webm", "audio/mpeg", "audio/mp3", "audio/wav", "audio/wave", "audio/ogg", "audio/m4a", "audio/mp4"];
 const MAX_FILE_SIZE_MB = 5;
+const MAX_AUDIO_FILE_SIZE_MB = 16;
 
 // Garante que o diretório existe
 function ensureUploadDir(dir: string) {
@@ -51,6 +53,27 @@ export async function uploadProductImageBuffer(
   fs.writeFileSync(filepath, fileBuffer);
 
   return buildPublicUrl(`${productId}/${filename}`);
+}
+
+export async function uploadAudioBuffer(
+  fileBuffer: Buffer,
+  originalFilename: string,
+  mimeType: string,
+): Promise<string> {
+  if (!ALLOWED_AUDIO_MIME_TYPES.includes(mimeType)) {
+    throw new Error(`Tipo de áudio não permitido: ${mimeType}. Use WebM, MP3, WAV, OGG ou M4A.`);
+  }
+  if (fileBuffer.byteLength > MAX_AUDIO_FILE_SIZE_MB * 1024 * 1024) {
+    throw new Error(`Áudio deve ter no máximo ${MAX_AUDIO_FILE_SIZE_MB}MB.`);
+  }
+
+  const dir = path.join(UPLOAD_DIR, "audio");
+  ensureUploadDir(dir);
+  const ext = path.extname(originalFilename).toLowerCase() || ".webm";
+  const uid = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+  const filename = `voice_${uid}${ext}`;
+  fs.writeFileSync(path.join(dir, filename), fileBuffer);
+  return buildPublicUrl(`audio/${filename}`);
 }
 
 // Compatibilidade: retorna URL de upload direto para o servidor

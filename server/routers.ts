@@ -25,6 +25,7 @@ import * as dbPayment from "./db.payment-settings";
 import * as dbCotacao from "./db.cotacao";
 import * as dbSellers from "./db.sellers";
 import * as dbAi from "./db.ai";
+import { transcribeAudio } from "./_core/voiceTranscription";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
 
@@ -186,6 +187,18 @@ const paymentSettingsSchema = z.object({
 
 export const appRouter = router({
   system: systemRouter,
+
+  voice: router({
+    transcribe: protectedProcedure
+      .input(
+        z.object({
+          audioUrl: z.string().min(1).max(4096),
+          language: z.string().min(2).max(16).optional(),
+          prompt: z.string().max(500).optional(),
+        })
+      )
+      .mutation(({ input }) => transcribeAudio(input)),
+  }),
 
   // ── Configurações globais de precificação (defaults) ───────────────────────
   settings: router({
