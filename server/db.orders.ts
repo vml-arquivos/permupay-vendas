@@ -417,7 +417,7 @@ export async function expireStaleReservations(): Promise<number> {
 export async function listOrders(filters?: {
   status?: Order["status"];
   productId?: number;
-}): Promise<(Order & { productName: string })[]> {
+}): Promise<(Order & { productName: string; productImageUrl: string | null })[]> {
   const db = await getDb();
   if (!db) return [];
 
@@ -426,7 +426,7 @@ export async function listOrders(filters?: {
   if (filters?.productId) conditions.push(eq(orders.productId, filters.productId));
 
   const rows = await db
-    .select({ order: orders, productName: products.name })
+    .select({ order: orders, productName: products.name, productImageUrl: products.imageUrl })
     .from(orders)
     .leftJoin(products, eq(orders.productId, products.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -435,15 +435,16 @@ export async function listOrders(filters?: {
   return rows.map((r) => ({
     ...r.order,
     productName: r.productName ?? "Produto removido",
+    productImageUrl: r.productImageUrl ?? null,
   }));
 }
 
-export async function getOrderById(id: number): Promise<(Order & { productName: string }) | null> {
+export async function getOrderById(id: number): Promise<(Order & { productName: string; productImageUrl: string | null }) | null> {
   const db = await getDb();
   if (!db) return null;
 
   const rows = await db
-    .select({ order: orders, productName: products.name })
+    .select({ order: orders, productName: products.name, productImageUrl: products.imageUrl })
     .from(orders)
     .leftJoin(products, eq(orders.productId, products.id))
     .where(eq(orders.id, id))
@@ -453,6 +454,7 @@ export async function getOrderById(id: number): Promise<(Order & { productName: 
   return {
     ...rows[0].order,
     productName: rows[0].productName ?? "Produto removido",
+    productImageUrl: rows[0].productImageUrl ?? null,
   };
 }
 

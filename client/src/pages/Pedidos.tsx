@@ -35,6 +35,7 @@ type OrderStatus =
 type OrderItem = {
   id: number;
   productName: string;
+  productImageUrl: string | null;
   buyerName: string;
   buyerContact: string;
   createdAt: string | Date;
@@ -204,7 +205,16 @@ function ReceiptModal({
                 </p>
                 <div className="mt-5 rounded-2xl bg-white/80 p-4">
                   <p className="text-[11px] uppercase tracking-[0.25em] text-emerald-700">Produto</p>
-                  <p className="mt-1 text-base font-semibold text-slate-900">{order.productName}</p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                      {order.productImageUrl ? (
+                        <img src={order.productImageUrl} alt={order.productName} className="h-full w-full object-contain" />
+                      ) : (
+                        <ShoppingBag className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                      )}
+                    </div>
+                    <p className="text-base font-semibold text-slate-900">{order.productName}</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -436,6 +446,13 @@ export default function Pedidos() {
                           onClick={() => setExpanded(isOpen ? null : order.id)}
                         >
                           <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                              {order.productImageUrl ? (
+                                <img src={order.productImageUrl} alt={order.productName} className="h-full w-full object-contain" />
+                              ) : (
+                                <ShoppingBag className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                              )}
+                            </div>
                             <span className="font-semibold text-foreground text-sm">
                               #{order.id} — {order.productName}
                             </span>

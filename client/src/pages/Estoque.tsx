@@ -117,13 +117,24 @@ export default function Estoque() {
                       className="grid grid-cols-5 gap-4 px-3 py-3 rounded-lg border hover:bg-accent/50 cursor-pointer transition-colors items-center"
                     >
                       <div className="col-span-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-mono font-bold bg-muted text-muted-foreground border border-border shrink-0">
-                            #{p.id}
-                          </span>
-                          <p className="font-medium text-sm truncate">{p.name}</p>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                            {p.imageUrl ? (
+                              <img src={p.imageUrl} alt={p.name} className="h-full w-full object-contain" />
+                            ) : (
+                              <Package className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-mono font-bold bg-muted text-muted-foreground border border-border shrink-0">
+                                #{p.id}
+                              </span>
+                              <p className="font-medium text-sm truncate">{p.name}</p>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{p.category}</p>
+                          </div>
                         </div>
-                        <p className="text-xs text-muted-foreground">{p.category}</p>
                       </div>
                       <div className="text-center">
                         <span className="font-semibold">{p.stockQuantity || 0}</span>
