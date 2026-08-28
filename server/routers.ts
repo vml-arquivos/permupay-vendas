@@ -24,6 +24,7 @@ import * as dbSettings from "./db.settings";
 import * as dbPayment from "./db.payment-settings";
 import * as dbCotacao from "./db.cotacao";
 import * as dbSellers from "./db.sellers";
+import * as dbCustomers from "./db.customers";
 import * as dbAi from "./db.ai";
 import { transcribeAudio } from "./_core/voiceTranscription";
 
@@ -68,7 +69,9 @@ const productInput = z.object({
   categoryLabel: z.string().optional(),
   promoTag: z.string().optional(),
   salesChannel: z.enum(["SHOP", "QUASE_ZERO", "BOTH"]).optional(),
-  productCondition: z.enum(["NEW", "SEMINOVO", "USADO", "MOSTRUARIO", "OPEN_BOX", "REEMBALADO"]).optional(),
+  productCondition: z
+    .enum(["NEW", "SEMINOVO", "USADO", "MOSTRUARIO", "OPEN_BOX", "REEMBALADO"])
+    .optional(),
   conditionNotes: z.string().optional(),
   isUniquePiece: z.boolean().optional(),
   published: z.boolean().optional(),
@@ -135,7 +138,8 @@ const pricingDefaultsSchema = z.object({
 // Todos os campos são opcionais para permitir PATCH parcial.
 
 const adminOnlyProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== "admin") throw new Error("Acesso restrito ao administrador");
+  if (ctx.user.role !== "admin")
+    throw new Error("Acesso restrito ao administrador");
   return next();
 });
 
@@ -230,7 +234,9 @@ export const appRouter = router({
       .input(
         z.object({
           name: z.string().min(1).max(200),
-          category: z.enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"]).default("OUTRO"),
+          category: z
+            .enum(["CELULAR", "ELETRONICO", "PERFUME", "OUTRO"])
+            .default("OUTRO"),
           notes: z.string().optional(),
           published: z.boolean().optional(),
         })
@@ -262,7 +268,9 @@ export const appRouter = router({
 
     nextId: protectedProcedure.query(() => db.getNextProductId()),
 
-    pendingToPublish: protectedProcedure.query(() => db.listProductsToPublish()),
+    pendingToPublish: protectedProcedure.query(() =>
+      db.listProductsToPublish()
+    ),
 
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -323,13 +331,21 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbImages.reorderProductImages(input.productId, ctx.user.id, input.orderedIds)
+        dbImages.reorderProductImages(
+          input.productId,
+          ctx.user.id,
+          input.orderedIds
+        )
       ),
 
     deleteImage: protectedProcedure
       .input(z.object({ imageId: z.number(), productId: z.number() }))
       .mutation(({ input, ctx }) =>
-        dbImages.deleteProductImageRecord(input.imageId, input.productId, ctx.user.id)
+        dbImages.deleteProductImageRecord(
+          input.imageId,
+          input.productId,
+          ctx.user.id
+        )
       ),
 
     updateImageAlt: protectedProcedure
@@ -341,13 +357,22 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbImages.updateImageAltText(input.imageId, input.productId, ctx.user.id, input.altText)
+        dbImages.updateImageAltText(
+          input.imageId,
+          input.productId,
+          ctx.user.id,
+          input.altText
+        )
       ),
 
     setImageUrl: protectedProcedure
       .input(z.object({ productId: z.number(), imageUrl: z.string().url() }))
       .mutation(({ input, ctx }) =>
-        dbBatches.updateProductImage(input.productId, ctx.user.id, input.imageUrl)
+        dbBatches.updateProductImage(
+          input.productId,
+          ctx.user.id,
+          input.imageUrl
+        )
       ),
 
     reorder: protectedProcedure
@@ -363,7 +388,12 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbBatches.togglePublished(input.productId, ctx.user.id, input.published, input.promoTag)
+        dbBatches.togglePublished(
+          input.productId,
+          ctx.user.id,
+          input.published,
+          input.promoTag
+        )
       ),
 
     adjustStock: protectedProcedure
@@ -376,7 +406,13 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbBatches.adjustStock(input.productId, ctx.user.id, input.quantity, input.unitCost, input.notes)
+        dbBatches.adjustStock(
+          input.productId,
+          ctx.user.id,
+          input.quantity,
+          input.unitCost,
+          input.notes
+        )
       ),
 
     stockEntries: protectedProcedure
@@ -489,7 +525,11 @@ export const appRouter = router({
         })
       )
       .mutation(({ input, ctx }) =>
-        dbBatches.triggerStockTransition(input.productId, input.qtySold, ctx.user.id)
+        dbBatches.triggerStockTransition(
+          input.productId,
+          input.qtySold,
+          ctx.user.id
+        )
       ),
 
     // ── FIFO: consultar fila de um produto ───────────────────────────────
@@ -515,15 +555,21 @@ export const appRouter = router({
         z.object({
           imageUrl: z.string().url().optional(),
           name: z.string().trim().optional(),
-        }),
+        })
       )
       .mutation(async ({ input }) => {
         try {
           return await dbAi.suggestProductInfo(input);
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Não foi possível obter a sugestão da IA agora.";
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Não foi possível obter a sugestão da IA agora.";
           if (message === dbAi.AI_NOT_CONFIGURED_MESSAGE) {
-            throw new TRPCError({ code: "PRECONDITION_FAILED", message: dbAi.AI_NOT_CONFIGURED_MESSAGE });
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: dbAi.AI_NOT_CONFIGURED_MESSAGE,
+            });
           }
           throw new TRPCError({ code: "BAD_REQUEST", message });
         }
@@ -533,10 +579,14 @@ export const appRouter = router({
   // ── Marketplace / Vitrine pública ──────────────────────────────────────────
   marketplace: router({
     products: publicProcedure.query(() => dbBatches.getPublishedProducts()),
-    quaseZeroProducts: publicProcedure.query(() => dbBatches.getQuaseZeroProducts()),
+    quaseZeroProducts: publicProcedure.query(() =>
+      dbBatches.getQuaseZeroProducts()
+    ),
     productsByCategory: publicProcedure
       .input(z.object({ category: z.string().optional() }))
-      .query(({ input }) => dbBatches.getPublishedProductsByCategory(input.category)),
+      .query(({ input }) =>
+        dbBatches.getPublishedProductsByCategory(input.category)
+      ),
     productById: publicProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => dbBatches.getPublishedProductById(input.id)),
@@ -598,14 +648,20 @@ export const appRouter = router({
           : undefined;
         // Garante description não-null para schema legado
         const description = input.description ?? "";
-        return dbWishlist.createWishlistRequest({ ...input, description, ipHash });
+        return dbWishlist.createWishlistRequest({
+          ...input,
+          description,
+          ipHash,
+        });
       }),
 
     myRequests: publicProcedure
-      .input(z.object({
-        contact: z.string().min(1).optional(),
-        phone: z.string().min(1).optional(),
-      }))
+      .input(
+        z.object({
+          contact: z.string().min(1).optional(),
+          phone: z.string().min(1).optional(),
+        })
+      )
       .query(({ input }) => {
         const lookup = input.phone ?? input.contact ?? "";
         return dbWishlist.getWishlistByContact(lookup);
@@ -628,12 +684,23 @@ export const appRouter = router({
       .input(
         z.object({
           id: z.number(),
-          status: z.enum(["NOVO", "VISUALIZADO", "CONTATADO", "ATENDIDO", "FECHADO"]),
+          status: z.enum([
+            "NOVO",
+            "VISUALIZADO",
+            "CONTATADO",
+            "ATENDIDO",
+            "FECHADO",
+          ]),
           adminNotes: z.string().optional(),
         })
       )
       .mutation(({ input, ctx }) =>
-        dbWishlist.updateWishlistStatus(input.id, input.status, input.adminNotes, ctx.user.id)
+        dbWishlist.updateWishlistStatus(
+          input.id,
+          input.status,
+          input.adminNotes,
+          ctx.user.id
+        )
       ),
 
     delete: protectedProcedure
@@ -687,7 +754,9 @@ export const appRouter = router({
     resolveByToken: publicProcedure
       .input(z.object({ accessToken: z.string().min(1).max(64) }))
       .query(async ({ input }) => {
-        const seller = await dbSellers.getSellerByAccessToken(input.accessToken);
+        const seller = await dbSellers.getSellerByAccessToken(
+          input.accessToken
+        );
         if (!seller) return null;
         const { accessToken: _accessToken, ...safeSeller } = seller;
         return safeSeller;
@@ -697,61 +766,193 @@ export const appRouter = router({
       .input(z.object({ accessToken: z.string().min(1).max(64) }))
       .query(({ input }) => dbSellers.getExternalCatalog(input.accessToken)),
 
+    publicCatalog: publicProcedure
+      .input(z.object({ referralCode: z.string().min(1).max(60) }))
+      .query(async ({ input }) => {
+        const seller = await dbSellers.getSellerByReferralCode(
+          input.referralCode,
+          true
+        );
+        if (!seller)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Link de loja inválido ou inativo",
+          });
+        const products = await dbBatches.getPublishedProducts();
+        return {
+          sellerName: seller.name,
+          referralCode: seller.referralCode,
+          products,
+        };
+      }),
+
+    sponsor: publicProcedure
+      .input(z.object({ referralCode: z.string().min(1).max(60) }))
+      .query(async ({ input }) => {
+        const seller = await dbSellers.getSellerByReferralCode(
+          input.referralCode,
+          true
+        );
+        return seller
+          ? { name: seller.name, referralCode: seller.referralCode }
+          : null;
+      }),
+
+    applyAsSeller: publicProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(3),
+          email: z.string().email(),
+          phone: z.string().min(8),
+          cpf: z.string().min(11),
+          birthDate: z.string().date(),
+          address: z.string().trim().min(5),
+          city: z.string().trim().min(2),
+          state: z.string().trim().length(2),
+          zipCode: z.string().min(8),
+          pixKey: z.string().trim().min(3),
+          documentFrontUrl: z.string().url(),
+          documentBackUrl: z.string().url().optional(),
+          selfiePhotoUrl: z.string().url(),
+          sponsorReferralCode: z.string().trim().max(60).optional(),
+        })
+      )
+      .mutation(({ input }) => dbSellers.applyAsSeller(input)),
+
+    pending: adminOnlyProcedure.query(() => dbSellers.listPendingSellers()),
+
+    approve: adminOnlyProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ input, ctx }) =>
+        dbSellers.approveSeller(input.id, ctx.user.id)
+      ),
+
+    reject: adminOnlyProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          reason: z.string().max(500).optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbSellers.rejectSeller(input.id, ctx.user.id, input.reason)
+      ),
+
+    network: publicProcedure
+      .input(z.object({ accessToken: z.string().min(1).max(64) }))
+      .query(async ({ input }) => {
+        const seller = await dbSellers.getSellerByAccessToken(
+          input.accessToken,
+          true
+        );
+        if (!seller)
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Token de vendedor inválido ou inativo",
+          });
+        return dbSellers.getSellerNetwork(seller.id);
+      }),
+
+    ranking: adminOnlyProcedure
+      .input(
+        z
+          .object({
+            period: z.enum(["7d", "30d", "90d", "all"]).default("all"),
+          })
+          .optional()
+      )
+      .query(({ input }) => dbSellers.getSellerRanking(input?.period ?? "all")),
+
+    myRanking: publicProcedure
+      .input(
+        z.object({
+          accessToken: z.string().min(1).max(64),
+          period: z.enum(["7d", "30d", "90d", "all"]).default("all"),
+        })
+      )
+      .query(async ({ input }) => {
+        const seller = await dbSellers.getSellerByAccessToken(
+          input.accessToken,
+          true
+        );
+        if (!seller)
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Token de vendedor inválido ou inativo",
+          });
+        const ranking = await dbSellers.getSellerRanking(input.period);
+        const position = ranking.findIndex(row => row.sellerId === seller.id);
+        const row = position >= 0 ? ranking[position] : null;
+        return { position: position >= 0 ? position + 1 : null, seller: row };
+      }),
+
     createDirectOrder: publicProcedure
-      .input(z.object({
-        sellerId: z.number().optional(),
-        referralCode: z.string().max(60).optional(),
-        accessToken: z.string().max(64).optional(),
-        productId: z.number(),
-        quantity: z.number().int().min(1).default(1),
-        unitPrice: z.number().positive(),
-        buyerName: z.string().min(2, "Informe seu nome"),
-        buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
-        buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
-        paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]),
-        markAsPaid: z.boolean().default(false),
-        allowBelowCost: z.boolean().optional(),
-      }))
-      .mutation(({ input, ctx }) => dbSellers.createDirectOrder({
-        ...input,
-        requestingUserId: ctx.user?.id ?? null,
-        allowBelowCost: Boolean(ctx.user?.role === "admin" && input.allowBelowCost),
-      })),
+      .input(
+        z.object({
+          sellerId: z.number().optional(),
+          referralCode: z.string().max(60).optional(),
+          accessToken: z.string().max(64).optional(),
+          productId: z.number(),
+          quantity: z.number().int().min(1).default(1),
+          unitPrice: z.number().positive(),
+          buyerName: z.string().min(2, "Informe seu nome"),
+          buyerContact: z.string().min(8, "Informe WhatsApp ou email"),
+          buyerContactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]),
+          markAsPaid: z.boolean().default(false),
+          allowBelowCost: z.boolean().optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbSellers.createDirectOrder({
+          ...input,
+          requestingUserId: ctx.user?.id ?? null,
+          allowBelowCost: Boolean(
+            ctx.user?.role === "admin" && input.allowBelowCost
+          ),
+        })
+      ),
 
     list: adminOnlyProcedure.query(() => dbSellers.listSellers()),
 
     create: adminOnlyProcedure
-      .input(z.object({
-        name: z.string().min(2),
-        type: z.enum(["INTERNO", "EXTERNO"]).default("EXTERNO"),
-        email: z.string().email().optional().or(z.literal("")),
-        phone: z.string().optional(),
-        contact: z.string().optional(),
-        userId: z.number().int().nullable().optional(),
-        referralCode: z.string().max(60).optional(),
-        commissionType: z.enum(["PERCENT", "FIXED"]).default("PERCENT"),
-        commissionValue: z.number().min(0).default(0),
-        commissionRate: z.number().min(0).max(100).optional(),
-        active: z.boolean().default(true),
-      }))
-      .mutation(({ input }) => dbSellers.createSeller(input)),
+      .input(
+        z.object({
+          name: z.string().min(2),
+          type: z.enum(["INTERNO", "EXTERNO"]).default("EXTERNO"),
+          email: z.string().email().optional().or(z.literal("")),
+          phone: z.string().optional(),
+          contact: z.string().optional(),
+          userId: z.number().int().nullable().optional(),
+          referralCode: z.string().max(60).optional(),
+          commissionType: z.enum(["PERCENT", "FIXED"]).default("PERCENT"),
+          commissionValue: z.number().min(0).default(0),
+          commissionRate: z.number().min(0).max(100).optional(),
+          active: z.boolean().default(true),
+        })
+      )
+      .mutation(({ input }) =>
+        dbSellers.createSeller({ ...input, status: "APROVADO" })
+      ),
 
     update: adminOnlyProcedure
-      .input(z.object({
-        id: z.number(),
-        name: z.string().min(2).optional(),
-        type: z.enum(["INTERNO", "EXTERNO"]).optional(),
-        email: z.string().email().nullable().optional().or(z.literal("")),
-        phone: z.string().nullable().optional(),
-        contact: z.string().nullable().optional(),
-        userId: z.number().int().nullable().optional(),
-        referralCode: z.string().max(60).optional(),
-        accessToken: z.string().max(64).nullable().optional(),
-        commissionType: z.enum(["PERCENT", "FIXED"]).optional(),
-        commissionValue: z.number().min(0).optional(),
-        commissionRate: z.number().min(0).max(100).optional(),
-        active: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          name: z.string().min(2).optional(),
+          type: z.enum(["INTERNO", "EXTERNO"]).optional(),
+          email: z.string().email().nullable().optional().or(z.literal("")),
+          phone: z.string().nullable().optional(),
+          contact: z.string().nullable().optional(),
+          userId: z.number().int().nullable().optional(),
+          referralCode: z.string().max(60).optional(),
+          accessToken: z.string().max(64).nullable().optional(),
+          commissionType: z.enum(["PERCENT", "FIXED"]).optional(),
+          commissionValue: z.number().min(0).optional(),
+          commissionRate: z.number().min(0).max(100).optional(),
+          active: z.boolean().optional(),
+        })
+      )
       .mutation(({ input }) => {
         const { id, ...data } = input;
         return dbSellers.updateSeller(id, data);
@@ -763,12 +964,63 @@ export const appRouter = router({
 
     commissions: router({
       list: adminOnlyProcedure
-        .input(z.object({ sellerId: z.number().optional(), status: z.enum(["PENDENTE", "PAGO", "PAGA", "CANCELADA"]).optional() }).optional())
+        .input(
+          z
+            .object({
+              sellerId: z.number().optional(),
+              status: z
+                .enum(["PENDENTE", "PAGO", "PAGA", "CANCELADA"])
+                .optional(),
+            })
+            .optional()
+        )
         .query(({ input }) => dbSellers.listCommissions(input)),
       markPaid: adminOnlyProcedure
         .input(z.object({ id: z.number() }))
         .mutation(({ input }) => dbSellers.markCommissionPaid(input.id)),
     }),
+  }),
+
+  // ── Clientes finais e carrinho ─────────────────────────────────────────────
+  customers: router({
+    identify: publicProcedure
+      .input(z.object({ contact: z.string().min(5) }))
+      .query(({ input }) => dbCustomers.getCustomerByContact(input.contact)),
+
+    myOrders: publicProcedure
+      .input(z.object({ contact: z.string().min(5) }))
+      .query(async ({ input }) => {
+        const customer = await dbCustomers.getCustomerByContact(input.contact);
+        if (!customer) return [];
+        return dbCustomers.listCustomerOrders(customer.id);
+      }),
+
+    checkout: publicProcedure
+      .input(
+        z.object({
+          items: z
+            .array(
+              z.object({
+                productId: z.number().int().positive(),
+                quantity: z.number().int().min(1),
+                paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]),
+              })
+            )
+            .min(1),
+          customer: z.object({
+            name: z.string().trim().min(2),
+            contact: z.string().trim().min(8),
+            contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+            email: z.string().email().optional(),
+            address: z.string().optional(),
+            city: z.string().optional(),
+            state: z.string().length(2).optional(),
+            zipCode: z.string().optional(),
+          }),
+          referralCode: z.string().max(60).optional(),
+        })
+      )
+      .mutation(({ input }) => dbOrders.createCartCheckout(input)),
   }),
 
   // ── Pedidos ────────────────────────────────────────────────────────────────
@@ -801,6 +1053,7 @@ export const appRouter = router({
               ])
               .optional(),
             productId: z.number().optional(),
+            customerId: z.number().int().positive().optional(),
           })
           .optional()
       )
@@ -815,11 +1068,18 @@ export const appRouter = router({
         z.object({
           orderId: z.number(),
           adminNotes: z.string().optional(),
-          paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]).optional(),
+          paymentMethod: z
+            .enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"])
+            .optional(),
         })
       )
       .mutation(({ input, ctx }) =>
-        dbOrders.confirmOrder(input.orderId, ctx.user.id, input.adminNotes, input.paymentMethod)
+        dbOrders.confirmOrder(
+          input.orderId,
+          ctx.user.id,
+          input.adminNotes,
+          input.paymentMethod
+        )
       ),
 
     cancel: protectedProcedure
@@ -862,7 +1122,7 @@ export const appRouter = router({
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query(opts => opts.ctx.user),
 
     login: publicProcedure
       .input(
@@ -989,8 +1249,13 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (input.userId === ctx.user.id && (!input.active || input.role !== ctx.user.role)) {
-          throw new Error("Não é possível rebaixar ou desativar sua própria conta");
+        if (
+          input.userId === ctx.user.id &&
+          (!input.active || input.role !== ctx.user.role)
+        ) {
+          throw new Error(
+            "Não é possível rebaixar ou desativar sua própria conta"
+          );
         }
         return db.updateUserAdmin(input.userId, {
           name: input.name,
@@ -1135,7 +1400,6 @@ export const appRouter = router({
           return dbCotacao.atualizarLocal(id, ctx.user.id, data);
         }),
 
-
       reverseGeocode: protectedProcedure
         .input(
           z.object({
@@ -1145,33 +1409,33 @@ export const appRouter = router({
         )
         .mutation(async ({ input }) => {
           const ufByState: Record<string, string> = {
-            "acre": "AC",
-            "alagoas": "AL",
-            "amapá": "AP",
-            "amazonas": "AM",
-            "bahia": "BA",
-            "ceará": "CE",
+            acre: "AC",
+            alagoas: "AL",
+            amapá: "AP",
+            amazonas: "AM",
+            bahia: "BA",
+            ceará: "CE",
             "distrito federal": "DF",
             "espírito santo": "ES",
-            "goiás": "GO",
-            "maranhão": "MA",
+            goiás: "GO",
+            maranhão: "MA",
             "mato grosso": "MT",
             "mato grosso do sul": "MS",
             "minas gerais": "MG",
-            "pará": "PA",
-            "paraíba": "PB",
-            "paraná": "PR",
-            "pernambuco": "PE",
-            "piauí": "PI",
+            pará: "PA",
+            paraíba: "PB",
+            paraná: "PR",
+            pernambuco: "PE",
+            piauí: "PI",
             "rio de janeiro": "RJ",
             "rio grande do norte": "RN",
             "rio grande do sul": "RS",
-            "rondônia": "RO",
-            "roraima": "RR",
+            rondônia: "RO",
+            roraima: "RR",
             "santa catarina": "SC",
             "são paulo": "SP",
-            "sergipe": "SE",
-            "tocantins": "TO",
+            sergipe: "SE",
+            tocantins: "TO",
           };
 
           const clean = (value: unknown) =>
@@ -1190,53 +1454,62 @@ export const appRouter = router({
           const response = await fetch(url, {
             headers: {
               "User-Agent": "PermuPayVendas/1.0 (reverse-geocoding)",
-              "Accept": "application/json",
+              Accept: "application/json",
             },
           });
 
           if (!response.ok) {
-            throw new Error(`Falha ao localizar endereço pelo GPS (${response.status})`);
+            throw new Error(
+              `Falha ao localizar endereço pelo GPS (${response.status})`
+            );
           }
 
-          const payload = await response.json() as {
+          const payload = (await response.json()) as {
             name?: string;
             display_name?: string;
             address?: Record<string, string>;
           };
 
           const address = payload.address ?? {};
-          const logradouro = clean(address.road)
-            ?? clean(address.pedestrian)
-            ?? clean(address.footway)
-            ?? clean(address.path);
+          const logradouro =
+            clean(address.road) ??
+            clean(address.pedestrian) ??
+            clean(address.footway) ??
+            clean(address.path);
           const numero = clean(address.house_number);
-          const bairro = clean(address.suburb)
-            ?? clean(address.neighbourhood)
-            ?? clean(address.quarter)
-            ?? clean(address.city_district)
-            ?? clean(address.residential);
-          const cidade = clean(address.city)
-            ?? clean(address.town)
-            ?? clean(address.village)
-            ?? clean(address.municipality)
-            ?? clean(address.county);
+          const bairro =
+            clean(address.suburb) ??
+            clean(address.neighbourhood) ??
+            clean(address.quarter) ??
+            clean(address.city_district) ??
+            clean(address.residential);
+          const cidade =
+            clean(address.city) ??
+            clean(address.town) ??
+            clean(address.village) ??
+            clean(address.municipality) ??
+            clean(address.county);
           const estadoNome = clean(address.state);
-          const estado = clean(address.state_code)?.toUpperCase()
-            ?? (estadoNome ? ufByState[estadoNome.toLowerCase()] : undefined);
+          const estado =
+            clean(address.state_code)?.toUpperCase() ??
+            (estadoNome ? ufByState[estadoNome.toLowerCase()] : undefined);
           const cep = clean(address.postcode);
 
           const endereco = [
             [logradouro, numero].filter(Boolean).join(", "),
             bairro,
-            cidade && estado ? `${cidade} - ${estado}` : cidade ?? estado,
+            cidade && estado ? `${cidade} - ${estado}` : (cidade ?? estado),
             cep ? `CEP ${cep}` : undefined,
-          ].filter(Boolean).join(" · ");
+          ]
+            .filter(Boolean)
+            .join(" · ");
 
-          const nomeSugerido = clean(payload.name)
-            ?? clean(address.shop)
-            ?? clean(address.amenity)
-            ?? clean(address.building)
-            ?? (clean(payload.display_name)?.split(",")[0]);
+          const nomeSugerido =
+            clean(payload.name) ??
+            clean(address.shop) ??
+            clean(address.amenity) ??
+            clean(address.building) ??
+            clean(payload.display_name)?.split(",")[0];
 
           return {
             nomeSugerido,
@@ -1266,7 +1539,9 @@ export const appRouter = router({
 
       obter: protectedProcedure
         .input(z.object({ id: z.number() }))
-        .query(({ input, ctx }) => dbCotacao.obterSessao(input.id, ctx.user.id)),
+        .query(({ input, ctx }) =>
+          dbCotacao.obterSessao(input.id, ctx.user.id)
+        ),
 
       adicionarProduto: protectedProcedure
         .input(
@@ -1278,7 +1553,9 @@ export const appRouter = router({
             obrigatorio: z.boolean().default(false),
           })
         )
-        .mutation(({ input, ctx }) => dbCotacao.adicionarProdutoSessao(ctx.user.id, input)),
+        .mutation(({ input, ctx }) =>
+          dbCotacao.adicionarProdutoSessao(ctx.user.id, input)
+        ),
 
       criar: protectedProcedure
         .input(
@@ -1298,7 +1575,9 @@ export const appRouter = router({
               .min(1),
           })
         )
-        .mutation(({ input, ctx }) => dbCotacao.criarSessao(ctx.user.id, input)),
+        .mutation(({ input, ctx }) =>
+          dbCotacao.criarSessao(ctx.user.id, input)
+        ),
 
       atualizar: protectedProcedure
         .input(
@@ -1387,9 +1666,7 @@ export const appRouter = router({
           ),
         })
       )
-      .mutation(({ input, ctx }) =>
-        dbCotacao.syncUpload(ctx.user.id, input)
-      ),
+      .mutation(({ input, ctx }) => dbCotacao.syncUpload(ctx.user.id, input)),
 
     syncDownload: protectedProcedure.query(({ ctx }) =>
       dbCotacao.syncDownload(ctx.user.id)

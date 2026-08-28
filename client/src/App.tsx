@@ -32,6 +32,9 @@ import Pedidos from "./pages/Pedidos";
 import CategoriasAdmin from "./pages/CategoriasAdmin";
 import Vendedores from "./pages/Vendedores";
 import VendaDireta from "./pages/VendaDireta";
+import SejaVendedor from "./pages/SejaVendedor";
+import Loja from "./pages/Loja";
+import MinhaConta from "./pages/MinhaConta";
 
 // Cotação de preços
 import Cotacoes from "./pages/Cotacoes";
@@ -42,16 +45,26 @@ import CotacaoComparativo from "./pages/CotacaoComparativo";
 import CotacaoLocais from "./pages/CotacaoLocais";
 
 // PL = Protected + Layout (para páginas sem DashboardLayout interno)
-const PL = ({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) => (
+const PL = ({
+  children,
+  adminOnly = false,
+}: {
+  children: React.ReactNode;
+  adminOnly?: boolean;
+}) => (
   <ProtectedRoute adminOnly={adminOnly}>
     <DashboardLayout>{children}</DashboardLayout>
   </ProtectedRoute>
 );
 
 // P = Protected only (para páginas que já têm DashboardLayout interno)
-const P = ({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) => (
-  <ProtectedRoute adminOnly={adminOnly}>{children}</ProtectedRoute>
-);
+const P = ({
+  children,
+  adminOnly = false,
+}: {
+  children: React.ReactNode;
+  adminOnly?: boolean;
+}) => <ProtectedRoute adminOnly={adminOnly}>{children}</ProtectedRoute>;
 
 function Router() {
   return (
@@ -65,57 +78,214 @@ function Router() {
       <Route path="/simulador" component={PricingSimulator} />
       <Route path="/desejos" component={WishlistPublic} />
       <Route path="/vendedor/:token" component={VendaDireta} />
+      <Route path="/seja-vendedor" component={SejaVendedor} />
+      <Route path="/loja/:referralCode" component={Loja} />
+      <Route path="/minha-conta" component={MinhaConta} />
 
       {/* ── DASHBOARD ─────────────────────────────────────────────────── */}
-      <Route path="/dashboard">{() => <PL><Dashboard /></PL>}</Route>
+      <Route path="/dashboard">
+        {() => (
+          <PL>
+            <Dashboard />
+          </PL>
+        )}
+      </Route>
 
       {/* ── PRODUTOS ──────────────────────────────────────────────────── */}
-      <Route path="/produtos">{() => <PL><Products /></PL>}</Route>
+      <Route path="/produtos">
+        {() => (
+          <PL>
+            <Products />
+          </PL>
+        )}
+      </Route>
       {/* ProductForm já inclui DashboardLayout internamente — usar P para evitar duplicação */}
-      <Route path="/produtos/novo">{() => <P><ProductForm /></P>}</Route>
-      <Route path="/produtos/:id/editar">{() => <P><ProductForm /></P>}</Route>
+      <Route path="/produtos/novo">
+        {() => (
+          <P>
+            <ProductForm />
+          </P>
+        )}
+      </Route>
+      <Route path="/produtos/:id/editar">
+        {() => (
+          <P>
+            <ProductForm />
+          </P>
+        )}
+      </Route>
 
       {/* ── ESTOQUE ───────────────────────────────────────────────────── */}
-      <Route path="/estoque">{() => <P><Estoque /></P>}</Route>
+      <Route path="/estoque">
+        {() => (
+          <P>
+            <Estoque />
+          </P>
+        )}
+      </Route>
 
       {/* ── SIMULAÇÕES ────────────────────────────────────────────────── */}
-      <Route path="/simulacoes">{() => <P><SimulationsExport /></P>}</Route>
+      <Route path="/simulacoes">
+        {() => (
+          <P>
+            <SimulationsExport />
+          </P>
+        )}
+      </Route>
       <Route path="/simulacoes/:id">
-        {(params: any) => <PL><SimulationDetail id={Number(params.id)} /></PL>}
+        {(params: any) => (
+          <PL>
+            <SimulationDetail id={Number(params.id)} />
+          </PL>
+        )}
       </Route>
 
       {/* ── ENTRADA DE PRODUTOS ─────────────────────────────────────── */}
-      <Route path="/entrada-produtos">{() => <PL><BatchPricing /></PL>}</Route>
-      <Route path="/entrada-produtos/novo">{() => <PL><BatchPricing /></PL>}</Route>
+      <Route path="/entrada-produtos">
+        {() => (
+          <PL>
+            <BatchPricing />
+          </PL>
+        )}
+      </Route>
+      <Route path="/entrada-produtos/novo">
+        {() => (
+          <PL>
+            <BatchPricing />
+          </PL>
+        )}
+      </Route>
 
       {/* Rotas antigas mantidas por compatibilidade */}
-      <Route path="/lotes">{() => <PL><BatchPricing /></PL>}</Route>
-      <Route path="/lotes/novo">{() => <PL><BatchPricing /></PL>}</Route>
+      <Route path="/lotes">
+        {() => (
+          <PL>
+            <BatchPricing />
+          </PL>
+        )}
+      </Route>
+      <Route path="/lotes/novo">
+        {() => (
+          <PL>
+            <BatchPricing />
+          </PL>
+        )}
+      </Route>
 
       {/* ── RELATÓRIOS ────────────────────────────────────────────────── */}
-      <Route path="/relatorios">{() => <P><Relatorios /></P>}</Route>
+      <Route path="/relatorios">
+        {() => (
+          <P>
+            <Relatorios />
+          </P>
+        )}
+      </Route>
 
       {/* ── LISTA DE DESEJOS ADMIN ────────────────────────────────────── */}
-      <Route path="/desejos-admin">{() => <P><WishlistAdmin /></P>}</Route>
+      <Route path="/desejos-admin">
+        {() => (
+          <P>
+            <WishlistAdmin />
+          </P>
+        )}
+      </Route>
 
       {/* ── PEDIDOS ───────────────────────────────────────────────────── */}
-      <Route path="/pedidos">{() => <PL><Pedidos /></PL>}</Route>
+      <Route path="/pedidos">
+        {() => (
+          <PL>
+            <Pedidos />
+          </PL>
+        )}
+      </Route>
 
       {/* ── SOMENTE ADMIN ─────────────────────────────────────────────── */}
-      <Route path="/usuarios">{() => <P adminOnly><Usuarios /></P>}</Route>
-      <Route path="/categorias">{() => <P adminOnly><CategoriasAdmin /></P>}</Route>
-      <Route path="/vendedores">{() => <P adminOnly><Vendedores /></P>}</Route>
-      <Route path="/configuracoes">{() => <P><Configuracoes /></P>}</Route>
-      <Route path="/configuracoes-pagamento">{() => <P><ConfiguracoesPagamento /></P>}</Route>
+      <Route path="/usuarios">
+        {() => (
+          <P adminOnly>
+            <Usuarios />
+          </P>
+        )}
+      </Route>
+      <Route path="/categorias">
+        {() => (
+          <P adminOnly>
+            <CategoriasAdmin />
+          </P>
+        )}
+      </Route>
+      <Route path="/vendedores">
+        {() => (
+          <P adminOnly>
+            <Vendedores />
+          </P>
+        )}
+      </Route>
+      <Route path="/configuracoes">
+        {() => (
+          <P>
+            <Configuracoes />
+          </P>
+        )}
+      </Route>
+      <Route path="/configuracoes-pagamento">
+        {() => (
+          <P>
+            <ConfiguracoesPagamento />
+          </P>
+        )}
+      </Route>
 
       {/* ── COTAÇÃO DE PREÇOS (layout próprio mobile-first) ─────────── */}
-      <Route path="/cotacoes">{() => <ProtectedRoute><Cotacoes /></ProtectedRoute>}</Route>
-      <Route path="/cotacoes-gestao">{() => <P><CotacoesGestao /></P>}</Route>
-      <Route path="/cotacoes/nova">{() => <ProtectedRoute><CotacaoSessaoForm /></ProtectedRoute>}</Route>
-      <Route path="/cotacoes/locais">{() => <ProtectedRoute><CotacaoLocais /></ProtectedRoute>}</Route>
-      <Route path="/cotacoes/:id/editar">{() => <ProtectedRoute><CotacaoSessaoForm /></ProtectedRoute>}</Route>
-      <Route path="/cotacoes/:id/coletar">{() => <ProtectedRoute><CotacaoColeta /></ProtectedRoute>}</Route>
-      <Route path="/cotacoes/:id/comparativo">{() => <ProtectedRoute><CotacaoComparativo /></ProtectedRoute>}</Route>
+      <Route path="/cotacoes">
+        {() => (
+          <ProtectedRoute>
+            <Cotacoes />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/cotacoes-gestao">
+        {() => (
+          <P>
+            <CotacoesGestao />
+          </P>
+        )}
+      </Route>
+      <Route path="/cotacoes/nova">
+        {() => (
+          <ProtectedRoute>
+            <CotacaoSessaoForm />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/cotacoes/locais">
+        {() => (
+          <ProtectedRoute>
+            <CotacaoLocais />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/cotacoes/:id/editar">
+        {() => (
+          <ProtectedRoute>
+            <CotacaoSessaoForm />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/cotacoes/:id/coletar">
+        {() => (
+          <ProtectedRoute>
+            <CotacaoColeta />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/cotacoes/:id/comparativo">
+        {() => (
+          <ProtectedRoute>
+            <CotacaoComparativo />
+          </ProtectedRoute>
+        )}
+      </Route>
 
       <Route component={NotFound} />
     </Switch>

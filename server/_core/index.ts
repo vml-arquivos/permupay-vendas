@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import fs from "node:fs";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -34,15 +35,11 @@ async function startServer() {
   const server = createServer(app);
 
   const uploadDir = process.env.UPLOAD_DIR ?? "/var/data/permupay/uploads";
-  import("node:fs").then(({ default: fs }) => {
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-  }).catch(() => {
-    const fs = require("node:fs");
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-  });
+  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
   app.use("/uploads", express.static(uploadDir));
 
-  app.post("/api/upload/image",
+  app.post(
+    "/api/upload/image",
     (req, res, next) => {
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -54,11 +51,22 @@ async function startServer() {
     },
     async (req: any, res: any) => {
       try {
-        const { uploadProductImageBuffer } = await import("../storage.upload");
-        const productId = Number(req.query.productId) || 0;
+        const { uploadProductImageBuffer, uploadDocumentBuffer } = await import(
+          "../storage.upload"
+        );
+        const folder = String(req.query.folder || "").trim();
         const filename = String(req.query.filename || "image.jpg");
-        const mimeType = (req.headers["content-type"] as string)?.split(";")[0] || "image/jpeg";
-        const url = await uploadProductImageBuffer(productId, req.rawBody, filename, mimeType);
+        const mimeType =
+          (req.headers["content-type"] as string)?.split(";")[0] ||
+          "image/jpeg";
+        const url = folder
+          ? await uploadDocumentBuffer(folder, req.rawBody, filename, mimeType)
+          : await uploadProductImageBuffer(
+              Number(req.query.productId) || 0,
+              req.rawBody,
+              filename,
+              mimeType
+            );
         res.json({ url });
       } catch (e: any) {
         res.status(400).json({ error: e.message });
@@ -66,7 +74,8 @@ async function startServer() {
     }
   );
 
-  app.post("/api/upload/audio",
+  app.post(
+    "/api/upload/audio",
     (req, res, next) => {
       const contentLength = Number(req.headers["content-length"] ?? 0);
       if (contentLength > 16 * 1024 * 1024) {
@@ -85,7 +94,9 @@ async function startServer() {
       try {
         const { uploadAudioBuffer } = await import("../storage.upload");
         const filename = String(req.query.filename || "audio.webm");
-        const mimeType = (req.headers["content-type"] as string)?.split(";")[0] || "audio/webm";
+        const mimeType =
+          (req.headers["content-type"] as string)?.split(";")[0] ||
+          "audio/webm";
         const url = await uploadAudioBuffer(req.rawBody, filename, mimeType);
         res.json({ url });
       } catch (e: any) {
@@ -127,14 +138,17 @@ async function startServer() {
   });
 
   // Job: expirar reservas vencidas a cada 10 minutos
-  setInterval(async () => {
-    try {
-      const count = await expireStaleReservations();
-      if (count > 0) console.log(`[job] ${count} reserva(s) expirada(s)`);
-    } catch (err) {
-      console.error("[job] Erro ao expirar reservas:", err);
-    }
-  }, 10 * 60 * 1000);
+  setInterval(
+    async () => {
+      try {
+        const count = await expireStaleReservations();
+        if (count > 0) console.log(`[job] ${count} reserva(s) expirada(s)`);
+      } catch (err) {
+        console.error("[job] Erro ao expirar reservas:", err);
+      }
+    },
+    10 * 60 * 1000
+  );
 }
 
 startServer().catch(console.error);

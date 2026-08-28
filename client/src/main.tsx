@@ -4,6 +4,7 @@ import { httpBatchLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
+import { CartProvider } from "./contexts/CartContext";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -25,7 +26,7 @@ const trpcClient = trpc.createClient({
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((error) => {
+    navigator.serviceWorker.register("/sw.js").catch(error => {
       console.warn("[PWA] Não foi possível registrar o service worker", error);
     });
   });
@@ -34,7 +35,9 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <CartProvider>
+        <App />
+      </CartProvider>
     </QueryClientProvider>
   </trpc.Provider>
 );

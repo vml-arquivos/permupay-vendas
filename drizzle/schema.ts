@@ -49,10 +49,10 @@ export const batchStatusEnum = pgEnum("permupay_batch_status", [
 
 // Enum para status da fila FIFO de estoque
 export const queueStatusEnum = pgEnum("permupay_queue_status", [
-  "EM_ESPERA",   // aguardando — produto ativo ainda tem saldo
-  "ATIVO",       // sendo vendido agora
-  "ESGOTADO",    // todas as unidades deste lote vendidas
-  "CANCELADO",   // cancelado manualmente
+  "EM_ESPERA", // aguardando — produto ativo ainda tem saldo
+  "ATIVO", // sendo vendido agora
+  "ESGOTADO", // todas as unidades deste lote vendidas
+  "CANCELADO", // cancelado manualmente
 ]);
 
 // ─── Tabela: users ────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ export const products = pgTable("permupay_products", {
   // Fiscal (mantidos no produto para compatibilidade com histórico de simulações)
   taxRegime: taxRegimeEnum("tax_regime").notNull().default("SIMPLES_NACIONAL"),
   estimatedTaxRate: real("estimated_tax_rate").notNull().default(0),
-  taxCash: real("tax_cash").notNull().default(0),        // SEMPRE 0 — PIX isento
+  taxCash: real("tax_cash").notNull().default(0), // SEMPRE 0 — PIX isento
   taxBoleto: real("tax_boleto").notNull().default(6),
   taxDebit: real("tax_debit").notNull().default(6),
   taxCreditCash: real("tax_credit_cash").notNull().default(6),
@@ -103,18 +103,24 @@ export const products = pgTable("permupay_products", {
   // Configuração de Boleto (mantidos no produto para compatibilidade)
   boletoMonths: real("boleto_months").notNull().default(3),
   boletoMonthlyRate: real("boleto_monthly_rate").notNull().default(1.99),
-  boletoFixedFee: real("boleto_fixed_fee").notNull().default(3.50),
+  boletoFixedFee: real("boleto_fixed_fee").notNull().default(3.5),
   boletoDefaultRisk: real("boleto_default_risk").notNull().default(2),
-  boletoCustomerPaysInterest: boolean("boleto_customer_pays_interest").notNull().default(false),
+  boletoCustomerPaysInterest: boolean("boleto_customer_pays_interest")
+    .notNull()
+    .default(false),
 
   // Configuração de Cartão (mantidos no produto para compatibilidade)
   cardDebitFee: real("card_debit_fee").notNull().default(1.5),
   cardCreditCashFee: real("card_credit_cash_fee").notNull().default(2.5),
-  cardCreditInstallmentFee: real("card_credit_installment_fee").notNull().default(3.5),
+  cardCreditInstallmentFee: real("card_credit_installment_fee")
+    .notNull()
+    .default(3.5),
   cardInstallments: real("card_installments").notNull().default(6),
   cardAnticipationRate: real("card_anticipation_rate").notNull().default(1.5),
   cardMonthlyRate: real("card_monthly_rate").notNull().default(1.99),
-  cardCustomerPaysInterest: boolean("card_customer_pays_interest").notNull().default(false),
+  cardCustomerPaysInterest: boolean("card_customer_pays_interest")
+    .notNull()
+    .default(false),
 
   // Moeda / câmbio
   costCurrency: text("cost_currency").default("BRL"),
@@ -206,7 +212,9 @@ export const batchItems = pgTable("permupay_batch_items", {
   unitCostOriginal: real("unit_cost_original").notNull().default(0),
   costCurrency: text("cost_currency").notNull().default("BRL"),
   exchangeRate: real("exchange_rate").notNull().default(0),
-  acquisitionPaymentMethod: text("acquisition_payment_method").notNull().default("OUTRO"),
+  acquisitionPaymentMethod: text("acquisition_payment_method")
+    .notNull()
+    .default("OUTRO"),
 
   unitCostBrl: real("unit_cost_brl").notNull().default(0),
   quantity: integer("quantity").notNull().default(1),
@@ -214,7 +222,9 @@ export const batchItems = pgTable("permupay_batch_items", {
   allocatedOperationalCost: real("allocated_operational_cost")
     .notNull()
     .default(0),
-  operationalCostPerUnit: real("operational_cost_per_unit").notNull().default(0),
+  operationalCostPerUnit: real("operational_cost_per_unit")
+    .notNull()
+    .default(0),
   allocatedTaxCost: real("allocated_tax_cost").notNull().default(0),
   taxCostPerUnit: real("tax_cost_per_unit").notNull().default(0),
   allocatedOtherCost: real("allocated_other_cost").notNull().default(0),
@@ -245,11 +255,13 @@ export const stockQueue = pgTable("permupay_stock_queue", {
   productId: integer("product_id")
     .notNull()
     .references(() => products.id, { onDelete: "cascade" }),
-  batchId: integer("batch_id")
-    .references(() => pricingBatches.id, { onDelete: "set null" }),
+  batchId: integer("batch_id").references(() => pricingBatches.id, {
+    onDelete: "set null",
+  }),
   batchItemId: integer("batch_item_id"), // lazy ref para batch_items
-  userId: integer("user_id")
-    .references(() => users.id, { onDelete: "set null" }),
+  userId: integer("user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
 
   // Quantidades
   quantity: real("quantity").notNull().default(0),
@@ -370,7 +382,10 @@ export const wishlistRequests = pgTable("permupay_wishlist_requests", {
   budgetMax: real("budget_max").notNull().default(0),
 
   // Campos novos v2 — seleção de produtos do catálogo
-  productIds: integer("product_ids").array().notNull().default(sql`'{}'::integer[]`),
+  productIds: integer("product_ids")
+    .array()
+    .notNull()
+    .default(sql`'{}'::integer[]`),
   phone: text("phone"),
   notesPublic: text("notes_public"),
 
@@ -422,7 +437,10 @@ export const aiSuggestionsCache = pgTable("permupay_ai_suggestions_cache", {
   id: serial("id").primaryKey(),
   inputHash: varchar("input_hash", { length: 64 }).notNull(),
   sourceType: text("source_type").notNull(),
-  matchedProductId: integer("matched_product_id").references(() => products.id, { onDelete: "set null" }),
+  matchedProductId: integer("matched_product_id").references(
+    () => products.id,
+    { onDelete: "set null" }
+  ),
   suggestion: jsonb("suggestion").notNull(),
   origin: text("origin").notNull(),
   confidence: real("confidence").notNull().default(0),
@@ -473,18 +491,24 @@ export const paymentSettings = pgTable("permupay_payment_settings", {
   // ── Cartão ────────────────────────────────────────────────────────────────
   cardDebitFee: real("card_debit_fee").notNull().default(1.5),
   cardCreditCashFee: real("card_credit_cash_fee").notNull().default(2.5),
-  cardCreditInstallmentFee: real("card_credit_installment_fee").notNull().default(3.5),
+  cardCreditInstallmentFee: real("card_credit_installment_fee")
+    .notNull()
+    .default(3.5),
   cardInstallments: real("card_installments").notNull().default(6),
   cardAnticipationRate: real("card_anticipation_rate").notNull().default(1.5),
   cardMonthlyRate: real("card_monthly_rate").notNull().default(1.99),
-  cardCustomerPaysInterest: boolean("card_customer_pays_interest").notNull().default(false),
+  cardCustomerPaysInterest: boolean("card_customer_pays_interest")
+    .notNull()
+    .default(false),
 
   // ── Boleto ────────────────────────────────────────────────────────────────
   boletoMonths: real("boleto_months").notNull().default(3),
   boletoMonthlyRate: real("boleto_monthly_rate").notNull().default(1.99),
-  boletoFixedFee: real("boleto_fixed_fee").notNull().default(3.50),
+  boletoFixedFee: real("boleto_fixed_fee").notNull().default(3.5),
   boletoDefaultRisk: real("boleto_default_risk").notNull().default(2),
-  boletoCustomerPaysInterest: boolean("boleto_customer_pays_interest").notNull().default(false),
+  boletoCustomerPaysInterest: boolean("boleto_customer_pays_interest")
+    .notNull()
+    .default(false),
 
   // ── Descontos Universais (% sobre preço final ao cliente) ─────────────────
   discountPix: real("discount_pix").notNull().default(0),
@@ -509,3 +533,7 @@ export const paymentSettings = pgTable("permupay_payment_settings", {
 
 export type PaymentSetting = typeof paymentSettings.$inferSelect;
 export type InsertPaymentSetting = typeof paymentSettings.$inferInsert;
+
+// Tabela separada de clientes finais, exportada pelo entrypoint do Drizzle.
+export { customers } from "./schema.customers";
+export type { Customer, InsertCustomer } from "./schema.customers";

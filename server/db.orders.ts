@@ -7,6 +7,7 @@
  * 3. Admin pode cancelar reserva pendente → CANCELADO, sem mexer no estoque.
  */
 
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { products, stockEntries } from "../drizzle/schema";
@@ -44,15 +45,22 @@ function resolveOrderUnitPrice(
   return fallback;
 }
 
-export async function createOrder(data: {
-  productId: number;
-  quantity: number;
-  buyerName: string;
-  buyerContact: string;
-  buyerContactType: string;
-  paymentMethod: PaymentMethod;
-  referralCode?: string;
-}, requireReferral = false): Promise<Order> {
+export async function createOrder(
+  data: {
+    productId: number;
+    quantity: number;
+    buyerName: string;
+    buyerContact: string;
+    buyerContactType: string;
+    paymentMethod: PaymentMethod;
+    referralCode?: string;
+    sellerId?: number;
+    customerId?: number;
+    checkoutGroupId?: string;
+    channel?: string;
+  },
+  requireReferral = false
+): Promise<Order> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -64,31 +72,40 @@ export async function createOrder(data: {
 
   const product = productRows[0];
   if (!product) throw new Error("Produto não encontrado");
-  if (!product.published || !product.active) throw new Error("Produto não disponível");
+  if (!product.published || !product.active)
+    throw new Error("Produto não disponível");
 
-  let sellerId: number | null = null;
+  let sellerId: number | null = data.sellerId ?? null;
   let normalizedReferralCode: string | null = null;
   if (data.referralCode?.trim()) {
     const sellerRows = await db
       .select({ id: sellers.id, referralCode: sellers.referralCode })
       .from(sellers)
-      .where(and(eq(sellers.referralCode, data.referralCode.trim().toUpperCase()), eq(sellers.active, true)))
+      .where(
+        and(
+          eq(sellers.referralCode, data.referralCode.trim().toUpperCase()),
+          eq(sellers.active, true)
+        )
+      )
       .limit(1);
     const seller = sellerRows[0];
-    if (!seller && requireReferral) throw new Error("Token de vendedor inválido ou inativo");
+    if (!seller && requireReferral)
+      throw new Error("Token de vendedor inválido ou inativo");
     if (seller) {
       sellerId = seller.id;
       normalizedReferralCode = seller.referralCode;
     }
   }
-  if (requireReferral && !sellerId) throw new Error("Token de vendedor inválido ou inativo");
+  if (requireReferral && !sellerId)
+    throw new Error("Token de vendedor inválido ou inativo");
 
   const quantity = Math.max(1, Number(data.quantity || 1));
   const availableStock = Number(product.stockQuantity ?? 0);
   if (availableStock < quantity) throw new Error("Estoque insuficiente");
 
   const unitPrice = resolveOrderUnitPrice(product, data.paymentMethod);
-  if (unitPrice <= 0) throw new Error("Produto sem preço válido para esta forma de pagamento");
+  if (unitPrice <= 0)
+    throw new Error("Produto sem preço válido para esta forma de pagamento");
 
   const totalPrice = unitPrice * quantity;
   // Reserva curta para atendimento manual. Não baixa estoque automaticamente.
@@ -99,7 +116,7 @@ export async function createOrder(data: {
     .values({
       productId: data.productId,
       quantity,
-      channel: "VITRINE",
+      channel: data.channel ?? "VITRINE",
       buyerName: data.buyerName,
       buyerContact: data.buyerContact,
       buyerContactType: data.buyerContactType,
@@ -110,6 +127,8 @@ export async function createOrder(data: {
       expiresAt,
       sellerId,
       referralCode: normalizedReferralCode,
+      customerId: data.customerId ?? null,
+      checkoutGroupId: data.checkoutGroupId ?? null,
     } as InsertOrder)
     .returning();
 
@@ -121,14 +140,16 @@ async function applyStockDeductionForOrder(
   order: any,
   product: any,
   stockUserId: number | null,
-  adminNotes?: string,
+  adminNotes?: string
 ): Promise<void> {
   const orderId = Number(order.id);
   const productId = Number(order.product_id);
   const quantitySold = Number(order.quantity ?? 0);
   const currentStock = Number(product.stock_quantity ?? 0);
   if (currentStock < quantitySold) {
-    throw new Error(`Estoque insuficiente: disponível ${currentStock}, necessário ${quantitySold}`);
+    throw new Error(
+      `Estoque insuficiente: disponível ${currentStock}, necessário ${quantitySold}`
+    );
   }
 
   const newStock = currentStock - quantitySold;
@@ -141,17 +162,19 @@ async function applyStockDeductionForOrder(
     productId,
     userId: stockUserId,
     quantity: -quantitySold,
-    unitCost: Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0),
+    unitCost: Number(
+      product.final_unit_cost_brl ?? product.average_cost_brl ?? 0
+    ),
     notes: `Saída por venda/reserva confirmada — Pedido #${orderId}${adminNotes ? ` | ${adminNotes}` : ""}`,
   });
 
-  const activeQueueResult = await tx.execute(sql`
+  const activeQueueResult = (await tx.execute(sql`
     SELECT id, quantity_remaining
     FROM permupay_stock_queue
     WHERE product_id = ${productId} AND status = 'ATIVO'
     ORDER BY activated_at ASC NULLS LAST, created_at ASC
     LIMIT 1 FOR UPDATE
-  `) as any;
+  `)) as any;
   const activeQueue = activeQueueResult?.rows?.[0];
   if (!activeQueue) return;
 
@@ -173,18 +196,20 @@ async function applyStockDeductionForOrder(
     UPDATE permupay_batch_items SET queue_status = 'ESGOTADO' WHERE queue_id = ${activeQueue.id}
   `);
 
-  const nextQueueResult = await tx.execute(sql`
+  const nextQueueResult = (await tx.execute(sql`
     SELECT id, quantity, quantity_remaining, unit_cost,
            suggested_price_pix, suggested_price_card, suggested_price_boleto, batch_id
     FROM permupay_stock_queue
     WHERE product_id = ${productId} AND status = 'EM_ESPERA'
     ORDER BY position ASC, created_at ASC
     LIMIT 1 FOR UPDATE
-  `) as any;
+  `)) as any;
   const nextQueue = nextQueueResult?.rows?.[0];
   if (!nextQueue) return;
 
-  const nextQty = Number(nextQueue.quantity_remaining ?? nextQueue.quantity ?? 0);
+  const nextQty = Number(
+    nextQueue.quantity_remaining ?? nextQueue.quantity ?? 0
+  );
   await tx.execute(sql`
     UPDATE permupay_stock_queue
     SET status = 'ATIVO', quantity_remaining = ${nextQty},
@@ -215,34 +240,53 @@ async function applyStockDeductionForOrder(
   `);
 }
 
-async function registerCommissionIfApplicable(tx: any, order: any, product: any): Promise<void> {
+async function registerCommissionIfApplicable(
+  tx: any,
+  order: any,
+  product: any
+): Promise<void> {
   const sellerId = Number(order.seller_id ?? 0);
   if (sellerId <= 0) return;
-  const sellerResult = await tx.execute(sql`
+  const sellerResult = (await tx.execute(sql`
     SELECT id, commission_type, commission_value, commission_rate
     FROM permupay_sellers WHERE id = ${sellerId} LIMIT 1
-  `) as any;
+  `)) as any;
   const seller = sellerResult?.rows?.[0];
   if (!seller) return;
 
   const saleAmount = Number(order.total_price ?? 0);
   const quantity = Number(order.quantity ?? 0);
-  const costAmount = Number((Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0) * quantity).toFixed(2));
+  const costAmount = Number(
+    (
+      Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0) *
+      quantity
+    ).toFixed(2)
+  );
   const commissionType = String(seller.commission_type ?? "PERCENT");
-  const commissionValue = Number(seller.commission_value ?? seller.commission_rate ?? 0);
-  const commissionAmount = Number((commissionType === "FIXED" ? commissionValue : saleAmount * commissionValue / 100).toFixed(2));
+  const commissionValue = Number(
+    seller.commission_value ?? seller.commission_rate ?? 0
+  );
+  const commissionAmount = Number(
+    (commissionType === "FIXED"
+      ? commissionValue
+      : (saleAmount * commissionValue) / 100
+    ).toFixed(2)
+  );
 
-  await tx.insert(commissions).values({
-    orderId: Number(order.id),
-    sellerId,
-    orderTotal: saleAmount,
-    commissionRate: commissionType === "PERCENT" ? commissionValue : 0,
-    commissionValue: commissionAmount,
-    saleAmount,
-    costAmount,
-    commissionAmount,
-    status: "PENDENTE",
-  }).onConflictDoNothing({ target: commissions.orderId });
+  await tx
+    .insert(commissions)
+    .values({
+      orderId: Number(order.id),
+      sellerId,
+      orderTotal: saleAmount,
+      commissionRate: commissionType === "PERCENT" ? commissionValue : 0,
+      commissionValue: commissionAmount,
+      saleAmount,
+      costAmount,
+      commissionAmount,
+      status: "PENDENTE",
+    })
+    .onConflictDoNothing({ target: commissions.orderId });
 }
 
 export async function confirmOrder(
@@ -254,34 +298,49 @@ export async function confirmOrder(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.transaction(async (tx) => {
-    const orderResult = await tx.execute(sql`
+  return await db.transaction(async tx => {
+    const orderResult = (await tx.execute(sql`
       SELECT * FROM permupay_orders WHERE id = ${orderId} FOR UPDATE
-    `) as any;
+    `)) as any;
     const existing = orderResult?.rows?.[0];
     if (!existing) throw new Error("Pedido não encontrado");
-    if (!["AGUARDANDO_PAGAMENTO", "RESERVADO"].includes(String(existing.status))) {
-      throw new Error(`Pedido não pode ser confirmado (status atual: ${existing.status})`);
+    if (
+      !["AGUARDANDO_PAGAMENTO", "RESERVADO"].includes(String(existing.status))
+    ) {
+      throw new Error(
+        `Pedido não pode ser confirmado (status atual: ${existing.status})`
+      );
     }
 
-    const finalMethod = (paymentMethod ?? existing.payment_method) as PaymentMethod;
-    const productResult = await tx.execute(sql`
+    const finalMethod = (paymentMethod ??
+      existing.payment_method) as PaymentMethod;
+    const productResult = (await tx.execute(sql`
       SELECT * FROM permupay_products WHERE id = ${existing.product_id} FOR UPDATE
-    `) as any;
+    `)) as any;
     const product = productResult?.rows?.[0];
     if (!product) throw new Error("Produto não encontrado ao confirmar");
 
-    await applyStockDeductionForOrder(tx, existing, product, adminUserId, adminNotes);
+    await applyStockDeductionForOrder(
+      tx,
+      existing,
+      product,
+      adminUserId,
+      adminNotes
+    );
     await registerCommissionIfApplicable(tx, existing, product);
 
-    const [updated] = await tx.update(orders).set({
-      status: "PAGO",
-      paymentMethod: finalMethod,
-      confirmedAt: new Date(),
-      confirmedBy: adminUserId,
-      adminNotes: adminNotes ?? existing.admin_notes,
-      updatedAt: new Date(),
-    } as any).where(eq(orders.id, orderId)).returning();
+    const [updated] = await tx
+      .update(orders)
+      .set({
+        status: "PAGO",
+        paymentMethod: finalMethod,
+        confirmedAt: new Date(),
+        confirmedBy: adminUserId,
+        adminNotes: adminNotes ?? existing.admin_notes,
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(orders.id, orderId))
+      .returning();
     return updated;
   });
 }
@@ -304,79 +363,201 @@ export async function createSellerOrder(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return db.transaction(async (tx) => {
+  return db.transaction(async tx => {
     const sellerResult = data.sellerId
-      ? await tx.execute(sql`SELECT * FROM permupay_sellers WHERE id = ${data.sellerId} AND active = TRUE LIMIT 1`) as any
+      ? ((await tx.execute(
+          sql`SELECT * FROM permupay_sellers WHERE id = ${data.sellerId} AND active = TRUE LIMIT 1`
+        )) as any)
       : data.accessToken
-        ? await tx.execute(sql`SELECT * FROM permupay_sellers WHERE access_token = ${data.accessToken} AND type = 'EXTERNO' AND active = TRUE LIMIT 1`) as any
+        ? ((await tx.execute(
+            sql`SELECT * FROM permupay_sellers WHERE access_token = ${data.accessToken} AND type = 'EXTERNO' AND active = TRUE LIMIT 1`
+          )) as any)
         : data.referralCode
-          ? await tx.execute(sql`SELECT * FROM permupay_sellers WHERE referral_code = ${data.referralCode.trim().toUpperCase()} AND active = TRUE LIMIT 1`) as any
+          ? ((await tx.execute(
+              sql`SELECT * FROM permupay_sellers WHERE referral_code = ${data.referralCode.trim().toUpperCase()} AND active = TRUE LIMIT 1`
+            )) as any)
           : { rows: [] };
     const seller = sellerResult?.rows?.[0];
     if (!seller) throw new Error("Vendedor inválido ou inativo");
 
     const sellerType = String(seller.type ?? "EXTERNO");
     if (sellerType === "EXTERNO") {
-      if (!data.accessToken || seller.access_token !== data.accessToken) throw new Error("Token de acesso do vendedor inválido");
-      if (data.markAsPaid) throw new Error("Vendas externas não podem ser marcadas como pagas pelo link público");
-    } else if (!data.requestingUserId || Number(seller.user_id) !== Number(data.requestingUserId)) {
-      throw new Error("Vendedor interno exige uma sessão autenticada do próprio vendedor");
+      if (!data.accessToken || seller.access_token !== data.accessToken)
+        throw new Error("Token de acesso do vendedor inválido");
+      if (data.markAsPaid)
+        throw new Error(
+          "Vendas externas não podem ser marcadas como pagas pelo link público"
+        );
+    } else if (
+      !data.requestingUserId ||
+      Number(seller.user_id) !== Number(data.requestingUserId)
+    ) {
+      throw new Error(
+        "Vendedor interno exige uma sessão autenticada do próprio vendedor"
+      );
     }
 
-    const productResult = await tx.execute(sql`SELECT * FROM permupay_products WHERE id = ${data.productId} FOR UPDATE`) as any;
+    const productResult = (await tx.execute(
+      sql`SELECT * FROM permupay_products WHERE id = ${data.productId} FOR UPDATE`
+    )) as any;
     const product = productResult?.rows?.[0];
-    if (!product || product.active === false) throw new Error("Produto não encontrado ou inativo");
+    if (!product || product.active === false)
+      throw new Error("Produto não encontrado ou inativo");
 
     const quantity = Math.max(1, Math.floor(Number(data.quantity || 1)));
     const currentStock = Number(product.stock_quantity ?? 0);
     if (currentStock < quantity) throw new Error("Estoque insuficiente");
 
     const unitPrice = Number(data.unitPrice);
-    if (!Number.isFinite(unitPrice) || unitPrice <= 0) throw new Error("Preço de venda inválido");
-    const finalCost = Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? product.cost_price ?? 0);
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0)
+      throw new Error("Preço de venda inválido");
+    const finalCost = Number(
+      product.final_unit_cost_brl ??
+        product.average_cost_brl ??
+        product.cost_price ??
+        0
+    );
     if (!data.allowBelowCost && unitPrice < finalCost) {
-      throw new Error(`O preço não pode ficar abaixo do custo do produto (R$ ${finalCost.toFixed(2)})`);
+      throw new Error(
+        `O preço não pode ficar abaixo do custo do produto (R$ ${finalCost.toFixed(2)})`
+      );
     }
 
     const totalPrice = Number((unitPrice * quantity).toFixed(2));
     const expiresAt = new Date(Date.now() + 5 * 60 * 60 * 1000);
-    const channel = sellerType === "INTERNO" ? "VENDEDOR_INTERNO" : "VENDEDOR_EXTERNO";
-    const confirmedBy = data.requestingUserId ?? (seller.user_id ? Number(seller.user_id) : null);
-    const [created] = await tx.insert(orders).values({
-      productId: data.productId,
-      quantity,
-      channel,
-      sellerId: Number(seller.id),
-      referralCode: seller.referral_code,
-      buyerName: data.buyerName.trim(),
-      buyerContact: data.buyerContact.trim(),
-      buyerContactType: data.buyerContactType,
-      paymentMethod: data.paymentMethod,
-      unitPrice,
-      totalPrice,
-      status: data.markAsPaid ? "PAGO" : "AGUARDANDO_PAGAMENTO",
-      expiresAt,
-      confirmedAt: data.markAsPaid ? new Date() : null,
-      confirmedBy: data.markAsPaid ? confirmedBy : null,
-    } as InsertOrder).returning();
+    const channel =
+      sellerType === "INTERNO" ? "VENDEDOR_INTERNO" : "VENDEDOR_EXTERNO";
+    const confirmedBy =
+      data.requestingUserId ?? (seller.user_id ? Number(seller.user_id) : null);
+    const [created] = await tx
+      .insert(orders)
+      .values({
+        productId: data.productId,
+        quantity,
+        channel,
+        sellerId: Number(seller.id),
+        referralCode: seller.referral_code,
+        buyerName: data.buyerName.trim(),
+        buyerContact: data.buyerContact.trim(),
+        buyerContactType: data.buyerContactType,
+        paymentMethod: data.paymentMethod,
+        unitPrice,
+        totalPrice,
+        status: data.markAsPaid ? "PAGO" : "AGUARDANDO_PAGAMENTO",
+        expiresAt,
+        confirmedAt: data.markAsPaid ? new Date() : null,
+        confirmedBy: data.markAsPaid ? confirmedBy : null,
+      } as InsertOrder)
+      .returning();
 
     if (!data.markAsPaid) return created;
-    const orderForStock = { id: created.id, product_id: data.productId, quantity, total_price: totalPrice, seller_id: Number(seller.id) };
-    await applyStockDeductionForOrder(tx, orderForStock, product, confirmedBy, "Venda direta registrada como paga");
+    const orderForStock = {
+      id: created.id,
+      product_id: data.productId,
+      quantity,
+      total_price: totalPrice,
+      seller_id: Number(seller.id),
+    };
+    await applyStockDeductionForOrder(
+      tx,
+      orderForStock,
+      product,
+      confirmedBy,
+      "Venda direta registrada como paga"
+    );
     await registerCommissionIfApplicable(tx, orderForStock, product);
     return created;
   });
 }
 
-export async function cancelOrder(orderId: number, adminNotes?: string): Promise<Order> {
+export type CartCheckoutInput = {
+  items: Array<{
+    productId: number;
+    quantity: number;
+    paymentMethod: PaymentMethod;
+  }>;
+  customer: {
+    name: string;
+    contact: string;
+    contactType?: "WHATSAPP" | "EMAIL";
+    email?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+  };
+  referralCode?: string;
+};
+
+export async function createCartCheckout(data: CartCheckoutInput): Promise<{
+  orders: Order[];
+  checkoutGroupId: string;
+  customerId: number;
+}> {
+  if (!data.items.length) throw new Error("O carrinho está vazio");
+
+  const referralCode = data.referralCode?.trim().toUpperCase() || undefined;
+  if (referralCode) {
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+    const [seller] = await db
+      .select({ id: sellers.id })
+      .from(sellers)
+      .where(
+        and(eq(sellers.referralCode, referralCode), eq(sellers.active, true))
+      )
+      .limit(1);
+    if (!seller) throw new Error("Link de loja inválido ou inativo");
+  }
+
+  const { identifyOrCreateCustomer } = await import("./db.customers");
+  const customer = await identifyOrCreateCustomer({
+    ...data.customer,
+    referredBySellerReferralCode: referralCode,
+  });
+  const checkoutGroupId = randomUUID();
+  const ordersCreated: Order[] = [];
+
+  for (const item of data.items) {
+    const order = await createOrder(
+      {
+        productId: item.productId,
+        quantity: item.quantity,
+        buyerName: customer.name,
+        buyerContact: customer.contact,
+        buyerContactType: customer.contactType,
+        paymentMethod: item.paymentMethod,
+        referralCode,
+        customerId: customer.id,
+        checkoutGroupId,
+        channel: referralCode ? "LOJA_AFILIADO" : "VITRINE",
+      },
+      Boolean(referralCode)
+    );
+    ordersCreated.push(order);
+  }
+
+  return { orders: ordersCreated, checkoutGroupId, customerId: customer.id };
+}
+
+export async function cancelOrder(
+  orderId: number,
+  adminNotes?: string
+): Promise<Order> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const existing = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  const existing = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.id, orderId))
+    .limit(1);
   if (!existing[0]) throw new Error("Pedido não encontrado");
 
   if (!["AGUARDANDO_PAGAMENTO", "RESERVADO"].includes(existing[0].status)) {
-    throw new Error(`Pedido não pode ser cancelado (status atual: ${existing[0].status})`);
+    throw new Error(
+      `Pedido não pode ser cancelado (status atual: ${existing[0].status})`
+    );
   }
 
   const [updated] = await db
@@ -392,8 +573,6 @@ export async function cancelOrder(orderId: number, adminNotes?: string): Promise
 
   return updated;
 }
-
-
 
 /**
  * Exclusão administrativa suprema de pedido.
@@ -415,13 +594,13 @@ export async function deleteOrder(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.transaction(async (tx) => {
-    const orderResult = await tx.execute(sql`
+  return await db.transaction(async tx => {
+    const orderResult = (await tx.execute(sql`
       SELECT *
       FROM permupay_orders
       WHERE id = ${orderId}
       FOR UPDATE
-    `) as any;
+    `)) as any;
     const existing = orderResult?.rows?.[0];
 
     if (!existing) throw new Error("Pedido não encontrado");
@@ -432,12 +611,12 @@ export async function deleteOrder(
     let restoredQuantity = 0;
 
     if (restoreStock && wasPaid && productId > 0 && qty > 0) {
-      const productResult = await tx.execute(sql`
+      const productResult = (await tx.execute(sql`
         SELECT id, stock_quantity, final_unit_cost_brl, average_cost_brl
         FROM permupay_products
         WHERE id = ${productId}
         FOR UPDATE
-      `) as any;
+      `)) as any;
       const product = productResult?.rows?.[0];
 
       if (product) {
@@ -452,7 +631,7 @@ export async function deleteOrder(
           WHERE id = ${productId}
         `);
 
-        const activeQueueResult = await tx.execute(sql`
+        const activeQueueResult = (await tx.execute(sql`
           SELECT id, quantity_remaining
           FROM permupay_stock_queue
           WHERE product_id = ${productId}
@@ -460,11 +639,12 @@ export async function deleteOrder(
           ORDER BY activated_at ASC NULLS LAST, created_at ASC
           LIMIT 1
           FOR UPDATE
-        `) as any;
+        `)) as any;
         const activeQueue = activeQueueResult?.rows?.[0];
 
         if (activeQueue) {
-          const queueRemaining = Number(activeQueue.quantity_remaining ?? 0) + qty;
+          const queueRemaining =
+            Number(activeQueue.quantity_remaining ?? 0) + qty;
           await tx.execute(sql`
             UPDATE permupay_stock_queue
             SET quantity_remaining = ${queueRemaining},
@@ -477,7 +657,9 @@ export async function deleteOrder(
           productId,
           userId: adminUserId,
           quantity: qty,
-          unitCost: Number(product.final_unit_cost_brl ?? product.average_cost_brl ?? 0),
+          unitCost: Number(
+            product.final_unit_cost_brl ?? product.average_cost_brl ?? 0
+          ),
           notes: `[ADMIN] Pedido #${orderId} apagado; estoque devolvido por limpeza/teste`,
         });
 
@@ -496,11 +678,11 @@ export async function expireStaleReservations(): Promise<number> {
   if (!db) return 0;
 
   try {
-    const tableCheck = await db.execute(sql`
+    const tableCheck = (await db.execute(sql`
       SELECT 1 FROM information_schema.tables
       WHERE table_name = 'permupay_orders'
       LIMIT 1
-    `) as any;
+    `)) as any;
     if (!tableCheck.rows?.length) return 0;
   } catch {
     return 0;
@@ -510,14 +692,24 @@ export async function expireStaleReservations(): Promise<number> {
   const stale = await db
     .select()
     .from(orders)
-    .where(and(inArray(orders.status, ["AGUARDANDO_PAGAMENTO", "RESERVADO"]), lt(orders.expiresAt, now)));
+    .where(
+      and(
+        inArray(orders.status, ["AGUARDANDO_PAGAMENTO", "RESERVADO"]),
+        lt(orders.expiresAt, now)
+      )
+    );
 
   if (stale.length === 0) return 0;
 
   await db
     .update(orders)
     .set({ status: "EXPIRADO", updatedAt: new Date() })
-    .where(inArray(orders.id, stale.map((o) => o.id)));
+    .where(
+      inArray(
+        orders.id,
+        stale.map(o => o.id)
+      )
+    );
 
   console.log(`[orders] ${stale.length} pedido(s) expirado(s)`);
   return stale.length;
@@ -526,34 +718,52 @@ export async function expireStaleReservations(): Promise<number> {
 export async function listOrders(filters?: {
   status?: Order["status"];
   productId?: number;
-}): Promise<(Order & { productName: string; productImageUrl: string | null })[]> {
+  customerId?: number;
+}): Promise<
+  (Order & { productName: string; productImageUrl: string | null })[]
+> {
   const db = await getDb();
   if (!db) return [];
 
   const conditions = [];
   if (filters?.status) conditions.push(eq(orders.status, filters.status));
-  if (filters?.productId) conditions.push(eq(orders.productId, filters.productId));
+  if (filters?.productId)
+    conditions.push(eq(orders.productId, filters.productId));
+  if (filters?.customerId)
+    conditions.push(eq(orders.customerId, filters.customerId));
 
   const rows = await db
-    .select({ order: orders, productName: products.name, productImageUrl: products.imageUrl })
+    .select({
+      order: orders,
+      productName: products.name,
+      productImageUrl: products.imageUrl,
+    })
     .from(orders)
     .leftJoin(products, eq(orders.productId, products.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(orders.createdAt));
 
-  return rows.map((r) => ({
+  return rows.map(r => ({
     ...r.order,
     productName: r.productName ?? "Produto removido",
     productImageUrl: r.productImageUrl ?? null,
   }));
 }
 
-export async function getOrderById(id: number): Promise<(Order & { productName: string; productImageUrl: string | null }) | null> {
+export async function getOrderById(
+  id: number
+): Promise<
+  (Order & { productName: string; productImageUrl: string | null }) | null
+> {
   const db = await getDb();
   if (!db) return null;
 
   const rows = await db
-    .select({ order: orders, productName: products.name, productImageUrl: products.imageUrl })
+    .select({
+      order: orders,
+      productName: products.name,
+      productImageUrl: products.imageUrl,
+    })
     .from(orders)
     .leftJoin(products, eq(orders.productId, products.id))
     .where(eq(orders.id, id))
@@ -577,18 +787,32 @@ export async function getOrderCounts(): Promise<{
 }> {
   const db = await getDb();
   if (!db) {
-    return { aguardando: 0, pagos: 0, cancelados: 0, expirados: 0, faturamento: 0, ticketMedio: 0 };
+    return {
+      aguardando: 0,
+      pagos: 0,
+      cancelados: 0,
+      expirados: 0,
+      faturamento: 0,
+      ticketMedio: 0,
+    };
   }
 
-  const all = await db.select({ status: orders.status, totalPrice: orders.totalPrice }).from(orders);
-  const pagos = all.filter((o) => o.status === "PAGO");
-  const faturamento = pagos.reduce((acc, o) => acc + Number(o.totalPrice ?? 0), 0);
+  const all = await db
+    .select({ status: orders.status, totalPrice: orders.totalPrice })
+    .from(orders);
+  const pagos = all.filter(o => o.status === "PAGO");
+  const faturamento = pagos.reduce(
+    (acc, o) => acc + Number(o.totalPrice ?? 0),
+    0
+  );
 
   return {
-    aguardando: all.filter((o) => o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO").length,
+    aguardando: all.filter(
+      o => o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
+    ).length,
     pagos: pagos.length,
-    cancelados: all.filter((o) => o.status === "CANCELADO").length,
-    expirados: all.filter((o) => o.status === "EXPIRADO").length,
+    cancelados: all.filter(o => o.status === "CANCELADO").length,
+    expirados: all.filter(o => o.status === "EXPIRADO").length,
     faturamento,
     ticketMedio: pagos.length > 0 ? faturamento / pagos.length : 0,
   };
