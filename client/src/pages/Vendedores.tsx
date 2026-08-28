@@ -5,7 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +23,8 @@ import {
   Copy,
   ExternalLink,
   CheckCircle,
+  Link2,
+  MessageCircle,
   FileText,
   Plus,
   Trash2,
@@ -33,6 +41,30 @@ const fmt = (value: number) =>
     currency: "BRL",
   });
 type RankingPeriod = "7d" | "30d" | "90d" | "all";
+
+type SellerShareLinks = {
+  invite: string;
+  store: string;
+  inviteMessage: string;
+  storeMessage: string;
+};
+
+const buildSellerLinks = (
+  baseUrl: string,
+  referralCode: string | null | undefined
+): SellerShareLinks | null => {
+  const code = referralCode?.trim();
+  if (!code) return null;
+  const encodedCode = encodeURIComponent(code);
+  const invite = `${baseUrl}/seja-vendedor?patrocinador=${encodedCode}`;
+  const store = `${baseUrl}/loja/${encodedCode}`;
+  return {
+    invite,
+    store,
+    inviteMessage: `Olá! Quero te convidar para ser vendedor(a) da PermuPay. Faça seu cadastro por este link: ${invite}`,
+    storeMessage: `Olá! Confira o catálogo da PermuPay e faça seu pedido por este link: ${store}`,
+  };
+};
 
 export default function Vendedores() {
   const utils = trpc.useUtils();
@@ -56,6 +88,26 @@ export default function Vendedores() {
     commissionValue: "5",
   });
   const [sellerFilter, setSellerFilter] = useState<string>("TODOS");
+  const [selectedSellerId, setSelectedSellerId] = useState<string>("");
+  const publicBaseUrl =
+    typeof window === "undefined"
+      ? "https://shoop.permupay.com.br"
+      : window.location.origin;
+
+  const externalSellers = useMemo(
+    () => (sellersQuery.data ?? []).filter(seller => seller.type === "EXTERNO"),
+    [sellersQuery.data]
+  );
+  const selectedSeller = useMemo(
+    () =>
+      externalSellers.find(seller => String(seller.id) === selectedSellerId) ??
+      externalSellers[0],
+    [externalSellers, selectedSellerId]
+  );
+  const selectedSellerLinks = buildSellerLinks(
+    publicBaseUrl,
+    selectedSeller?.referralCode
+  );
 
   const createSeller = trpc.sellers.create.useMutation({
     onSuccess: async () => {
@@ -153,17 +205,35 @@ export default function Vendedores() {
     );
     toast.success("Link de vendedor copiado.");
   };
-  const copyStoreLink = async (referralCode: string) => {
-    await navigator.clipboard.writeText(
-      `${window.location.origin}/loja/${encodeURIComponent(referralCode)}`
-    );
-    toast.success("Link da loja copiado.");
+  const copyStoreLink = async (referralCode: string | null | undefined) => {
+    const links = buildSellerLinks(publicBaseUrl, referralCode);
+    if (!links)
+      return toast.error("Este vendedor ainda não possui código externo.");
+    await navigator.clipboard.writeText(links.store);
+    toast.success("Link do catálogo copiado.");
   };
-  const copyInviteLink = async (referralCode: string) => {
-    await navigator.clipboard.writeText(
-      `${window.location.origin}/seja-vendedor?patrocinador=${encodeURIComponent(referralCode)}`
-    );
+  const copyInviteLink = async (referralCode: string | null | undefined) => {
+    const links = buildSellerLinks(publicBaseUrl, referralCode);
+    if (!links)
+      return toast.error("Este vendedor ainda não possui código externo.");
+    await navigator.clipboard.writeText(links.invite);
     toast.success("Link de cadastro do vendedor copiado.");
+  };
+  const shareWhatsApp = (message: string) => {
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+  };
+  const shareStoreLink = (referralCode: string | null | undefined) => {
+    const links = buildSellerLinks(publicBaseUrl, referralCode);
+    if (!links)
+      return toast.error("Este vendedor ainda não possui código externo.");
+    shareWhatsApp(links.storeMessage);
+  };
+  const shareInviteLink = (referralCode: string | null | undefined) => {
+    const links = buildSellerLinks(publicBaseUrl, referralCode);
+    if (!links)
+      return toast.error("Este vendedor ainda não possui código externo.");
+    shareWhatsApp(links.inviteMessage);
   };
 
   return (
@@ -409,6 +479,105 @@ export default function Vendedores() {
                 </div>
               </CardContent>
             </Card>
+            <Card className="border-primary/20 bg-primary/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Link2 className="h-4 w-4" /> Gerar links para compartilhar
+                </CardTitle>
+                <CardDescription>
+                  Qualquer administrador pode selecionar um vendedor externo,
+                  copiar o convite ou abrir o WhatsApp com a mensagem pronta.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <select
+                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  value={selectedSeller?.id ? String(selectedSeller.id) : ""}
+                  onChange={event => setSelectedSellerId(event.target.value)}
+                >
+                  <option value="" disabled>
+                    Selecione o vendedor externo
+                  </option>
+                  {externalSellers.map(seller => (
+                    <option key={seller.id} value={seller.id}>
+                      {seller.name} · código {seller.referralCode}
+                    </option>
+                  ))}
+                </select>
+                {selectedSellerLinks && selectedSeller ? (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-xl border bg-background p-4">
+                      <p className="font-semibold">Convite para cadastro</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        O cadastro fica atribuído a {selectedSeller.name}.
+                      </p>
+                      <Input
+                        className="mt-3"
+                        readOnly
+                        value={selectedSellerLinks.invite}
+                      />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() =>
+                            copyInviteLink(selectedSeller.referralCode)
+                          }
+                        >
+                          <Copy className="h-3.5 w-3.5" /> Copiar cadastro
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="gap-1 bg-[#25D366] text-white hover:bg-[#1ebe5d]"
+                          onClick={() =>
+                            shareInviteLink(selectedSeller.referralCode)
+                          }
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border bg-background p-4">
+                      <p className="font-semibold">Catálogo para compradores</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Compartilhe a loja individual de {selectedSeller.name}.
+                      </p>
+                      <Input
+                        className="mt-3"
+                        readOnly
+                        value={selectedSellerLinks.store}
+                      />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() =>
+                            copyStoreLink(selectedSeller.referralCode)
+                          }
+                        >
+                          <Copy className="h-3.5 w-3.5" /> Copiar catálogo
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="gap-1 bg-[#25D366] text-white hover:bg-[#1ebe5d]"
+                          onClick={() =>
+                            shareStoreLink(selectedSeller.referralCode)
+                          }
+                        >
+                          <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Crie ou aprove um vendedor externo para gerar os dois links.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -458,23 +627,52 @@ export default function Vendedores() {
                                   >
                                     Venda direta /vendedor/…
                                   </button>
-                                  <button
-                                    className="text-xs text-primary hover:underline"
-                                    onClick={() =>
-                                      copyStoreLink(seller.referralCode)
-                                    }
-                                  >
-                                    Link de venda /loja/{seller.referralCode}
-                                  </button>
-                                  <button
-                                    className="text-xs text-primary hover:underline"
-                                    onClick={() =>
-                                      copyInviteLink(seller.referralCode)
-                                    }
-                                  >
-                                    Link de cadastro
-                                    /seja-vendedor?patrocinador=…
-                                  </button>
+                                  <div className="flex flex-wrap gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 gap-1 text-xs"
+                                      onClick={() =>
+                                        copyStoreLink(seller.referralCode)
+                                      }
+                                    >
+                                      <Copy className="h-3 w-3" /> Catálogo
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 gap-1 text-xs"
+                                      onClick={() =>
+                                        shareStoreLink(seller.referralCode)
+                                      }
+                                    >
+                                      <MessageCircle className="h-3 w-3" />{" "}
+                                      WhatsApp
+                                    </Button>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 gap-1 text-xs"
+                                      onClick={() =>
+                                        copyInviteLink(seller.referralCode)
+                                      }
+                                    >
+                                      <Copy className="h-3 w-3" /> Cadastro
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 gap-1 text-xs"
+                                      onClick={() =>
+                                        shareInviteLink(seller.referralCode)
+                                      }
+                                    >
+                                      <MessageCircle className="h-3 w-3" />{" "}
+                                      WhatsApp
+                                    </Button>
+                                  </div>
                                 </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground">
