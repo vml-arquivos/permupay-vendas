@@ -159,6 +159,12 @@ export default function Vendedores() {
     );
     toast.success("Link da loja copiado.");
   };
+  const copyInviteLink = async (referralCode: string) => {
+    await navigator.clipboard.writeText(
+      `${window.location.origin}/seja-vendedor?patrocinador=${encodeURIComponent(referralCode)}`
+    );
+    toast.success("Link de cadastro do vendedor copiado.");
+  };
 
   return (
     <DashboardLayout>
@@ -444,31 +450,36 @@ export default function Vendedores() {
                               <Badge variant="outline">{seller.type}</Badge>
                             </td>
                             <td className="space-y-1 px-3 py-3">
-                              <div>
-                                {seller.type === "EXTERNO" ? (
+                              {seller.type === "EXTERNO" ? (
+                                <div className="flex flex-col items-start gap-1">
                                   <button
-                                    className="font-mono text-xs text-primary hover:underline"
+                                    className="text-xs text-primary hover:underline"
                                     onClick={() => copyLink(seller.accessToken)}
                                   >
-                                    {seller.accessToken
-                                      ? `${seller.accessToken.slice(0, 12)}…`
-                                      : "sem token"}
+                                    Venda direta /vendedor/…
                                   </button>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">
-                                    Sessão interna
-                                  </span>
-                                )}
-                              </div>
-                              {seller.type === "EXTERNO" && (
-                                <button
-                                  className="text-xs text-primary hover:underline"
-                                  onClick={() =>
-                                    copyStoreLink(seller.referralCode)
-                                  }
-                                >
-                                  Copiar loja /{seller.referralCode}
-                                </button>
+                                  <button
+                                    className="text-xs text-primary hover:underline"
+                                    onClick={() =>
+                                      copyStoreLink(seller.referralCode)
+                                    }
+                                  >
+                                    Link de venda /loja/{seller.referralCode}
+                                  </button>
+                                  <button
+                                    className="text-xs text-primary hover:underline"
+                                    onClick={() =>
+                                      copyInviteLink(seller.referralCode)
+                                    }
+                                  >
+                                    Link de cadastro
+                                    /seja-vendedor?patrocinador=…
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  Sessão interna
+                                </span>
                               )}
                             </td>
                             <td className="px-3 py-3">
@@ -492,10 +503,23 @@ export default function Vendedores() {
                                   size="sm"
                                   variant="outline"
                                   className="gap-1"
-                                  onClick={() => copyLink(seller.accessToken)}
+                                  onClick={() =>
+                                    copyInviteLink(seller.referralCode)
+                                  }
                                   disabled={seller.type !== "EXTERNO"}
                                 >
-                                  <Copy className="h-3.5 w-3.5" /> Link
+                                  <Copy className="h-3.5 w-3.5" /> Cadastro
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-1"
+                                  onClick={() =>
+                                    copyStoreLink(seller.referralCode)
+                                  }
+                                  disabled={seller.type !== "EXTERNO"}
+                                >
+                                  <Copy className="h-3.5 w-3.5" /> Venda
                                 </Button>
                                 <Button
                                   size="sm"
