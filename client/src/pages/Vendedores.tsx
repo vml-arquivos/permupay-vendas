@@ -61,8 +61,8 @@ const buildSellerLinks = (
   return {
     invite,
     store,
-    inviteMessage: `Olá! Quero te convidar para ser vendedor(a) da PermuPay. Faça seu cadastro por este link: ${invite}`,
-    storeMessage: `Olá! Confira o catálogo da PermuPay e faça seu pedido por este link: ${store}`,
+    inviteMessage: `Faça seu cadastro da PermuPay acessando esse link: ${invite}`,
+    storeMessage: `Olá! Confira o catálogo da PermuPay acessando esse link: ${store}`,
   };
 };
 
@@ -242,8 +242,7 @@ export default function Vendedores() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Vendedores</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Links externos, vendas internas atribuídas, análise de identidade e
-            comissões auditáveis.
+            Gerencie vendedores, convites, catálogos e comissões.
           </p>
         </div>
         <Tabs defaultValue="pendentes" className="space-y-5">
@@ -485,8 +484,7 @@ export default function Vendedores() {
                   <Link2 className="h-4 w-4" /> Gerar links para compartilhar
                 </CardTitle>
                 <CardDescription>
-                  Qualquer administrador pode selecionar um vendedor externo,
-                  copiar o convite ou abrir o WhatsApp com a mensagem pronta.
+                  Gere, copie ou compartilhe os links de cadastro e catálogo.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -509,7 +507,7 @@ export default function Vendedores() {
                     <div className="rounded-xl border bg-background p-4">
                       <p className="font-semibold">Convite para cadastro</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        O cadastro fica atribuído a {selectedSeller.name}.
+                        Faça seu cadastro da PermuPay acessando esse link.
                       </p>
                       <Input
                         className="mt-3"
@@ -541,7 +539,7 @@ export default function Vendedores() {
                     <div className="rounded-xl border bg-background p-4">
                       <p className="font-semibold">Catálogo para compradores</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Compartilhe a loja individual de {selectedSeller.name}.
+                        Olá! Confira o catálogo da PermuPay acessando esse link.
                       </p>
                       <Input
                         className="mt-3"
@@ -573,7 +571,7 @@ export default function Vendedores() {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    Crie ou aprove um vendedor externo para gerar os dois links.
+                    Selecione um vendedor externo para gerar os dois links.
                   </p>
                 )}
               </CardContent>

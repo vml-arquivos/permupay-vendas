@@ -176,12 +176,9 @@ export default function SejaVendedor() {
       <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
         <section className="w-full max-w-lg rounded-3xl border bg-white p-8 text-center shadow-sm">
           <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-600" />
-          <h1 className="mt-5 text-2xl font-bold">
-            Cadastro enviado para análise
-          </h1>
+          <h1 className="mt-5 text-2xl font-bold">Cadastro enviado</h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            Recebemos seus dados. Você será avisado quando o cadastro for
-            aprovado e poderá começar a vender.
+            Recebemos seus dados.
           </p>
           <Link
             href="/"
@@ -210,13 +207,11 @@ export default function SejaVendedor() {
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.25em] text-amber-200">
-                PermuPay Vendas
+                PermuPay Vendas • Shop PermuPay
               </p>
-              <h1 className="mt-2 text-3xl font-bold">Seja um vendedor</h1>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">
-                Preencha sua ficha de identificação para entrar em análise. O
-                acesso de venda só é liberado após a aprovação.
-              </p>
+              <h1 className="mt-2 text-3xl font-bold">
+                Preencha o cadastro de vendedor
+              </h1>
             </div>
           </div>
           {sponsorReferralCode && (
@@ -260,9 +255,6 @@ export default function SejaVendedor() {
             <TabsContent value="pessoais" className="mt-6 space-y-5">
               <div>
                 <h2 className="text-xl font-semibold">Seus dados pessoais</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Usaremos estas informações somente para validar seu cadastro.
-                </p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
@@ -358,12 +350,9 @@ export default function SejaVendedor() {
             </TabsContent>
             <TabsContent value="documentos" className="mt-6 space-y-5">
               <div>
-                <h2 className="text-xl font-semibold">
-                  Comprovação de identidade
-                </h2>
+                <h2 className="text-xl font-semibold">Seus documentos</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Envie uma foto legível ou PDF do documento. Os arquivos ficam
-                  protegidos no armazenamento da aplicação.
+                  Envie uma foto legível ou PDF do documento.
                 </p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -386,7 +375,7 @@ export default function SejaVendedor() {
                 <div className="flex items-start gap-3">
                   <Camera className="mt-0.5 h-5 w-5 text-primary" />
                   <div>
-                    <p className="font-medium">Selfie de validação</p>
+                    <p className="font-medium">Selfie</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Abra a câmera frontal e mantenha o rosto visível.
                     </p>
@@ -395,7 +384,7 @@ export default function SejaVendedor() {
                 {selfie && (
                   <img
                     src={selfie.dataUrl}
-                    alt="Selfie de validação"
+                    alt="Selfie"
                     className="mt-3 h-44 w-full rounded-lg bg-muted object-contain"
                   />
                 )}
@@ -457,11 +446,6 @@ export default function SejaVendedor() {
                   placeholder="CPF, e-mail, telefone ou chave aleatória"
                 />
               </div>
-              <div className="rounded-xl bg-slate-50 p-4 text-sm text-muted-foreground">
-                <strong className="text-foreground">Antes de enviar:</strong>{" "}
-                confirme se os dados estão corretos. Seu cadastro será criado
-                como pendente e um administrador fará a análise.
-              </div>
               <div className="flex justify-between gap-3">
                 <Button
                   type="button"
@@ -477,9 +461,7 @@ export default function SejaVendedor() {
                   className="gap-2"
                 >
                   <ShieldCheck className="h-4 w-4" />{" "}
-                  {apply.isPending
-                    ? "Enviando cadastro…"
-                    : "Enviar para análise"}
+                  {apply.isPending ? "Enviando dados…" : "Enviar dados"}
                 </Button>
               </div>
             </TabsContent>

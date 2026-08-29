@@ -43,30 +43,59 @@ import {
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 import logo from "@/assets/logo.png";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
-  { icon: Package, label: "Produtos", path: "/produtos" },
-  { icon: ShoppingBag, label: "Quase Zero", path: "/produtos" },
-  { icon: Warehouse, label: "Estoque", path: "/estoque" },
-  { icon: Calculator, label: "Simulações", path: "/simulacoes" },
-  { icon: Layers, label: "Entrada de Produtos", path: "/lotes" },
-  { icon: ClipboardList, label: "Pedidos", path: "/pedidos" },
-  { icon: ShoppingCart, label: "Cotações (Mobile)", path: "/cotacoes" },
-  { icon: BarChart3,    label: "Gestão Cotações",   path: "/cotacoes-gestao" },
-  { icon: Heart, label: "Lista de Desejos", path: "/desejos-admin" },
-  { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
-];
-
-const adminItems = [
-  { icon: Users, label: "Usuários", path: "/usuarios" },
-  { icon: Tag, label: "Categorias", path: "/categorias" },
-  { icon: Users, label: "Vendedores", path: "/vendedores" },
-  { icon: Settings, label: "Configurações", path: "/configuracoes" },
-  { icon: CreditCard, label: "Pagamento", path: "/configuracoes-pagamento" },
+const menuModules = [
+  {
+    label: "Início",
+    items: [{ icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" }],
+  },
+  {
+    label: "Produtos",
+    items: [
+      { icon: Package, label: "Produtos", path: "/produtos" },
+      { icon: ShoppingBag, label: "Quase Zero", path: "/produtos" },
+      { icon: Warehouse, label: "Estoque", path: "/estoque" },
+      { icon: Layers, label: "Entrada", path: "/lotes" },
+    ],
+  },
+  {
+    label: "Vendas",
+    items: [
+      { icon: ClipboardList, label: "Pedidos", path: "/pedidos" },
+      { icon: Heart, label: "Desejos", path: "/desejos-admin" },
+    ],
+  },
+  {
+    label: "Financeiro",
+    items: [
+      { icon: Calculator, label: "Simulações", path: "/simulacoes" },
+      { icon: ShoppingCart, label: "Cotações", path: "/cotacoes" },
+      {
+        icon: BarChart3,
+        label: "Gestão de Cotações",
+        path: "/cotacoes-gestao",
+      },
+      { icon: BarChart3, label: "Relatórios", path: "/relatorios" },
+    ],
+  },
+  {
+    label: "Administração",
+    adminOnly: true,
+    items: [
+      { icon: Users, label: "Usuários", path: "/usuarios" },
+      { icon: Tag, label: "Categorias", path: "/categorias" },
+      { icon: Users, label: "Vendedores", path: "/vendedores" },
+      { icon: Settings, label: "Configurações", path: "/configuracoes" },
+      {
+        icon: CreditCard,
+        label: "Pagamento",
+        path: "/configuracoes-pagamento",
+      },
+    ],
+  },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -74,7 +103,11 @@ const DEFAULT_WIDTH = 260;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 400;
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
@@ -97,7 +130,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <p className="text-sm text-muted-foreground text-center">
             Faça login para acessar o painel administrativo.
           </p>
-          <Button onClick={() => { window.location.href = "/login"; }} size="lg" className="w-full">
+          <Button
+            onClick={() => {
+              window.location.href = "/login";
+            }}
+            size="lg"
+            className="w-full"
+          >
             Entrar
           </Button>
         </div>
@@ -106,7 +145,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <SidebarProvider style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
+    <SidebarProvider
+      style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+    >
       <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
         {children}
       </DashboardLayoutContent>
@@ -139,7 +180,8 @@ function DashboardLayoutContent({
       if (!isResizing) return;
       const left = sidebarRef.current?.getBoundingClientRect().left ?? 0;
       const newWidth = e.clientX - left;
-      if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) setSidebarWidth(newWidth);
+      if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH)
+        setSidebarWidth(newWidth);
     };
     const handleMouseUp = () => setIsResizing(false);
     if (isResizing) {
@@ -156,12 +198,21 @@ function DashboardLayoutContent({
     };
   }, [isResizing, setSidebarWidth]);
 
-  const activeLabel = [...menuItems, ...adminItems].find(i => location.startsWith(i.path))?.label ?? "Menu";
+  const activeLabel =
+    menuModules
+      .flatMap(module => module.items)
+      .find(
+        item => location === item.path || location.startsWith(item.path + "/")
+      )?.label ?? "Menu";
 
   return (
     <>
       <div className="relative" ref={sidebarRef}>
-        <Sidebar collapsible="icon" className="border-r-0" disableTransition={isResizing}>
+        <Sidebar
+          collapsible="icon"
+          className="border-r-0"
+          disableTransition={isResizing}
+        >
           <SidebarHeader className="h-16 justify-center border-b">
             <div className="flex items-center gap-3 px-2 w-full">
               <button
@@ -173,62 +224,63 @@ function DashboardLayoutContent({
               {!isCollapsed && (
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="h-8 w-8 rounded-md overflow-hidden shrink-0 bg-transparent flex items-center justify-center">
-                    <img src={logo} alt="Shop PermuPay" className="h-full w-full object-contain" />
+                    <img
+                      src={logo}
+                      alt="Shop PermuPay"
+                      className="h-full w-full object-contain"
+                    />
                   </div>
-                  <span className="font-semibold tracking-tight truncate text-sm">PermuPay</span>
+                  <span className="font-semibold tracking-tight truncate text-sm">
+                    PermuPay
+                  </span>
                 </div>
               )}
             </div>
           </SidebarHeader>
 
-          <SidebarContent className="gap-0 py-2">
-            <SidebarMenu className="px-2 gap-0.5">
-              {menuItems.map(item => {
-                const isActive = location === item.path || location.startsWith(item.path + "/");
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className="h-9 font-normal"
-                    >
-                      <item.icon className={`h-4 w-4 ${isActive ? "text-primary" : ""}`} />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-
-            {isAdmin && (
-              <>
-                {!isCollapsed && (
-                  <div className="px-4 pt-4 pb-1">
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Administração</span>
-                  </div>
-                )}
-                {isCollapsed && <div className="mx-4 my-2 border-t" />}
-                <SidebarMenu className="px-2 gap-0.5">
-                  {adminItems.map(item => {
-                    const isActive = location === item.path;
-                    return (
-                      <SidebarMenuItem key={item.path}>
-                        <SidebarMenuButton
-                          isActive={isActive}
-                          onClick={() => setLocation(item.path)}
-                          tooltip={item.label}
-                          className="h-9 font-normal"
-                        >
-                          <item.icon className={`h-4 w-4 ${isActive ? "text-primary" : ""}`} />
-                          <span>{item.label}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </>
-            )}
+          <SidebarContent className="gap-1 overflow-y-auto py-2">
+            {menuModules.map((module, moduleIndex) => {
+              if (module.adminOnly && !isAdmin) return null;
+              return (
+                <div key={module.label} className="space-y-1">
+                  {!isCollapsed ? (
+                    <div className="px-4 pb-1 pt-3">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {module.label}
+                      </span>
+                    </div>
+                  ) : moduleIndex > 0 ? (
+                    <div className="mx-4 my-2 border-t" />
+                  ) : null}
+                  <SidebarMenu className="gap-0.5 px-2">
+                    {module.items.map(item => {
+                      const isActive =
+                        location === item.path ||
+                        location.startsWith(item.path + "/");
+                      return (
+                        <SidebarMenuItem key={`${module.label}-${item.label}`}>
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            onClick={() => setLocation(item.path)}
+                            tooltip={item.label}
+                            className="h-9 w-full whitespace-nowrap font-normal"
+                          >
+                            <item.icon
+                              className={`h-4 w-4 shrink-0 ${
+                                isActive ? "text-primary" : ""
+                              }`}
+                            />
+                            <span className="min-w-0 truncate">
+                              {item.label}
+                            </span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </div>
+              );
+            })}
           </SidebarContent>
 
           <SidebarFooter className="p-3 border-t">
@@ -241,9 +293,13 @@ function DashboardLayoutContent({
             >
               <Store className="h-4 w-4 text-primary shrink-0" />
               {!isCollapsed && (
-                <span className="flex-1 truncate text-primary">Ver Vitrine</span>
+                <span className="flex-1 truncate text-primary">
+                  Ver Vitrine
+                </span>
               )}
-              {!isCollapsed && <ExternalLink className="h-3 w-3 text-primary opacity-60" />}
+              {!isCollapsed && (
+                <ExternalLink className="h-3 w-3 text-primary opacity-60" />
+              )}
             </a>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -255,8 +311,12 @@ function DashboardLayoutContent({
                   </Avatar>
                   {!isCollapsed && (
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate leading-none">{user?.name || "-"}</p>
-                      <p className="text-xs text-muted-foreground truncate mt-1">{user?.email || "-"}</p>
+                      <p className="text-sm font-medium truncate leading-none">
+                        {user?.name || "-"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate mt-1">
+                        {user?.email || "-"}
+                      </p>
                     </div>
                   )}
                 </button>
@@ -267,16 +327,25 @@ function DashboardLayoutContent({
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
                 </div>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setLocation("/configuracoes")} className="cursor-pointer">
+                <DropdownMenuItem
+                  onClick={() => setLocation("/configuracoes")}
+                  className="cursor-pointer"
+                >
                   <Settings className="mr-2 h-4 w-4" />
                   Configurações
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLocation("/configuracoes-pagamento")} className="cursor-pointer">
+                <DropdownMenuItem
+                  onClick={() => setLocation("/configuracoes-pagamento")}
+                  className="cursor-pointer"
+                >
                   <CreditCard className="mr-2 h-4 w-4" />
                   Configurações de Pagamento
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
+                <DropdownMenuItem
+                  onClick={logout}
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                >
                   <LogOut className="mr-2 h-4 w-4" />
                   Sair
                 </DropdownMenuItem>
@@ -287,7 +356,9 @@ function DashboardLayoutContent({
 
         <div
           className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
-          onMouseDown={() => { if (!isCollapsed) setIsResizing(true); }}
+          onMouseDown={() => {
+            if (!isCollapsed) setIsResizing(true);
+          }}
           style={{ zIndex: 50 }}
         />
       </div>
@@ -296,8 +367,12 @@ function DashboardLayoutContent({
         <div className="flex border-b h-14 items-center gap-2 bg-background/95 px-4 backdrop-blur sticky top-0 z-40 justify-between">
           <div className="flex items-center gap-2">
             {isMobile && <SidebarTrigger className="h-9 w-9 rounded-lg" />}
-            {!isMobile && <SidebarTrigger className="h-8 w-8 rounded-md text-muted-foreground" />}
-            <span className="text-muted-foreground text-sm hidden sm:inline">/</span>
+            {!isMobile && (
+              <SidebarTrigger className="h-8 w-8 rounded-md text-muted-foreground" />
+            )}
+            <span className="text-muted-foreground text-sm hidden sm:inline">
+              /
+            </span>
             <span className="font-medium text-sm">{activeLabel}</span>
           </div>
           <div className="flex items-center gap-2">
