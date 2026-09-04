@@ -8,7 +8,11 @@ import path from "node:path";
 import fs from "node:fs";
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR ?? "/var/data/permupay/uploads";
-const PUBLIC_BASE_URL = process.env.APP_URL ?? "https://shoop.permupay.com.br";
+// Exportado para reuso por qualquer lugar do servidor que precise montar uma
+// URL pública absoluta e estável (ex.: o link de documentos do pedido
+// enviado ao cliente por WhatsApp/e-mail em server/_core/documentRoutes.ts).
+export const PUBLIC_BASE_URL =
+  process.env.APP_URL ?? "https://shoop.permupay.com.br";
 const ALLOWED_MIME_TYPES = [
   "image/jpeg",
   "image/png",

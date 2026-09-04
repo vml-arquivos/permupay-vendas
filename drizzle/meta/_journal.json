@@ -211,6 +211,13 @@
       "when": 1779910000000,
       "tag": "0030_promissory_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1779920000000,
+      "tag": "0031_customer_security",
+      "breakpoints": true
     }
   ]
 }

@@ -1058,6 +1058,60 @@ export async function getOrderById(
   };
 }
 
+/**
+ * Token público (não sequencial, não adivinhável) para o pedido — usado no
+ * link de documentos enviado ao cliente por WhatsApp/e-mail, para ele baixar
+ * comprovante e notas promissórias sem precisar logar. Gerado sob demanda e
+ * salvo, para permanecer estável no mesmo pedido.
+ */
+export async function getOrGenerateAccessToken(orderId: number): Promise<string> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [row] = await db
+    .select({ accessToken: orders.accessToken })
+    .from(orders)
+    .where(eq(orders.id, orderId))
+    .limit(1);
+  if (!row) throw new Error("Pedido não encontrado");
+  if (row.accessToken) return row.accessToken;
+
+  const token = `${randomUUID()}${randomUUID()}`.replace(/-/g, "");
+  await db
+    .update(orders)
+    .set({ accessToken: token })
+    .where(eq(orders.id, orderId));
+  return token;
+}
+
+export async function getOrderByAccessToken(
+  token: string
+): Promise<
+  (Order & { productName: string; productImageUrl: string | null }) | null
+> {
+  if (!token || token.trim().length < 10) return null;
+  const db = await getDb();
+  if (!db) return null;
+
+  const rows = await db
+    .select({
+      order: orders,
+      productName: products.name,
+      productImageUrl: products.imageUrl,
+    })
+    .from(orders)
+    .leftJoin(products, eq(orders.productId, products.id))
+    .where(eq(orders.accessToken, token.trim()))
+    .limit(1);
+
+  if (!rows[0]) return null;
+  return {
+    ...rows[0].order,
+    productName: rows[0].productName ?? "Produto removido",
+    productImageUrl: rows[0].productImageUrl ?? null,
+  };
+}
+
 export async function getOrderCounts(): Promise<{
   aguardando: number;
   pagos: number;

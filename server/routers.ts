@@ -10,11 +10,18 @@
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { COOKIE_NAME, CUSTOMER_COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import {
+  publicProcedure,
+  protectedProcedure,
+  customerProcedure,
+  router,
+} from "./_core/trpc";
 import { sdk } from "./_core/sdk";
+import { customerSdk } from "./_core/customerAuth";
+import { buildDocumentsUrl } from "./_core/documentRoutes";
 import * as db from "./db";
 import * as dbBatches from "./db.batches";
 import * as dbWishlist from "./db.wishlist";
@@ -989,23 +996,144 @@ export const appRouter = router({
     }),
   }),
 
+  // ── Sessão do cliente final (loja/minha conta) — senha real ───────────────
+  // Separada de `auth` acima, que é exclusiva da equipe interna. Fecha uma
+  // falha de segurança real: antes, qualquer pessoa que soubesse o contato
+  // (WhatsApp/e-mail) de um cliente conseguia ver seus pedidos e dados
+  // (CPF, endereço, documentos) sem senha nenhuma — agora isso exige login.
+  customerAuth: router({
+    me: publicProcedure.query(({ ctx }) => ctx.customer),
+
+    // Cria uma conta nova OU, se já existir um cadastro sem senha para este
+    // contato (criado antes desta funcionalidade, via reserva rápida, Nova
+    // Venda ou cadastro interno pelo admin), "ativa" esse cadastro definindo
+    // a senha nele — evita bloquear clientes antigos.
+    register: publicProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(2, "Informe seu nome completo"),
+          contact: z.string().trim().min(8, "Informe WhatsApp ou e-mail"),
+          contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          password: z.string().min(6, "A senha deve ter no mínimo 6 caracteres"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const existing = await dbCustomers.getCustomerByContact(input.contact);
+        if (existing?.passwordHash) {
+          // TRPCError (não Error simples) para que a mensagem específica
+          // chegue ao cliente — o errorFormatter global troca a mensagem de
+          // qualquer erro sem código próprio pela mensagem genérica.
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Já existe uma conta com este contato. Faça login.",
+          });
+        }
+
+        const customer = existing
+          ? await dbCustomers.claimExistingCustomer(existing.id, {
+              name: input.name,
+              password: input.password,
+            })
+          : await dbCustomers.createCustomerWithPassword({
+              name: input.name,
+              contact: input.contact,
+              contactType: input.contactType,
+              password: input.password,
+            });
+
+        const token = await customerSdk.createSessionToken({
+          customerId: customer.id,
+          contact: customer.contact,
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(CUSTOMER_COOKIE_NAME, token, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return {
+          success: true as const,
+          customer: dbCustomers.toSafeCustomer(customer),
+        };
+      }),
+
+    login: publicProcedure
+      .input(
+        z.object({
+          contact: z.string().trim().min(5, "Informe WhatsApp ou e-mail"),
+          password: z.string().min(1, "Informe sua senha"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const customer = await dbCustomers.getCustomerByContact(input.contact);
+        if (!customer) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message:
+              'Não encontramos uma conta com este contato. Use "Criar conta".',
+          });
+        }
+        if (!customer.passwordHash) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              'Esta conta ainda não tem senha definida. Use "Criar conta" com o mesmo contato para ativar seu acesso.',
+          });
+        }
+        const valid = await dbCustomers.verifyCustomerPassword(
+          customer,
+          input.password
+        );
+        if (!valid) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Contato ou senha incorretos.",
+          });
+        }
+
+        await dbCustomers.updateCustomerLastSignedIn(customer.id);
+
+        const token = await customerSdk.createSessionToken({
+          customerId: customer.id,
+          contact: customer.contact,
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(CUSTOMER_COOKIE_NAME, token, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return {
+          success: true as const,
+          customer: dbCustomers.toSafeCustomer(customer),
+        };
+      }),
+
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CUSTOMER_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+  }),
+
   // ── Clientes finais e carrinho ─────────────────────────────────────────────
   customers: router({
+    // Mantido por compatibilidade (uso interno/futuro) — nunca envia a senha.
     identify: publicProcedure
-      .input(z.object({ contact: z.string().min(5) }))
-      .query(({ input }) => dbCustomers.getCustomerByContact(input.contact)),
-
-    myOrders: publicProcedure
       .input(z.object({ contact: z.string().min(5) }))
       .query(async ({ input }) => {
         const customer = await dbCustomers.getCustomerByContact(input.contact);
-        if (!customer) return [];
-        return dbCustomers.listCustomerOrders(customer.id);
+        return customer ? dbCustomers.toSafeCustomer(customer) : null;
       }),
 
-    myProfile: publicProcedure
-      .input(z.object({ contact: z.string().min(5) }))
-      .query(({ input }) => dbCustomers.getCustomerByContact(input.contact)),
+    // Requer sessão de cliente logado — antes bastava informar um contato
+    // (WhatsApp/e-mail) de qualquer pessoa para ver esses pedidos.
+    myOrders: customerProcedure.query(({ ctx }) =>
+      dbCustomers.listCustomerOrders(ctx.customer.id)
+    ),
+
+    // Idem — a própria sessão já garante que só o dono vê seu perfil.
+    myProfile: customerProcedure.query(({ ctx }) => ctx.customer),
 
     recommendations: publicProcedure
       .input(
@@ -1018,7 +1146,13 @@ export const appRouter = router({
         dbCustomers.getRecommendedProducts(input.contact ?? "", input.limit)
       ),
 
-    checkout: publicProcedure
+    // Requer sessão de cliente logado — a identidade (nome/contato) vem
+    // sempre da sessão, nunca de campos enviados pelo navegador, para que
+    // ninguém finalize uma compra em nome de outro contato. É exatamente o
+    // ponto em que o fluxo agora exige login/cadastro obrigatório: o cliente
+    // pode navegar e montar o carrinho livremente, mas só fecha o pedido
+    // depois de entrar ou criar sua conta.
+    checkout: customerProcedure
       .input(
         z.object({
           items: z
@@ -1030,32 +1164,38 @@ export const appRouter = router({
               })
             )
             .min(1),
-          customer: z.object({
-            name: z.string().trim().min(2),
-            contact: z.string().trim().min(8),
-            contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
-            email: z.string().email().optional(),
-            address: z.string().optional(),
-            city: z.string().optional(),
-            state: z.string().length(2).optional(),
-            zipCode: z.string().optional(),
-          }),
+          email: z.string().email().optional(),
+          address: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().length(2).optional(),
+          zipCode: z.string().optional(),
           referralCode: z.string().max(60).optional(),
         })
       )
-      .mutation(({ input }) => dbOrders.createCartCheckout(input)),
+      .mutation(({ input, ctx }) =>
+        dbOrders.createCartCheckout({
+          items: input.items,
+          referralCode: input.referralCode,
+          customer: {
+            name: ctx.customer.name,
+            contact: ctx.customer.contact,
+            contactType: ctx.customer.contactType as "WHATSAPP" | "EMAIL",
+            email: input.email ?? ctx.customer.email ?? undefined,
+            address: input.address ?? ctx.customer.address ?? undefined,
+            city: input.city ?? ctx.customer.city ?? undefined,
+            state: input.state ?? ctx.customer.state ?? undefined,
+            zipCode: input.zipCode ?? ctx.customer.zipCode ?? undefined,
+          },
+        })
+      ),
 
     // ── Autoatendimento: cliente completa/atualiza o próprio cadastro ────────
-    // Mesma função (identifyOrCreateCustomer) usada pelo checkout e pelo
-    // cadastro interno — garante que seja sempre o mesmo registro por
-    // contato, e nunca expõe/altera os campos de análise de crédito (esses
-    // continuam restritos ao admin via updateCreditStatus).
-    updateProfile: publicProcedure
+    // Requer sessão — o contato é sempre o da própria sessão (não pode ser
+    // trocado por aqui), então o cliente só edita seus próprios dados.
+    updateProfile: customerProcedure
       .input(
         z.object({
           name: z.string().trim().min(2),
-          contact: z.string().trim().min(8),
-          contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
           email: z.string().email().optional().or(z.literal("")),
           address: z.string().optional(),
           city: z.string().optional(),
@@ -1069,15 +1209,18 @@ export const appRouter = router({
           proofAddressUrl: z.string().url().optional().or(z.literal("")),
         })
       )
-      .mutation(({ input }) =>
-        dbCustomers.identifyOrCreateCustomer({
+      .mutation(async ({ input, ctx }) => {
+        const updated = await dbCustomers.identifyOrCreateCustomer({
           ...input,
+          contact: ctx.customer.contact,
+          contactType: ctx.customer.contactType as "WHATSAPP" | "EMAIL",
           email: input.email || undefined,
           documentFrontUrl: input.documentFrontUrl || undefined,
           documentBackUrl: input.documentBackUrl || undefined,
           proofAddressUrl: input.proofAddressUrl || undefined,
-        })
-      ),
+        });
+        return dbCustomers.toSafeCustomer(updated);
+      }),
 
     // ── Cadastro interno de clientes (crediário / análise de crédito) ────────
     register: protectedProcedure
@@ -1121,11 +1264,17 @@ export const appRouter = router({
           })
           .optional()
       )
-      .query(({ input }) => dbCustomers.listCustomers(input ?? {})),
+      .query(async ({ input }) => {
+        const rows = await dbCustomers.listCustomers(input ?? {});
+        return rows.map(dbCustomers.toSafeCustomer);
+      }),
 
     byId: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
-      .query(({ input }) => dbCustomers.getCustomerById(input.id)),
+      .query(async ({ input }) => {
+        const customer = await dbCustomers.getCustomerById(input.id);
+        return customer ? dbCustomers.toSafeCustomer(customer) : null;
+      }),
 
     updateCreditStatus: adminOnlyProcedure
       .input(
@@ -1149,6 +1298,22 @@ export const appRouter = router({
   // server/db.orders.ts). Aqui só a consulta/gestão do ciclo de vida do
   // documento (envio para assinatura, retorno assinado).
   promissoryNotes: router({
+    // Todas as notas do sistema — usada pela página central /promissorias,
+    // para o admin ver, filtrar, baixar e gerenciar todas as notas num só
+    // lugar, sem precisar abrir cliente por cliente.
+    list: protectedProcedure
+      .input(
+        z
+          .object({
+            status: z
+              .enum(["GERADA", "ENVIADA", "ASSINADA_DEVOLVIDA", "CANCELADA"])
+              .optional(),
+            search: z.string().optional(),
+          })
+          .optional()
+      )
+      .query(({ input }) => dbPromissoryNotes.listAllNotes(input ?? {})),
+
     byOrder: protectedProcedure
       .input(z.object({ orderId: z.number().int().positive() }))
       .query(({ input }) => dbPromissoryNotes.listNotesByOrder(input.orderId)),
@@ -1282,6 +1447,17 @@ export const appRouter = router({
           base64: pdfBuffer.toString("base64"),
           filename: `comprovante_pedido_${order.id}.pdf`,
         };
+      }),
+
+    // ── Link público de documentos (comprovante + notas promissórias) ────────
+    // Gera (ou reaproveita) o token de acesso do pedido e devolve a URL
+    // pronta para incluir na mensagem de WhatsApp/e-mail enviada ao cliente
+    // — ele abre o link e baixa seus próprios documentos, sem precisar logar.
+    documentsLink: protectedProcedure
+      .input(z.object({ orderId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const token = await dbOrders.getOrGenerateAccessToken(input.orderId);
+        return { token, url: buildDocumentsUrl(token) };
       }),
 
     confirm: protectedProcedure

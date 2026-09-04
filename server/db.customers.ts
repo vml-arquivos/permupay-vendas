@@ -1,9 +1,11 @@
+import bcrypt from "bcryptjs";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import {
   customers,
   type Customer,
   type CustomerCreditStatus,
   type InsertCustomer,
+  type SafeCustomer,
 } from "../drizzle/schema.customers";
 import { sellers } from "../drizzle/schema.sellers";
 import { orders } from "../drizzle/schema.orders";
@@ -175,6 +177,97 @@ export async function getCustomerById(id: number): Promise<Customer | null> {
     .where(eq(customers.id, id))
     .limit(1);
   return customer ?? null;
+}
+
+// ─── Segurança da área do cliente (senha) ──────────────────────────────────
+// Mesmo padrão de hashing (bcryptjs, custo 12) já usado em server/db.ts para
+// os usuários internos.
+
+export function toSafeCustomer(customer: Customer): SafeCustomer {
+  const { passwordHash: _removed, ...safe } = customer;
+  return safe;
+}
+
+export async function verifyCustomerPassword(
+  customer: Customer,
+  password: string
+): Promise<boolean> {
+  if (!customer.passwordHash) return false;
+  return bcrypt.compare(password, customer.passwordHash);
+}
+
+/**
+ * Cria uma conta de cliente nova, já com senha — usado por
+ * customerAuth.register quando ainda não existe nenhum cadastro para este
+ * contato.
+ */
+export async function createCustomerWithPassword(data: {
+  name: string;
+  contact: string;
+  contactType?: CustomerContactType;
+  password: string;
+}): Promise<Customer> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const name = data.name.trim();
+  const contact = normalizeCustomerContact(data.contact, data.contactType);
+  if (name.length < 2) throw new Error("Nome é obrigatório");
+  if (contact.length < 5) throw new Error("Contato inválido");
+
+  const passwordHash = await bcrypt.hash(data.password, 12);
+  const [created] = await db
+    .insert(customers)
+    .values({
+      name,
+      contact,
+      contactType:
+        data.contactType ?? (contact.includes("@") ? "EMAIL" : "WHATSAPP"),
+      passwordHash,
+    })
+    .returning();
+
+  if (!created) throw new Error("Não foi possível criar a conta");
+  return created;
+}
+
+/**
+ * "Ativa" (define senha em) um cadastro de cliente que já existia sem senha
+ * — criado antes desta funcionalidade, via reserva rápida, Nova Venda ou
+ * cadastro interno pelo admin. Evita bloquear clientes antigos: eles
+ * simplesmente usam "Criar conta" com o mesmo contato para ganhar acesso
+ * com senha ao cadastro que já tinham.
+ */
+export async function claimExistingCustomer(
+  customerId: number,
+  data: { name?: string; password: string }
+): Promise<Customer> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const passwordHash = await bcrypt.hash(data.password, 12);
+  const update: Partial<InsertCustomer> = {
+    passwordHash,
+    updatedAt: new Date(),
+  };
+  if (data.name?.trim()) update.name = data.name.trim();
+
+  const [updated] = await db
+    .update(customers)
+    .set(update)
+    .where(eq(customers.id, customerId))
+    .returning();
+  if (!updated) throw new Error("Cliente não encontrado");
+  return updated;
+}
+
+export async function updateCustomerLastSignedIn(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(customers)
+    .set({ lastSignedIn: new Date() })
+    .where(eq(customers.id, id));
 }
 
 export type ListCustomersFilters = {

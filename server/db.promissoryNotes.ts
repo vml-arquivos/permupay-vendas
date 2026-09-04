@@ -66,6 +66,40 @@ export async function listNotesByCustomer(
     .orderBy(desc(promissoryNotes.createdAt));
 }
 
+/**
+ * Todas as notas promissórias do sistema, mais recentes primeiro — usada
+ * pela página central "Promissórias" (/promissorias), para o admin ver,
+ * baixar/imprimir e gerenciar todas as notas num único lugar, sem precisar
+ * abrir o relatório de cada cliente individualmente.
+ */
+export async function listAllNotes(
+  filters: { status?: PromissoryNoteStatus; search?: string } = {}
+): Promise<PromissoryNote[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  let rows = await db
+    .select()
+    .from(promissoryNotes)
+    .where(
+      filters.status ? eq(promissoryNotes.status, filters.status) : undefined
+    )
+    .orderBy(desc(promissoryNotes.createdAt));
+
+  const term = filters.search?.trim().toLowerCase();
+  if (term) {
+    rows = rows.filter(
+      n =>
+        n.issuerName.toLowerCase().includes(term) ||
+        String(n.orderId).includes(term) ||
+        (n.issuerDocument ?? "").toLowerCase().includes(term) ||
+        n.productDescription.toLowerCase().includes(term)
+    );
+  }
+
+  return rows;
+}
+
 export async function allNotesSignedForOrder(orderId: number): Promise<boolean> {
   const notes = await listNotesByOrder(orderId);
   if (!notes.length) return false;

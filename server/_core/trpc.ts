@@ -43,3 +43,23 @@ export const protectedProcedure = t.procedure.use(requireUser);
 // adminProcedure agora é igual a protectedProcedure —
 // qualquer usuário logado tem privilégios de administrador
 export const adminProcedure = protectedProcedure;
+
+// ── Sessão do cliente final (loja/minha conta) ──────────────────────────────
+// Completamente separada de requireUser/protectedProcedure acima (que são
+// só para a equipe interna). Usada para exigir que o cliente esteja logado
+// com senha antes de ver/editar seus próprios dados ou fechar uma compra —
+// requisito de segurança: dados de cliente (CPF, endereço, documentos,
+// histórico de pedidos) não podem mais ser acessados só informando um
+// contato, sem senha.
+const requireCustomer = t.middleware(async (opts) => {
+  const { ctx, next } = opts;
+  if (!ctx.customer) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Faça login para acessar sua conta.",
+    });
+  }
+  return next({ ctx: { ...ctx, customer: ctx.customer } });
+});
+
+export const customerProcedure = t.procedure.use(requireCustomer);

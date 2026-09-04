@@ -72,6 +72,12 @@ export const orders = pgTable("permupay_orders", {
   // antigos e para formas de pagamento sem parcelamento.
   installments: integer("installments"),
 
+  // Token opaco e não sequencial (gerado sob demanda) que dá acesso público
+  // — sem exigir login — a uma página com o comprovante e as notas
+  // promissórias deste pedido, para incluir no link enviado por WhatsApp/
+  // e-mail. Nulo até a primeira vez que o link é solicitado.
+  accessToken: text("access_token"),
+
   // Ciclo de vida
   status: orderStatusEnum("status").notNull().default("AGUARDANDO_PAGAMENTO"),
   expiresAt: timestamp("expires_at").notNull(),

@@ -37,6 +37,11 @@ export const customers = pgTable("permupay_customers", {
   creditLimit: real("credit_limit"),
   reviewedBy: integer("reviewed_by"),
   reviewedAt: timestamp("reviewed_at"),
+  // Segurança da área do cliente — nullable: cadastros criados antes desta
+  // funcionalidade (reserva rápida, Nova Venda, cadastro interno) continuam
+  // existindo sem senha até o cliente "ativar" a conta em /minha-conta.
+  passwordHash: text("password_hash"),
+  lastSignedIn: timestamp("last_signed_in"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -50,3 +55,7 @@ export type CustomerCreditStatus = (typeof CUSTOMER_CREDIT_STATUSES)[number];
 
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = typeof customers.$inferInsert;
+
+// Nunca enviado ao navegador — mesma convenção usada para SafeUser (users
+// internos) em drizzle/schema.ts.
+export type SafeCustomer = Omit<Customer, "passwordHash">;
