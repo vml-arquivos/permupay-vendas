@@ -218,6 +218,20 @@
       "when": 1779920000000,
       "tag": "0031_customer_security",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1779930000000,
+      "tag": "0032_product_payment_methods",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1779940000000,
+      "tag": "0033_customer_history_and_communications",
+      "breakpoints": true
     }
   ]
 }

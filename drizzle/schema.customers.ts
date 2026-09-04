@@ -59,3 +59,49 @@ export type InsertCustomer = typeof customers.$inferInsert;
 // Nunca enviado ao navegador — mesma convenção usada para SafeUser (users
 // internos) em drizzle/schema.ts.
 export type SafeCustomer = Omit<Customer, "passwordHash">;
+
+// ── Histórico de análise de crédito ────────────────────────────────────────
+// Uma linha por mudança de status — permite mostrar "análise de crédito com
+// histórico" na página do cliente, não só o status atual.
+export const creditStatusHistory = pgTable("permupay_credit_status_history", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id")
+    .notNull()
+    .references(() => customers.id, { onDelete: "cascade" }),
+  previousStatus: text("previous_status"),
+  newStatus: text("new_status").notNull(),
+  notes: text("notes"),
+  creditLimit: real("credit_limit"),
+  changedByUserId: integer("changed_by_user_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type CreditStatusHistoryEntry = typeof creditStatusHistory.$inferSelect;
+
+// ── Trilha de auditoria de envios ao cliente (WhatsApp/e-mail) ────────────
+// Registrada no momento em que o atendente aciona o envio pela página do
+// cliente. Não é uma confirmação de entrega do provedor (exigiria
+// integração paga com API de terceiros, não configurada neste ambiente) —
+// é a confirmação de que a ação de disparo foi executada e por quem.
+export const CUSTOMER_COMMUNICATION_CHANNELS = ["WHATSAPP", "EMAIL"] as const;
+export type CustomerCommunicationChannel =
+  (typeof CUSTOMER_COMMUNICATION_CHANNELS)[number];
+
+export const customerCommunications = pgTable(
+  "permupay_customer_communications",
+  {
+    id: serial("id").primaryKey(),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    orderId: integer("order_id"),
+    channel: text("channel").notNull(),
+    purpose: text("purpose").notNull(),
+    target: text("target").notNull(),
+    messagePreview: text("message_preview"),
+    sentByUserId: integer("sent_by_user_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  }
+);
+
+export type CustomerCommunication = typeof customerCommunications.$inferSelect;

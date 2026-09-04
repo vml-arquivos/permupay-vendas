@@ -36,6 +36,7 @@ import SejaVendedor from "./pages/SejaVendedor";
 import Loja from "./pages/Loja";
 import MinhaConta from "./pages/MinhaConta";
 import Clientes from "./pages/Clientes";
+import ClienteDetalhe from "./pages/ClienteDetalhe";
 import NovaVenda from "./pages/NovaVenda";
 
 // Cotação de preços
@@ -208,6 +209,16 @@ function Router() {
         {() => (
           <P>
             <Clientes />
+          </P>
+        )}
+      </Route>
+      {/* Página individual completa do cliente — rota própria (não modal),
+          com cadastro, compras paginadas, documentos, crédito com
+          histórico, pagamentos e trilha de auditoria de envios. */}
+      <Route path="/clientes/:id">
+        {() => (
+          <P>
+            <ClienteDetalhe />
           </P>
         )}
       </Route>

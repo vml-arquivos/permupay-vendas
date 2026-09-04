@@ -1889,7 +1889,11 @@ export default function BatchPricing() {
       </Card>
 
       <AlertDialog open={!!selectedBatchId} onOpenChange={(open) => !open && setSelectedBatchId(null)}>
-        <AlertDialogContent className="w-[calc(100vw-1.5rem)] max-w-5xl max-h-[90vh] overflow-hidden p-0">
+        {/* sm:max-w-5xl explícito: sem ele, o "sm:max-w-lg" do AlertDialogContent
+            base sobrevive ao merge de classes e prende este diálogo em
+            512px em qualquer tela ≥640px — mesma causa raiz corrigida no
+            comprovante (ver ReceiptModal.tsx). */}
+        <AlertDialogContent className="w-[calc(100vw-1.5rem)] max-w-5xl sm:max-w-5xl max-h-[90vh] overflow-hidden p-0">
           <div className="relative flex max-h-[90vh] flex-col bg-background">
             <button
               type="button"

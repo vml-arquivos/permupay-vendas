@@ -21,6 +21,12 @@ export type ReceiptOrderInput = {
   paymentMethod: string;
   confirmedAt?: string | Date | null;
   adminNotes?: string | null;
+  // Presente quando o pedido tem um cliente vinculado — usado para
+  // registrar o envio do comprovante na trilha de auditoria do cliente
+  // (customers.communications.log). Ausente/undefined em pedidos antigos
+  // sem cliente vinculado: o envio continua funcionando normalmente, só
+  // não fica registrado na trilha de auditoria.
+  customerId?: number | null;
 };
 
 export type ReceiptInstallment = {

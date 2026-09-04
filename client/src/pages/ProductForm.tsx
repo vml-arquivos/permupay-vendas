@@ -64,7 +64,7 @@ import {
   AlertCircle, AlertTriangle, CheckCircle2, XCircle, Info, Calculator,
   DollarSign, CreditCard, Banknote, Sparkles, Tag, Eye, Save,
   ArrowLeft, TrendingUp, TrendingDown, RefreshCcw, Settings2,
-  Package, Layers, BarChart2, StickyNote,
+  Package, Layers, BarChart2, StickyNote, FileText,
 } from "lucide-react";
 import ImageGallery from "@/components/ImageGallery";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -88,6 +88,11 @@ interface FormState {
   isUniquePiece: boolean;
   published: boolean;
   active: boolean;
+  // Métodos de pagamento habilitados para este produto — vitrine e venda interna.
+  pixEnabled: boolean;
+  cardEnabled: boolean;
+  boletoEnabled: boolean;
+  cashEnabled: boolean;
   notes: string;
   costCurrency: "BRL" | "USD";
   costPrice: string;
@@ -137,6 +142,10 @@ const defaultForm: FormState = {
   isUniquePiece: false,
   published: false,
   active: true,
+  pixEnabled: true,
+  cardEnabled: true,
+  boletoEnabled: true,
+  cashEnabled: true,
   notes: "",
   costCurrency: "BRL",
   costPrice: "",
@@ -568,6 +577,10 @@ export default function ProductForm() {
         isUniquePiece: p.isUniquePiece === true,
         published: p.published ?? false,
         active: p.active ?? true,
+        pixEnabled: (p as any).pixEnabled ?? true,
+        cardEnabled: (p as any).cardEnabled ?? true,
+        boletoEnabled: (p as any).boletoEnabled ?? true,
+        cashEnabled: (p as any).cashEnabled ?? true,
         notes: p.notes || "",
         costCurrency: (p.costCurrency as "BRL" | "USD") || "BRL",
         costPrice: p.costPrice ? String(p.costPrice) : "",
@@ -649,6 +662,10 @@ export default function ProductForm() {
       isUniquePiece: selected.isUniquePiece === true || prev.isUniquePiece,
       published: selected.published ?? prev.published,
       active: selected.active ?? prev.active,
+      pixEnabled: selected.pixEnabled ?? prev.pixEnabled,
+      cardEnabled: selected.cardEnabled ?? prev.cardEnabled,
+      boletoEnabled: selected.boletoEnabled ?? prev.boletoEnabled,
+      cashEnabled: selected.cashEnabled ?? prev.cashEnabled,
       notes: selected.notes || prev.notes,
       costCurrency: (selected.costCurrency as "BRL" | "USD") || "BRL",
       costPrice: cost > 0 ? String(cost) : selected.costPrice ? String(selected.costPrice) : prev.costPrice,
@@ -774,6 +791,10 @@ export default function ProductForm() {
       isUniquePiece: form.isUniquePiece,
       published: form.published,
       active: form.active,
+      pixEnabled: form.pixEnabled,
+      cardEnabled: form.cardEnabled,
+      boletoEnabled: form.boletoEnabled,
+      cashEnabled: form.cashEnabled,
       notes: form.notes || undefined,
       costCurrency: form.costCurrency,
       costPrice: costPriceBrl,
@@ -1102,6 +1123,54 @@ export default function ProductForm() {
                   checked={form.published}
                   onCheckedChange={(v) => set("published")(v)}
                 />
+              </div>
+
+              {/* Formas de pagamento aceitas — controla o que aparece na vitrine
+                  pública (BuyModal) e na Nova Venda interna. O backend também
+                  valida isso: mesmo manipulando a requisição, um método
+                  desabilitado aqui é sempre rejeitado. */}
+              <div className="p-3.5 rounded-md border border-border bg-muted/20 mt-4 space-y-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Formas de pagamento aceitas</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Controla o que fica disponível na vitrine e na Nova Venda para este produto.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-emerald-600" />
+                      <span className="text-sm text-foreground">Pix</span>
+                    </div>
+                    <Switch checked={form.pixEnabled} onCheckedChange={(v) => set("pixEnabled")(v)} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Banknote className="h-4 w-4 text-amber-600" />
+                      <span className="text-sm text-foreground">Dinheiro</span>
+                    </div>
+                    <Switch checked={form.cashEnabled} onCheckedChange={(v) => set("cashEnabled")(v)} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm text-foreground">Cartão</span>
+                    </div>
+                    <Switch checked={form.cardEnabled} onCheckedChange={(v) => set("cardEnabled")(v)} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-neutral-700" />
+                      <span className="text-sm text-foreground">Boleto</span>
+                    </div>
+                    <Switch checked={form.boletoEnabled} onCheckedChange={(v) => set("boletoEnabled")(v)} />
+                  </div>
+                </div>
+                {!form.pixEnabled && !form.cardEnabled && !form.boletoEnabled && !form.cashEnabled && (
+                  <p className="text-xs text-destructive">
+                    Atenção: nenhuma forma de pagamento habilitada — este produto não poderá ser comprado até habilitar ao menos uma.
+                  </p>
+                )}
               </div>
 
               {/* Galeria */}
@@ -1524,7 +1593,11 @@ export default function ProductForm() {
       </div>
 
       <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
-        <DialogContent className="max-w-4xl">
+        {/* sm:max-w-4xl explícito: sem ele, o "sm:max-w-lg" do DialogContent
+            base sobrevive ao merge de classes e prende este diálogo em
+            512px em qualquer tela ≥640px — mesma causa raiz corrigida no
+            comprovante (ver ReceiptModal.tsx). */}
+        <DialogContent className="w-full max-w-4xl sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Revisar sugestão da IA</DialogTitle>
             <DialogDescription>

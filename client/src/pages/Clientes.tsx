@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -258,7 +259,12 @@ function CustomerReportDialog({
           embaralhando o conteúdo com a página por trás — este era o layout
           "horrível" reportado. Agora o conteúdo rola dentro do próprio
           diálogo, que nunca ultrapassa a tela. */}
-      <DialogContent className="flex max-h-[88vh] max-w-3xl flex-col overflow-hidden p-0">
+      {/* sm:max-w-3xl explícito: sem ele, o "sm:max-w-lg" do DialogContent
+          base sobrevive ao merge de classes (tailwind-merge não remove
+          variantes responsivas diferentes) e prende este diálogo em 512px
+          em qualquer tela ≥640px — mesma causa raiz corrigida no
+          comprovante (ver ReceiptModal.tsx). */}
+      <DialogContent className="flex max-h-[88vh] w-full max-w-3xl sm:max-w-3xl flex-col overflow-hidden p-0">
         <div className="border-b px-6 pb-4 pt-6">
           <DialogTitle>{customer?.name ?? "Cliente"}</DialogTitle>
           <DialogDescription>
@@ -796,16 +802,23 @@ export default function Clientes() {
                               </Badge>
                             </td>
                             <td className="px-3 py-3 text-right">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1"
-                                onClick={() =>
-                                  setSelectedCustomerId(customer.id)
-                                }
-                              >
-                                <FileText className="h-3.5 w-3.5" /> Relatório
-                              </Button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-1"
+                                  onClick={() =>
+                                    setSelectedCustomerId(customer.id)
+                                  }
+                                >
+                                  <FileText className="h-3.5 w-3.5" /> Relatório
+                                </Button>
+                                <Link href={`/clientes/${customer.id}`}>
+                                  <Button size="sm" className="gap-1">
+                                    <UserRound className="h-3.5 w-3.5" /> Ver perfil
+                                  </Button>
+                                </Link>
+                              </div>
                             </td>
                           </tr>
                         ))}

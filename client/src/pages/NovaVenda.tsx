@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -75,6 +75,41 @@ export default function NovaVenda() {
   const selectedCustomer = customers.find(c => c.id === customerId);
   const selectedProduct = (products as any[]).find(p => p.id === productId);
 
+  // Métodos de pagamento habilitados pelo produto selecionado. Sem produto
+  // selecionado (ou produto legado sem os campos), assume todos habilitados
+  // — mesmo comportamento de antes desta configuração existir.
+  const ALL_PAYMENT_METHODS: Array<{
+    value: "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
+    label: string;
+  }> = [
+    { value: "PIX", label: "Pix" },
+    { value: "DINHEIRO", label: "Dinheiro" },
+    { value: "CARTAO", label: "Cartão" },
+    { value: "BOLETO", label: "Boleto" },
+  ];
+  const availablePaymentMethods = useMemo(() => {
+    if (!selectedProduct) return ALL_PAYMENT_METHODS;
+    return ALL_PAYMENT_METHODS.filter(method => {
+      if (method.value === "PIX") return selectedProduct.pixEnabled !== false;
+      if (method.value === "CARTAO") return selectedProduct.cardEnabled !== false;
+      if (method.value === "BOLETO") return selectedProduct.boletoEnabled !== false;
+      if (method.value === "DINHEIRO") return selectedProduct.cashEnabled !== false;
+      return true;
+    });
+  }, [selectedProduct]);
+
+  // Se o produto selecionado desabilitar o método atualmente escolhido,
+  // troca automaticamente para o primeiro método ainda disponível — evita
+  // enviar ao servidor um método que será rejeitado.
+  useEffect(() => {
+    if (
+      availablePaymentMethods.length > 0 &&
+      !availablePaymentMethods.some(m => m.value === paymentMethod)
+    ) {
+      setPaymentMethod(availablePaymentMethods[0].value);
+    }
+  }, [availablePaymentMethods, paymentMethod]);
+
   const createSale = trpc.orders.createDirectSale.useMutation({
     onSuccess: async result => {
       toast.success(
@@ -100,6 +135,7 @@ export default function NovaVenda() {
           paymentMethod: result.paymentMethod,
           confirmedAt: result.confirmedAt,
           adminNotes: result.adminNotes,
+          customerId,
         });
         setShowReceipt(true);
       }
@@ -125,6 +161,10 @@ export default function NovaVenda() {
   const handleSubmit = () => {
     if (!customerId) return toast.error("Selecione um cliente cadastrado.");
     if (!productId) return toast.error("Selecione um produto.");
+    if (!availablePaymentMethods.some(m => m.value === paymentMethod))
+      return toast.error(
+        "Este produto não aceita a forma de pagamento selecionada."
+      );
     const qty = Math.max(1, Math.floor(Number(quantity || 1)));
     const price = Number(unitPrice);
     if (!Number.isFinite(price) || price <= 0)
@@ -343,17 +383,24 @@ export default function NovaVenda() {
               <div className="space-y-2">
                 <Label>Forma de pagamento</Label>
                 <select
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  className="h-10 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-50"
                   value={paymentMethod}
+                  disabled={availablePaymentMethods.length === 0}
                   onChange={event =>
                     setPaymentMethod(event.target.value as typeof paymentMethod)
                   }
                 >
-                  <option value="PIX">Pix</option>
-                  <option value="DINHEIRO">Dinheiro</option>
-                  <option value="CARTAO">Cartão</option>
-                  <option value="BOLETO">Boleto</option>
+                  {availablePaymentMethods.map(method => (
+                    <option key={method.value} value={method.value}>
+                      {method.label}
+                    </option>
+                  ))}
                 </select>
+                {selectedProduct && availablePaymentMethods.length === 0 && (
+                  <p className="text-xs text-destructive">
+                    Este produto não tem nenhuma forma de pagamento habilitada. Ajuste em Produtos → Editar.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Situação</Label>

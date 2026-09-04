@@ -2,10 +2,13 @@ import bcrypt from "bcryptjs";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import {
   customers,
+  creditStatusHistory,
+  customerCommunications,
   type Customer,
   type CustomerCreditStatus,
   type InsertCustomer,
   type SafeCustomer,
+  type CustomerCommunicationChannel,
 } from "../drizzle/schema.customers";
 import { sellers } from "../drizzle/schema.sellers";
 import { orders } from "../drizzle/schema.orders";
@@ -352,6 +355,14 @@ export async function updateCreditStatus(params: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // Guarda o status anterior antes de sobrescrever — é o que alimenta o
+  // histórico de análise de crédito exibido na página do cliente.
+  const [before] = await db
+    .select({ creditStatus: customers.creditStatus })
+    .from(customers)
+    .where(eq(customers.id, params.customerId))
+    .limit(1);
+
   const update: Partial<InsertCustomer> = {
     creditStatus: params.creditStatus,
     reviewedAt: new Date(),
@@ -373,5 +384,117 @@ export async function updateCreditStatus(params: {
     .where(eq(customers.id, params.customerId))
     .returning();
   if (!updated) throw new Error("Cliente não encontrado");
+
+  // Nunca bloqueia a atualização de crédito se o log de histórico falhar
+  // por algum motivo — o status em si já foi salvo com sucesso acima.
+  try {
+    await db.insert(creditStatusHistory).values({
+      customerId: params.customerId,
+      previousStatus: before?.creditStatus ?? null,
+      newStatus: params.creditStatus,
+      notes: cleanOptional(params.creditNotes) ?? null,
+      creditLimit: params.creditLimit ?? null,
+      changedByUserId: params.reviewerUserId ?? null,
+    });
+  } catch (error) {
+    console.error("[customers] Falha ao registrar histórico de crédito:", error);
+  }
+
   return updated;
+}
+
+/**
+ * Histórico de análise de crédito de um cliente, mais recente primeiro —
+ * paginado para clientes com muitas mudanças de status ao longo do tempo.
+ */
+export async function getCreditHistory(
+  customerId: number,
+  opts: { limit?: number; offset?: number } = {}
+): Promise<{ items: Array<Record<string, unknown>>; total: number }> {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0 };
+
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const offset = Math.max(opts.offset ?? 0, 0);
+
+  const [items, totalRows] = await Promise.all([
+    db
+      .select()
+      .from(creditStatusHistory)
+      .where(eq(creditStatusHistory.customerId, customerId))
+      .orderBy(desc(creditStatusHistory.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(creditStatusHistory)
+      .where(eq(creditStatusHistory.customerId, customerId)),
+  ]);
+
+  return { items, total: Number(totalRows[0]?.count ?? 0) };
+}
+
+/**
+ * Registra uma ação de envio (WhatsApp/e-mail) feita pelo atendente a
+ * partir da página do cliente — trilha de auditoria. Isto NÃO é uma
+ * confirmação de entrega do provedor (exigiria integração paga com API de
+ * terceiros, não configurada neste ambiente) — é o registro de que a ação
+ * foi disparada, por quem, quando e para qual contato.
+ */
+export async function logCustomerCommunication(params: {
+  customerId: number;
+  orderId?: number;
+  channel: CustomerCommunicationChannel;
+  purpose: string;
+  target: string;
+  messagePreview?: string;
+  sentByUserId?: number;
+}): Promise<Record<string, unknown>> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [row] = await db
+    .insert(customerCommunications)
+    .values({
+      customerId: params.customerId,
+      orderId: params.orderId ?? null,
+      channel: params.channel,
+      purpose: params.purpose,
+      target: params.target,
+      messagePreview: cleanOptional(params.messagePreview) ?? null,
+      sentByUserId: params.sentByUserId ?? null,
+    })
+    .returning();
+  return row as any;
+}
+
+/**
+ * Trilha de auditoria de envios de um cliente, mais recente primeiro —
+ * paginada.
+ */
+export async function listCustomerCommunications(
+  customerId: number,
+  opts: { limit?: number; offset?: number } = {}
+): Promise<{ items: Array<Record<string, unknown>>; total: number }> {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0 };
+
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const offset = Math.max(opts.offset ?? 0, 0);
+
+  const [items, totalRows] = await Promise.all([
+    db
+      .select()
+      .from(customerCommunications)
+      .where(eq(customerCommunications.customerId, customerId))
+      .orderBy(desc(customerCommunications.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(customerCommunications)
+      .where(eq(customerCommunications.customerId, customerId)),
+  ]);
+
+  return { items, total: Number(totalRows[0]?.count ?? 0) };
 }

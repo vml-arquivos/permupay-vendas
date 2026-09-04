@@ -74,6 +74,12 @@ const productInput = z.object({
   pixLink: z.string().optional(),
   cardPaymentUrl: z.string().optional(),
   boletoUrl: z.string().optional(),
+  // Métodos de pagamento habilitados para este produto (vitrine + venda
+  // interna). Sem envio = mantém o valor atual (default true no banco).
+  pixEnabled: z.boolean().optional(),
+  cardEnabled: z.boolean().optional(),
+  boletoEnabled: z.boolean().optional(),
+  cashEnabled: z.boolean().optional(),
   categoryLabel: z.string().optional(),
   promoTag: z.string().optional(),
   salesChannel: z.enum(["SHOP", "QUASE_ZERO", "BOTH"]).optional(),
@@ -1291,6 +1297,62 @@ export const appRouter = router({
           reviewerUserId: ctx.user.id,
         })
       ),
+
+    // ── Histórico de análise de crédito (página individual do cliente) ─────
+    creditHistory: protectedProcedure
+      .input(
+        z.object({
+          customerId: z.number().int().positive(),
+          limit: z.number().int().min(1).max(100).optional(),
+          offset: z.number().int().min(0).optional(),
+        })
+      )
+      .query(({ input }) =>
+        dbCustomers.getCreditHistory(input.customerId, {
+          limit: input.limit,
+          offset: input.offset,
+        })
+      ),
+
+    // ── Trilha de auditoria de envios (WhatsApp/e-mail) ─────────────────────
+    // "log" registra que o atendente acionou o envio (comprovante, boleto,
+    // cobrança) a partir da página do cliente — a mensagem em si continua
+    // saindo pelo wa.me/mailto do navegador (não há gateway configurado
+    // neste ambiente para envio server-side com confirmação de entrega real).
+    communications: router({
+      log: protectedProcedure
+        .input(
+          z.object({
+            customerId: z.number().int().positive(),
+            orderId: z.number().int().positive().optional(),
+            channel: z.enum(["WHATSAPP", "EMAIL"]),
+            purpose: z.string().min(1).max(80),
+            target: z.string().min(1).max(320),
+            messagePreview: z.string().max(2000).optional(),
+          })
+        )
+        .mutation(({ input, ctx }) =>
+          dbCustomers.logCustomerCommunication({
+            ...input,
+            sentByUserId: ctx.user.id,
+          })
+        ),
+
+      list: protectedProcedure
+        .input(
+          z.object({
+            customerId: z.number().int().positive(),
+            limit: z.number().int().min(1).max(100).optional(),
+            offset: z.number().int().min(0).optional(),
+          })
+        )
+        .query(({ input }) =>
+          dbCustomers.listCustomerCommunications(input.customerId, {
+            limit: input.limit,
+            offset: input.offset,
+          })
+        ),
+    }),
   }),
 
   // ── Notas promissórias ────────────────────────────────────────────────────
@@ -1389,10 +1451,19 @@ export const appRouter = router({
               .optional(),
             productId: z.number().optional(),
             customerId: z.number().int().positive().optional(),
+            limit: z.number().int().min(1).max(200).optional(),
+            offset: z.number().int().min(0).optional(),
           })
           .optional()
       )
       .query(({ input }) => dbOrders.listOrders(input)),
+
+    // Total de pedidos de um cliente — junto com orders.list(limit/offset),
+    // permite paginar o histórico de compras na página do cliente sem
+    // precisar trazer tudo de uma vez.
+    countByCustomer: protectedProcedure
+      .input(z.object({ customerId: z.number().int().positive() }))
+      .query(({ input }) => dbOrders.countCustomerOrders(input.customerId)),
 
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -1560,13 +1631,41 @@ export const appRouter = router({
   }),
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
-  dashboard: protectedProcedure.query(async ({ ctx }) => {
-    const [dashData, wishlistCounts] = await Promise.all([
-      db.getDashboardData(ctx.user.id),
-      dbWishlist.getWishlistCounts(),
-    ]);
-    return { ...dashData, wishlistCounts };
-  }),
+  // ── Dashboard com filtros dinâmicos ─────────────────────────────────────────
+  // dateFrom/dateTo: instantes ISO absolutos — o cliente calcula o início/fim
+  // do período (hoje, ontem, 7d, 30d, custom) no fuso horário local do
+  // navegador e envia o instante já resolvido, então o servidor só compara
+  // timestamps, sem precisar lidar com conversão de fuso.
+  dashboard: protectedProcedure
+    .input(
+      z
+        .object({
+          dateFrom: z.string().datetime({ offset: true }).optional(),
+          dateTo: z.string().datetime({ offset: true }).optional(),
+          status: z
+            .array(
+              z.enum([
+                "AGUARDANDO_PAGAMENTO",
+                "RESERVADO",
+                "PAGO",
+                "CANCELADO",
+                "EXPIRADO",
+              ])
+            )
+            .optional(),
+          productId: z.array(z.number().int().positive()).optional(),
+          sellerId: z.array(z.number().int().positive()).optional(),
+          customerId: z.array(z.number().int().positive()).optional(),
+        })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const [dashData, wishlistCounts] = await Promise.all([
+        db.getDashboardData(ctx.user.id, input),
+        dbWishlist.getWishlistCounts(),
+      ]);
+      return { ...dashData, wishlistCounts, appliedFilters: input ?? null };
+    }),
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   auth: router({

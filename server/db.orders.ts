@@ -16,6 +16,48 @@ import { commissions, sellers } from "../drizzle/schema.sellers";
 
 type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 
+const PAYMENT_METHOD_ENABLED_FIELD: Record<PaymentMethod, string> = {
+  PIX: "pixEnabled",
+  CARTAO: "cardEnabled",
+  BOLETO: "boletoEnabled",
+  DINHEIRO: "cashEnabled",
+};
+
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  PIX: "Pix",
+  CARTAO: "Cartão",
+  BOLETO: "Boleto",
+  DINHEIRO: "Dinheiro",
+};
+
+/**
+ * Validação server-side (não só de UI) de que o método de pagamento
+ * escolhido está habilitado para o produto — tanto na vitrine pública
+ * (createOrder) quanto na venda interna (createDirectSale). Bloqueia mesmo
+ * que o cliente manipule a requisição para enviar um método desabilitado.
+ *
+ * Aceita o produto tanto no formato do Drizzle (camelCase: pixEnabled,
+ * vindo de createOrder) quanto de SQL cru (snake_case: pix_enabled, vindo
+ * de createDirectSale, que usa `SELECT * ... FOR UPDATE`).
+ */
+export function assertPaymentMethodEnabled(
+  product: Record<string, unknown>,
+  paymentMethod: PaymentMethod
+): void {
+  const camelKey = PAYMENT_METHOD_ENABLED_FIELD[paymentMethod];
+  const snakeKey = camelKey.replace(/[A-Z]/g, m => `_${m.toLowerCase()}`);
+  const raw = product[camelKey] ?? product[snakeKey];
+  // Ausência da coluna (ex.: mock de teste incompleto) é tratada como
+  // habilitado — a coluna real tem DEFAULT true, então produtos antigos
+  // nunca ficam bloqueados por acidente após a migração.
+  const enabled = raw === undefined || raw === null ? true : raw === true || raw === "true";
+  if (!enabled) {
+    throw new Error(
+      `Este produto não aceita pagamento via ${PAYMENT_METHOD_LABEL[paymentMethod]}. Escolha outra forma de pagamento.`
+    );
+  }
+}
+
 /**
  * Gera automaticamente as notas promissórias de um pedido em BOLETO — uma
  * por parcela, com dados reais do cliente (quando disponível) e da compra.
@@ -143,6 +185,7 @@ export async function createOrder(
   if (!product) throw new Error("Produto não encontrado");
   if (!product.published || !product.active)
     throw new Error("Produto não disponível");
+  assertPaymentMethodEnabled(product, data.paymentMethod);
 
   let sellerId: number | null = data.sellerId ?? null;
   let normalizedReferralCode: string | null = null;
@@ -529,6 +572,7 @@ export async function createSellerOrder(data: {
     const product = productResult?.rows?.[0];
     if (!product || product.active === false)
       throw new Error("Produto não encontrado ou inativo");
+    assertPaymentMethodEnabled(product, data.paymentMethod);
 
     const quantity = Math.max(1, Math.floor(Number(data.quantity || 1)));
     const currentStock = Number(product.stock_quantity ?? 0);
@@ -666,6 +710,7 @@ export async function createDirectSale(data: {
     const product = productResult?.rows?.[0];
     if (!product || product.active === false)
       throw new Error("Produto não encontrado ou inativo");
+    assertPaymentMethodEnabled(product, data.paymentMethod);
 
     const quantity = Math.max(1, Math.floor(Number(data.quantity || 1)));
     const currentStock = Number(product.stock_quantity ?? 0);
@@ -1000,6 +1045,11 @@ export async function listOrders(filters?: {
   status?: Order["status"];
   productId?: number;
   customerId?: number;
+  // Paginação opcional — sem informar, mantém o comportamento anterior
+  // (retorna tudo) para não quebrar nenhuma tela existente que já consome
+  // esta função sem paginar.
+  limit?: number;
+  offset?: number;
 }): Promise<
   (Order & { productName: string; productImageUrl: string | null })[]
 > {
@@ -1013,7 +1063,7 @@ export async function listOrders(filters?: {
   if (filters?.customerId)
     conditions.push(eq(orders.customerId, filters.customerId));
 
-  const rows = await db
+  let query = db
     .select({
       order: orders,
       productName: products.name,
@@ -1022,13 +1072,33 @@ export async function listOrders(filters?: {
     .from(orders)
     .leftJoin(products, eq(orders.productId, products.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(orders.createdAt));
+    .orderBy(desc(orders.createdAt)) as any;
 
-  return rows.map(r => ({
+  if (filters?.limit !== undefined) {
+    query = query.limit(Math.min(Math.max(filters.limit, 1), 200));
+  }
+  if (filters?.offset !== undefined) {
+    query = query.offset(Math.max(filters.offset, 0));
+  }
+
+  const rows = await query;
+
+  return rows.map((r: any) => ({
     ...r.order,
     productName: r.productName ?? "Produto removido",
     productImageUrl: r.productImageUrl ?? null,
   }));
+}
+
+/** Total de pedidos de um cliente — usado para paginação na página do cliente. */
+export async function countCustomerOrders(customerId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(orders)
+    .where(eq(orders.customerId, customerId));
+  return Number(row?.count ?? 0);
 }
 
 export async function getOrderById(
@@ -1112,7 +1182,69 @@ export async function getOrderByAccessToken(
   };
 }
 
-export async function getOrderCounts(): Promise<{
+export type OrderStatusFilter =
+  | "AGUARDANDO_PAGAMENTO"
+  | "RESERVADO"
+  | "PAGO"
+  | "CANCELADO"
+  | "EXPIRADO";
+
+/**
+ * Filtros dinâmicos do dashboard. `dateFrom`/`dateTo` são instantes ISO 8601
+ * absolutos (ex.: `date.toISOString()`) — o cálculo do início/fim do período
+ * (hoje, ontem, 7d, 30d, etc.) é feito no cliente usando o fuso horário local
+ * do navegador, então o servidor só precisa comparar instantes, sem lidar
+ * com conversão de fuso.
+ */
+export type DashboardOrderFilters = {
+  dateFrom?: string;
+  dateTo?: string;
+  status?: OrderStatusFilter[];
+  productId?: number[];
+  sellerId?: number[];
+  customerId?: number[];
+};
+
+/**
+ * Constrói as condições de filtro (SQL WHERE) reutilizadas por
+ * getOrderCounts. Extraída como função pura e exportada para poder ser
+ * testada sem precisar de uma conexão real com o banco.
+ */
+export function buildOrderFilterConditions(filters?: DashboardOrderFilters) {
+  const conditions: any[] = [];
+  if (!filters) return conditions;
+
+  if (filters.dateFrom) {
+    const from = new Date(filters.dateFrom);
+    if (!Number.isNaN(from.getTime())) conditions.push(sql`${orders.createdAt} >= ${from}`);
+  }
+  if (filters.dateTo) {
+    const to = new Date(filters.dateTo);
+    if (!Number.isNaN(to.getTime())) conditions.push(sql`${orders.createdAt} <= ${to}`);
+  }
+  if (filters.status?.length) {
+    conditions.push(inArray(orders.status, filters.status));
+  }
+  if (filters.productId?.length) {
+    conditions.push(inArray(orders.productId, filters.productId));
+  }
+  if (filters.sellerId?.length) {
+    conditions.push(inArray(orders.sellerId, filters.sellerId));
+  }
+  if (filters.customerId?.length) {
+    conditions.push(inArray(orders.customerId, filters.customerId));
+  }
+  return conditions;
+}
+
+/**
+ * Contadores do dashboard — filtráveis por período (createdAt), status,
+ * produto, vendedor e cliente. A filtragem acontece 100% no banco (SQL
+ * WHERE + agregação condicional via FILTER), nunca trazendo a tabela
+ * inteira para agregar em JS — importante para o dashboard continuar
+ * rápido conforme o volume de pedidos cresce.
+ */
+export async function getOrderCounts(filters?: DashboardOrderFilters): Promise<{
   aguardando: number;
   pagos: number;
   cancelados: number;
@@ -1132,23 +1264,31 @@ export async function getOrderCounts(): Promise<{
     };
   }
 
-  const all = await db
-    .select({ status: orders.status, totalPrice: orders.totalPrice })
-    .from(orders);
-  const pagos = all.filter(o => o.status === "PAGO");
-  const faturamento = pagos.reduce(
-    (acc, o) => acc + Number(o.totalPrice ?? 0),
-    0
-  );
+  const conditions = buildOrderFilterConditions(filters);
+
+  const [row] = await db
+    .select({
+      aguardando: sql<number>`count(*) filter (where ${orders.status} in ('AGUARDANDO_PAGAMENTO', 'RESERVADO'))`,
+      pagos: sql<number>`count(*) filter (where ${orders.status} = 'PAGO')`,
+      cancelados: sql<number>`count(*) filter (where ${orders.status} = 'CANCELADO')`,
+      expirados: sql<number>`count(*) filter (where ${orders.status} = 'EXPIRADO')`,
+      faturamento: sql<number>`coalesce(sum(${orders.totalPrice}) filter (where ${orders.status} = 'PAGO'), 0)`,
+    })
+    .from(orders)
+    .where(conditions.length ? and(...conditions) : undefined);
+
+  const aguardando = Number(row?.aguardando ?? 0);
+  const pagos = Number(row?.pagos ?? 0);
+  const cancelados = Number(row?.cancelados ?? 0);
+  const expirados = Number(row?.expirados ?? 0);
+  const faturamento = Number(row?.faturamento ?? 0);
 
   return {
-    aguardando: all.filter(
-      o => o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
-    ).length,
-    pagos: pagos.length,
-    cancelados: all.filter(o => o.status === "CANCELADO").length,
-    expirados: all.filter(o => o.status === "EXPIRADO").length,
+    aguardando,
+    pagos,
+    cancelados,
+    expirados,
     faturamento,
-    ticketMedio: pagos.length > 0 ? faturamento / pagos.length : 0,
+    ticketMedio: pagos > 0 ? faturamento / pagos : 0,
   };
 }

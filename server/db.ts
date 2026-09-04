@@ -484,6 +484,12 @@ export async function createProduct(data: any) {
       productCondition: normalizeProductCondition(data.productCondition),
       conditionNotes: data.conditionNotes ? String(data.conditionNotes).trim() : null,
       isUniquePiece: data.isUniquePiece === true,
+      // Métodos de pagamento habilitados — default true (todos habilitados)
+      // quando não informado, preservando o comportamento anterior.
+      pixEnabled: data.pixEnabled !== false,
+      cardEnabled: data.cardEnabled !== false,
+      boletoEnabled: data.boletoEnabled !== false,
+      cashEnabled: data.cashEnabled !== false,
     };
 
     const [r] = await db.insert(products).values(productData).returning();
@@ -577,6 +583,10 @@ export async function updateProduct(id: number, data: any, _userId?: number) {
     if (data.cardAnticipationRate !== undefined) updateData.cardAnticipationRate = Math.max(0, Number(data.cardAnticipationRate) || 1.5);
     if (data.cardMonthlyRate !== undefined) updateData.cardMonthlyRate = Math.max(0, Number(data.cardMonthlyRate) || 1.99);
     if (data.cardCustomerPaysInterest !== undefined) updateData.cardCustomerPaysInterest = data.cardCustomerPaysInterest === true;
+    if (data.pixEnabled !== undefined) updateData.pixEnabled = data.pixEnabled === true;
+    if (data.cardEnabled !== undefined) updateData.cardEnabled = data.cardEnabled === true;
+    if (data.boletoEnabled !== undefined) updateData.boletoEnabled = data.boletoEnabled === true;
+    if (data.cashEnabled !== undefined) updateData.cashEnabled = data.cashEnabled === true;
 
     if (
       data.costCurrency !== undefined ||
@@ -802,7 +812,10 @@ export async function deleteUser(userId: number, currentUserId: number) {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
-export async function getDashboardData(_userId?: number) {
+export async function getDashboardData(
+  _userId?: number,
+  orderFilters?: import("./db.orders").DashboardOrderFilters
+) {
   try {
     const [prods, sims] = await Promise.all([
       listProducts(),
@@ -819,7 +832,7 @@ export async function getDashboardData(_userId?: number) {
     };
     try {
       const { getOrderCounts } = await import("./db.orders");
-      orderCounts = await getOrderCounts();
+      orderCounts = await getOrderCounts(orderFilters);
     } catch {
       // tabela ainda não existe — ignora
     }

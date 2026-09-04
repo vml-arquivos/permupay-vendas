@@ -7,7 +7,7 @@
  * mesmo layout e o mesmo detalhamento de parcelas quando o pagamento é por
  * boleto — em vez de cada tela ter (ou não ter) sua própria versão.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Copy, MessageCircle, Receipt, BadgeCheck, ShieldCheck, ShoppingBag, Download, FileSignature, Mail, Link as LinkIcon } from "lucide-react";
+import { Copy, MessageCircle, Receipt, BadgeCheck, ShieldCheck, ShoppingBag, Download, FileSignature, Mail, Link as LinkIcon, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { PAYMENT_LABEL } from "@/lib/orderStatus";
 import {
@@ -65,6 +65,9 @@ export function ReceiptModal({
     [notesQuery.data]
   );
 
+  // Acesso ao link de documentos é validado no backend (orders.documentsLink
+  // é protectedProcedure + o token é gerado/consultado por orderId, nunca
+  // aceito do cliente) — aqui só consumimos o resultado já autorizado.
   const documentsLinkQuery = trpc.orders.documentsLink.useQuery(
     { orderId: order?.id as number },
     { enabled: Boolean(order?.id) }
@@ -81,6 +84,22 @@ export function ReceiptModal({
     { enabled: false }
   );
 
+  // Trilha de auditoria (mesma usada na página do cliente) — registra que o
+  // comprovante foi disparado por WhatsApp/e-mail, quando e por quem. Nunca
+  // bloqueia o envio em si: o link já abriu antes do registro ser tentado.
+  const logCommunication = trpc.customers.communications.log.useMutation();
+
+  // Prevenção de duplicidade: depois do primeiro envio bem-sucedido nesta
+  // sessão do modal, o botão vira "Reenviar" — dá uma confirmação visual
+  // clara de que já foi disparado, em vez de deixar o atendente na dúvida
+  // se clicou ou não, sem impedir um reenvio deliberado.
+  const [whatsappSentAt, setWhatsappSentAt] = useState<number | null>(null);
+  const [emailSentAt, setEmailSentAt] = useState<number | null>(null);
+  useEffect(() => {
+    setWhatsappSentAt(null);
+    setEmailSentAt(null);
+  }, [order?.id]);
+
   const handleCopy = async () => {
     if (!message) return;
     try {
@@ -94,6 +113,17 @@ export function ReceiptModal({
   const handleWhatsApp = () => {
     if (!order) return;
     window.open(buildWhatsAppUrl(message, order.buyerContact), "_blank", "noopener,noreferrer");
+    setWhatsappSentAt(Date.now());
+    if (order.customerId) {
+      logCommunication.mutate({
+        customerId: order.customerId,
+        orderId: order.id,
+        channel: "WHATSAPP",
+        purpose: "comprovante",
+        target: order.buyerContact,
+        messagePreview: message.slice(0, 500),
+      });
+    }
   };
 
   const handleEmail = () => {
@@ -104,6 +134,17 @@ export function ReceiptModal({
       subject: `Comprovante e documentos — Pedido #${order.id} — Shoop PermuPay`,
     });
     window.location.href = url;
+    setEmailSentAt(Date.now());
+    if (order.customerId) {
+      logCommunication.mutate({
+        customerId: order.customerId,
+        orderId: order.id,
+        channel: "EMAIL",
+        purpose: "comprovante",
+        target: to || "(email não cadastrado)",
+        messagePreview: message.slice(0, 500),
+      });
+    }
   };
 
   const handleCopyDocumentsLink = async () => {
@@ -134,7 +175,16 @@ export function ReceiptModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl overflow-hidden border-0 p-0">
+      {/* sm:max-w-3xl (nao so max-w-3xl) e necessario: o DialogContent base
+          ja define "sm:max-w-lg" (32rem), e por serem variantes responsivas
+          diferentes o tailwind-merge NAO remove "sm:max-w-lg" ao receber so
+          "max-w-3xl" sem prefixo — ele sobrevive e, em qualquer tela
+          >=640px (a imensa maioria dos desktops), vence a cascata e prende
+          o modal em 512px. Essa era a causa raiz do comprovante aparecer
+          "todo espremido" — confirmada empiricamente inspecionando o CSS
+          compilado (dist/public/assets/*.css) e simulando o merge de
+          classes com tailwind-merge antes de aplicar a correcao. */}
+      <DialogContent className="w-full max-w-3xl sm:max-w-3xl overflow-hidden border-0 p-0">
         <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-stone-900 text-white">
           <div className="border-b border-white/10 px-6 py-5 sm:px-8">
             <div className="flex items-start justify-between gap-4">
@@ -262,6 +312,17 @@ export function ReceiptModal({
                   </Button>
                 </div>
               )}
+              {documentsLinkQuery.isLoading && (
+                <p className="mt-3 text-xs text-slate-500">Gerando link de documentos…</p>
+              )}
+              {documentsLinkQuery.isError && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-xs text-destructive">
+                  <span>Não foi possível gerar o link de documentos.</span>
+                  <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => documentsLinkQuery.refetch()}>
+                    Tentar novamente
+                  </Button>
+                </div>
+              )}
             </div>
 
             {order.adminNotes && (
@@ -289,13 +350,24 @@ export function ReceiptModal({
                   <Download className="h-4 w-4" />
                   {pdfQuery.isFetching ? "Gerando PDF..." : "Baixar PDF"}
                 </Button>
-                <Button variant="outline" onClick={handleEmail} className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleEmail}
+                  disabled={documentsLinkQuery.isLoading}
+                  className="gap-2"
+                >
                   <Mail className="h-4 w-4" />
-                  Enviar por e-mail
+                  {emailSentAt ? "Reenviar por e-mail" : "Enviar por e-mail"}
+                  {emailSentAt && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
                 </Button>
-                <Button onClick={handleWhatsApp} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+                <Button
+                  onClick={handleWhatsApp}
+                  disabled={documentsLinkQuery.isLoading}
+                  className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                >
                   <MessageCircle className="h-4 w-4" />
-                  Enviar pelo WhatsApp
+                  {whatsappSentAt ? "Reenviar pelo WhatsApp" : "Enviar pelo WhatsApp"}
+                  {whatsappSentAt && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-100" />}
                 </Button>
               </div>
             </div>

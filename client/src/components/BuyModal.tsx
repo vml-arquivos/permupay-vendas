@@ -8,7 +8,7 @@
  * 4. Mantém opção de adicionar produto extra ao pedido.
  * 5. Usa uma CTA principal: "Reservar produto".
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   X,
@@ -39,6 +39,13 @@ interface ProductInfo {
   suggestedPrice: number;
   cardInstallments?: number | null;
   boletoMonths?: number | null;
+  // Métodos de pagamento habilitados para este produto — ausentes (produto
+  // legado / consulta antiga) é tratado como habilitado, para não quebrar
+  // nada que já funcionava.
+  pixEnabled?: boolean;
+  cardEnabled?: boolean;
+  boletoEnabled?: boolean;
+  cashEnabled?: boolean;
 }
 
 interface BuyModalProps {
@@ -117,6 +124,7 @@ export function BuyModal({
       price: pixPrice,
       icon: <Zap className="w-5 h-5" />,
       activeClass: "border-emerald-500 bg-emerald-50 text-emerald-700",
+      enabled: p.pixEnabled !== false,
     },
     {
       key: "DINHEIRO" as PaymentMethod,
@@ -125,6 +133,7 @@ export function BuyModal({
       price: cashPrice,
       icon: <Banknote className="w-5 h-5" />,
       activeClass: "border-amber-500 bg-amber-50 text-amber-700",
+      enabled: p.cashEnabled !== false,
     },
     {
       key: "CARTAO" as PaymentMethod,
@@ -133,6 +142,7 @@ export function BuyModal({
       price: cardPrice,
       icon: <CreditCard className="w-5 h-5" />,
       activeClass: "border-blue-500 bg-blue-50 text-blue-700",
+      enabled: p.cardEnabled !== false,
     },
     {
       key: "BOLETO" as PaymentMethod,
@@ -141,8 +151,21 @@ export function BuyModal({
       price: boletoPrice,
       icon: <FileText className="w-5 h-5" />,
       activeClass: "border-neutral-700 bg-neutral-50 text-neutral-900",
+      enabled: p.boletoEnabled !== false,
     },
-  ]), [pixPrice, cashPrice, cardPrice, boletoPrice, inst, boletoMonths]);
+  ]).filter((opt) => opt.enabled), [pixPrice, cashPrice, cardPrice, boletoPrice, inst, boletoMonths, p.pixEnabled, p.cashEnabled, p.cardEnabled, p.boletoEnabled]);
+
+  // Se o método inicial (ou selecionado) não estiver mais disponível para
+  // este produto, troca automaticamente para o primeiro habilitado — evita
+  // deixar selecionado um método que o backend vai rejeitar.
+  useEffect(() => {
+    if (
+      methodOptions.length > 0 &&
+      !methodOptions.some((opt) => opt.key === method)
+    ) {
+      setMethod(methodOptions[0].key);
+    }
+  }, [methodOptions, method]);
 
   const createOrder = trpc.orders.create.useMutation({
     onSuccess: (data) => {
@@ -276,9 +299,18 @@ export function BuyModal({
                     </div>
                   </button>
                 ))}
+              {methodOptions.filter((opt) => opt.price > 0).length === 0 && (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                  Nenhuma forma de pagamento disponível para este produto no momento. Entre em contato para mais informações.
+                </p>
+              )}
             </div>
 
-            <Button className="w-full mt-2" onClick={() => setStep("form")}>
+            <Button
+              className="w-full mt-2"
+              onClick={() => setStep("form")}
+              disabled={methodOptions.filter((opt) => opt.price > 0).length === 0}
+            >
               Continuar reserva
             </Button>
           </div>

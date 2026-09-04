@@ -705,6 +705,10 @@ export async function getPublishedProducts() {
       productCondition: products.productCondition,
       conditionNotes: products.conditionNotes,
       isUniquePiece: products.isUniquePiece,
+      pixEnabled: products.pixEnabled,
+      cardEnabled: products.cardEnabled,
+      boletoEnabled: products.boletoEnabled,
+      cashEnabled: products.cashEnabled,
     })
     .from(products)
     .where(and(eq(products.published, true), eq(products.active, true), sql`COALESCE(${products.salesChannel}, 'SHOP') <> 'QUASE_ZERO'`))
@@ -742,6 +746,10 @@ export async function getPublishedProductsByCategory(category?: string) {
       productCondition: products.productCondition,
       conditionNotes: products.conditionNotes,
       isUniquePiece: products.isUniquePiece,
+      pixEnabled: products.pixEnabled,
+      cardEnabled: products.cardEnabled,
+      boletoEnabled: products.boletoEnabled,
+      cashEnabled: products.cashEnabled,
     })
     .from(products)
     .where(
@@ -785,6 +793,10 @@ export async function getQuaseZeroProducts() {
       productCondition: products.productCondition,
       conditionNotes: products.conditionNotes,
       isUniquePiece: products.isUniquePiece,
+      pixEnabled: products.pixEnabled,
+      cardEnabled: products.cardEnabled,
+      boletoEnabled: products.boletoEnabled,
+      cashEnabled: products.cashEnabled,
     })
     .from(products)
     .where(
@@ -828,6 +840,10 @@ export async function getPublishedProductById(id: number) {
       productCondition: products.productCondition,
       conditionNotes: products.conditionNotes,
       isUniquePiece: products.isUniquePiece,
+      pixEnabled: products.pixEnabled,
+      cardEnabled: products.cardEnabled,
+      boletoEnabled: products.boletoEnabled,
+      cashEnabled: products.cashEnabled,
     })
     .from(products)
     .where(and(eq(products.id, id), eq(products.published, true), eq(products.active, true)))

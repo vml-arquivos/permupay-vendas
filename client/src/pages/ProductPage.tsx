@@ -489,6 +489,10 @@ export default function ProductPage() {
             suggestedPrice:       p.suggestedPrice       ?? 0,
             cardInstallments:     p.cardInstallments,
             boletoMonths:         p.boletoMonths,
+            pixEnabled:           p.pixEnabled,
+            cardEnabled:          p.cardEnabled,
+            boletoEnabled:        p.boletoEnabled,
+            cashEnabled:          p.cashEnabled,
           }}
           onClose={() => setShowBuyModal(false)}
         />

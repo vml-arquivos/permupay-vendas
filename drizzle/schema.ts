@@ -164,6 +164,14 @@ export const products = pgTable("permupay_products", {
   cardPaymentUrl: text("card_payment_url"),
   boletoUrl: text("boleto_url"),
 
+  // Métodos de pagamento habilitados para este produto (vitrine + venda
+  // interna). Default true em todos para manter o comportamento anterior
+  // (todos os métodos disponíveis) em produtos já cadastrados.
+  pixEnabled: boolean("pix_enabled").notNull().default(true),
+  cardEnabled: boolean("card_enabled").notNull().default(true),
+  boletoEnabled: boolean("boleto_enabled").notNull().default(true),
+  cashEnabled: boolean("cash_enabled").notNull().default(true),
+
   // Label customizável de categoria para filtro
   categoryLabel: text("category_label"),
 

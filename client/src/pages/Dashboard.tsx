@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -19,7 +20,77 @@ import {
   Clock,
   DollarSign,
   ShoppingCart,
+  Filter,
+  X,
 } from 'lucide-react';
+
+// ── Filtros dinâmicos do dashboard ───────────────────────────────────────────
+// Afetam apenas os KPIs derivados de pedidos (Aguardando/Vendas/Faturamento/
+// Ticket Médio) — os KPIs de catálogo (Produtos, Simulações) não têm uma
+// dimensão de data/pedido e continuam mostrando o total geral, por design.
+
+type DatePreset = 'today' | 'yesterday' | '7d' | '30d' | 'all' | 'custom';
+type StatusChip = 'AGUARDANDO' | 'PAGO' | 'CANCELADO' | 'EXPIRADO';
+
+const STATUS_CHIP_TO_ENUM: Record<StatusChip, string[]> = {
+  AGUARDANDO: ['AGUARDANDO_PAGAMENTO', 'RESERVADO'],
+  PAGO: ['PAGO'],
+  CANCELADO: ['CANCELADO'],
+  EXPIRADO: ['EXPIRADO'],
+};
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+function endOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+/**
+ * Resolve o preset de data para um instante absoluto (ISO), usando o fuso
+ * horário local do navegador — é isso que garante que "hoje"/"ontem"/"7
+ * dias" batem com o que o usuário vê no relógio dele, não com UTC do
+ * servidor.
+ */
+function resolveDateRange(
+  preset: DatePreset,
+  customFrom: string,
+  customTo: string
+): { dateFrom?: string; dateTo?: string } {
+  const now = new Date();
+  switch (preset) {
+    case 'all':
+      return {};
+    case 'today':
+      return { dateFrom: startOfDay(now).toISOString(), dateTo: endOfDay(now).toISOString() };
+    case 'yesterday': {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      return { dateFrom: startOfDay(y).toISOString(), dateTo: endOfDay(y).toISOString() };
+    }
+    case '7d': {
+      const from = new Date(now);
+      from.setDate(from.getDate() - 6);
+      return { dateFrom: startOfDay(from).toISOString(), dateTo: endOfDay(now).toISOString() };
+    }
+    case '30d': {
+      const from = new Date(now);
+      from.setDate(from.getDate() - 29);
+      return { dateFrom: startOfDay(from).toISOString(), dateTo: endOfDay(now).toISOString() };
+    }
+    case 'custom': {
+      if (!customFrom || !customTo) return {};
+      const from = new Date(`${customFrom}T00:00:00`);
+      const to = new Date(`${customTo}T23:59:59.999`);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return {};
+      return { dateFrom: from.toISOString(), dateTo: to.toISOString() };
+    }
+  }
+}
+
+function readParam(params: URLSearchParams, key: string): string {
+  return params.get(key) ?? '';
+}
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────
 function KpiCard({
@@ -111,9 +182,90 @@ function Section({ title, icon: Icon, children, action }: {
 
 // ── Componente Principal ──────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { data, isLoading, error, refetch } = trpc.dashboard.useQuery();
+  // Estado dos filtros — inicializado a partir da URL para permitir
+  // compartilhar/recarregar a página mantendo o mesmo filtro aplicado.
+  const initial = useMemo(() => new URLSearchParams(window.location.search), []);
+  const [datePreset, setDatePreset] = useState<DatePreset>(
+    (readParam(initial, 'periodo') as DatePreset) || 'all'
+  );
+  const [customFrom, setCustomFrom] = useState(readParam(initial, 'de'));
+  const [customTo, setCustomTo] = useState(readParam(initial, 'ate'));
+  const [statusChips, setStatusChips] = useState<StatusChip[]>(() => {
+    const raw = readParam(initial, 'status');
+    return raw ? (raw.split(',').filter(Boolean) as StatusChip[]) : [];
+  });
+  const [productId, setProductId] = useState(readParam(initial, 'produto'));
+  const [sellerId, setSellerId] = useState(readParam(initial, 'vendedor'));
+  const [customerId, setCustomerId] = useState(readParam(initial, 'cliente'));
 
-  if (isLoading) {
+  const productsQuery = trpc.products.list.useQuery();
+  const sellersQuery = trpc.sellers.list.useQuery();
+  const customersQuery = trpc.customers.list.useQuery({});
+
+  const dateRange = useMemo(
+    () => resolveDateRange(datePreset, customFrom, customTo),
+    [datePreset, customFrom, customTo]
+  );
+
+  const statusEnumValues = useMemo(
+    () => statusChips.flatMap((chip) => STATUS_CHIP_TO_ENUM[chip]),
+    [statusChips]
+  );
+
+  const filtersInput = useMemo(
+    () => ({
+      ...dateRange,
+      status: statusEnumValues.length ? (statusEnumValues as any) : undefined,
+      productId: productId ? [Number(productId)] : undefined,
+      sellerId: sellerId ? [Number(sellerId)] : undefined,
+      customerId: customerId ? [Number(customerId)] : undefined,
+    }),
+    [dateRange, statusEnumValues, productId, sellerId, customerId]
+  );
+
+  const hasActiveFilters =
+    datePreset !== 'all' || statusChips.length > 0 || !!productId || !!sellerId || !!customerId;
+
+  // Mantém a URL sincronizada com os filtros (sem gerar entradas novas no
+  // histórico do navegador a cada mudança).
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (datePreset !== 'all') params.set('periodo', datePreset);
+    if (datePreset === 'custom') {
+      if (customFrom) params.set('de', customFrom);
+      if (customTo) params.set('ate', customTo);
+    }
+    if (statusChips.length) params.set('status', statusChips.join(','));
+    if (productId) params.set('produto', productId);
+    if (sellerId) params.set('vendedor', sellerId);
+    if (customerId) params.set('cliente', customerId);
+    const qs = params.toString();
+    const newUrl = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+    window.history.replaceState(null, '', newUrl);
+  }, [datePreset, customFrom, customTo, statusChips, productId, sellerId, customerId]);
+
+  const toggleStatusChip = (chip: StatusChip) => {
+    setStatusChips((prev) =>
+      prev.includes(chip) ? prev.filter((c) => c !== chip) : [...prev, chip]
+    );
+  };
+
+  const clearFilters = () => {
+    setDatePreset('all');
+    setCustomFrom('');
+    setCustomTo('');
+    setStatusChips([]);
+    setProductId('');
+    setSellerId('');
+    setCustomerId('');
+  };
+
+  const { data, isLoading, isFetching, error, refetch } = trpc.dashboard.useQuery(filtersInput);
+
+  // Só mostra o skeleton de página inteira no primeiro carregamento — ao
+  // trocar um filtro, mantém a página (e a barra de filtros) visível com um
+  // indicador discreto de atualização, em vez de piscar tudo para skeleton.
+  if (isLoading && !data) {
     return (
       <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
         <div className="flex justify-between items-center">
@@ -196,6 +348,131 @@ export default function Dashboard() {
             <Store className="w-3.5 h-3.5" /> Ver Vitrine
           </a>
         </div>
+      </div>
+
+      {/* ── Filtros dinâmicos ─────────────────────────────────────────── */}
+      <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Filter className="w-4 h-4 text-primary" />
+            Filtros
+            {isFetching && !isLoading && (
+              <span className="text-xs font-normal text-muted-foreground">(atualizando…)</span>
+            )}
+          </div>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="w-3 h-3" /> Limpar filtros
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {([
+            ['today', 'Hoje'],
+            ['yesterday', 'Ontem'],
+            ['7d', '7 dias'],
+            ['30d', '30 dias'],
+            ['all', 'Tudo'],
+            ['custom', 'Personalizado'],
+          ] as [DatePreset, string][]).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setDatePreset(value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                datePreset === value
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {datePreset === 'custom' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-muted-foreground">
+              De
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="ml-1.5 h-8 rounded-md border border-border bg-background px-2 text-xs"
+              />
+            </label>
+            <label className="text-xs text-muted-foreground">
+              Até
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="ml-1.5 h-8 rounded-md border border-border bg-background px-2 text-xs"
+              />
+            </label>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {([
+            ['AGUARDANDO', 'Aguardando'],
+            ['PAGO', 'Pago'],
+            ['CANCELADO', 'Cancelado'],
+            ['EXPIRADO', 'Expirado'],
+          ] as [StatusChip, string][]).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => toggleStatusChip(value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                statusChips.includes(value)
+                  ? 'bg-primary/10 text-primary border-primary/40'
+                  : 'border-border text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <select
+            value={productId}
+            onChange={(e) => setProductId(e.target.value)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+          >
+            <option value="">Todos os produtos</option>
+            {(productsQuery.data ?? []).map((p: any) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <select
+            value={sellerId}
+            onChange={(e) => setSellerId(e.target.value)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+          >
+            <option value="">Todos os vendedores</option>
+            {(sellersQuery.data ?? []).map((s: any) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <select
+            value={customerId}
+            onChange={(e) => setCustomerId(e.target.value)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+          >
+            <option value="">Todos os clientes</option>
+            {(customersQuery.data ?? []).map((c: any) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <p className="text-[11px] text-muted-foreground">
+          Os filtros acima afetam os KPIs de pedidos e vendas abaixo. Os totais de catálogo (Produtos, Simulações) mostram sempre o total geral.
+        </p>
       </div>
 
       {/* ── KPIs ──────────────────────────────────────────────────────── */}
