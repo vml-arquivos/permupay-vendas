@@ -37,7 +37,6 @@ import Loja from "./pages/Loja";
 import MinhaConta from "./pages/MinhaConta";
 import Clientes from "./pages/Clientes";
 import NovaVenda from "./pages/NovaVenda";
-import Promissorias from "./pages/Promissorias";
 
 // Cotação de preços
 import Cotacoes from "./pages/Cotacoes";
@@ -202,17 +201,9 @@ function Router() {
         )}
       </Route>
 
-      {/* ── PROMISSÓRIAS (central de notas — Promissorias.tsx já inclui
-          DashboardLayout internamente) ──────────────────────────────── */}
-      <Route path="/promissorias">
-        {() => (
-          <P>
-            <Promissorias />
-          </P>
-        )}
-      </Route>
-
-      {/* ── CLIENTES E NOVA VENDA (admin e vendedores autenticados) ────── */}
+      {/* ── CLIENTES E NOVA VENDA (admin e vendedores autenticados) ─────
+          Promissórias vivem dentro do relatório de cada cliente (aba
+          Documentos), não como página solta — ver Clientes.tsx. ──────── */}
       <Route path="/clientes">
         {() => (
           <P>
