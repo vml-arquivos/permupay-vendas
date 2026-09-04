@@ -483,7 +483,7 @@ export default function Products() {
                               >
                                 #{product.id}
                               </span>
-                              <h3 className="truncate text-sm font-semibold text-foreground sm:text-base">{product.name}</h3>
+                              <h3 className="break-words text-sm font-semibold text-foreground sm:text-base">{product.name}</h3>
 
                               {product.published ? (
                                 <Badge className="border-0 bg-green-100 text-[11px] text-green-700 dark:bg-green-900/30 dark:text-green-400">
