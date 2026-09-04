@@ -52,6 +52,12 @@ const DEFAULTS: Omit<PaymentSetting, "id" | "updatedAt"> = {
   pixLink: null,
   cardPaymentUrl: null,
   boletoUrl: null,
+  // Beneficiário / credor — usado na nota promissória e no comprovante
+  beneficiaryName: "Shoop PermuPay",
+  beneficiaryDocument: null,
+  beneficiaryAddress: null,
+  paymentPlace: "Brasília/DF",
+  boletoFirstDueDays: 30,
 };
 
 export async function getPaymentSettings(): Promise<PaymentSetting> {

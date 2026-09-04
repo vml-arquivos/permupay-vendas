@@ -24,6 +24,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { getStoredReferralCode } from "@/lib/referral";
+import { rememberContact } from "@/lib/customerSession";
+import { formatTimeRemaining } from "@shared/reservationExpiry";
+import { Link } from "wouter";
 
 type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 
@@ -81,6 +84,7 @@ export function BuyModal({
   const [contactType, setContactType] = useState<"WHATSAPP" | "EMAIL">("WHATSAPP");
   const [quantity, setQuantity] = useState(1);
   const [orderId, setOrderId] = useState<number | null>(null);
+  const [orderExpiresAt, setOrderExpiresAt] = useState<Date | string | null>(null);
   const referralCode = getStoredReferralCode();
 
   // Produto adicional
@@ -143,6 +147,11 @@ export function BuyModal({
   const createOrder = trpc.orders.create.useMutation({
     onSuccess: (data) => {
       setOrderId(data.id);
+      setOrderExpiresAt(data.expiresAt ?? null);
+      // Lembra o contato usado nesta reserva neste navegador, para que ao
+      // voltar em "Minha conta" o cliente já seja reconhecido e veja esta
+      // reserva pendente sem precisar redigitar o contato.
+      rememberContact(contact);
       setStep("success");
     },
     onError: (e) => toast.error(e.message),
@@ -402,8 +411,23 @@ export function BuyModal({
                 </p>
               )}
             </div>
+            {orderExpiresAt && (
+              <p className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                {formatTimeRemaining(orderExpiresAt)} para o pagamento ser confirmado — depois
+                disso a reserva expira automaticamente.
+              </p>
+            )}
             <p className="text-xs text-neutral-400">
-              A reserva fica pendente até a confirmação manual do atendimento.
+              A reserva fica pendente até a confirmação manual do atendimento. Acompanhe e
+              conclua o pagamento a qualquer momento em{" "}
+              <Link
+                href={`/minha-conta?contact=${encodeURIComponent(contact)}`}
+                className="font-medium text-neutral-700 underline"
+                onClick={onClose}
+              >
+                Minha conta
+              </Link>
+              .
             </p>
             <Button className="w-full" onClick={onClose}>
               Fechar

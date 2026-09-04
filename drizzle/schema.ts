@@ -528,6 +528,14 @@ export const paymentSettings = pgTable("permupay_payment_settings", {
   cardPaymentUrl: text("card_payment_url"),
   boletoUrl: text("boleto_url"),
 
+  // ── Beneficiário / credor (usado na nota promissória e no comprovante) ────
+  beneficiaryName: text("beneficiary_name").notNull().default("Shoop PermuPay"),
+  beneficiaryDocument: text("beneficiary_document"),
+  beneficiaryAddress: text("beneficiary_address"),
+  paymentPlace: text("payment_place").notNull().default("Brasília/DF"),
+  // Dias entre a compra e o vencimento da 1ª parcela do boleto/promissória.
+  boletoFirstDueDays: integer("boleto_first_due_days").notNull().default(30),
+
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

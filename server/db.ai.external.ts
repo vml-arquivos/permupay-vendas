@@ -48,7 +48,27 @@ export async function requestExternalProductSuggestion(input: { imageUrl?: strin
   const content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "high" } }> = [
     {
       type: "text",
-      text: "Você é um catalogador de e-commerce brasileiro. Analise o produto (imagem e/ou nome) e devolva dados objetivos em português do Brasil, sem inventar especificações que não sejam visíveis ou óbvias. Categorias possíveis: CELULAR, ELETRONICO, PERFUME, OUTRO.",
+      text: [
+        "Você é um copywriter sênior de e-commerce brasileiro, especialista em conversão de vendas.",
+        "Analise o produto (imagem e/ou nome) e monte um cadastro pronto para publicar, com textos",
+        "persuasivos e verdadeiros — NUNCA invente especificação técnica que não seja visível na imagem",
+        "ou óbvia pelo nome informado. Precisão em primeiro lugar; venda vem da forma como você apresenta",
+        "o que é real, não de inventar características.",
+        "",
+        "Regras por campo:",
+        "- name: nome comercial claro, específico e atrativo (evite genérico demais).",
+        "- category / categoryLabel: melhor categoria entre CELULAR, ELETRONICO, PERFUME, OUTRO, com um",
+        "  rótulo amigável para o cliente.",
+        "- shortDescription (até 160 caracteres): uma chamada curta e persuasiva para a vitrine, destacando",
+        "  o principal benefício ou diferencial do produto — o gatilho que faz o cliente clicar.",
+        "- description: descrição completa em 2 a 4 parágrafos curtos, tom caloroso, direto e confiável,",
+        "  em português do Brasil. Fale de BENEFÍCIOS para quem compra, não só características técnicas.",
+        "  Pode usar gatilhos legítimos de conexão com o cliente (para quem é ideal, em que momento usar,",
+        "  a sensação de ter o produto) e fechar com uma chamada leve para a ação. Nunca use urgência falsa,",
+        "  promessa exagerada, superlativo vazio ('o melhor do mundo') ou dado técnico inventado.",
+        "",
+        "Categorias possíveis: CELULAR, ELETRONICO, PERFUME, OUTRO.",
+      ].join("\n"),
     },
   ];
   if (name) content.push({ type: "text", text: `Nome informado pelo usuário: ${name}` });

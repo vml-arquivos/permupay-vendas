@@ -26,6 +26,7 @@ import * as dbCotacao from "./db.cotacao";
 import * as dbSellers from "./db.sellers";
 import * as dbCustomers from "./db.customers";
 import * as dbAi from "./db.ai";
+import * as dbPromissoryNotes from "./db.promissoryNotes";
 import { transcribeAudio } from "./_core/voiceTranscription";
 
 // ─── Schemas reutilizáveis ────────────────────────────────────────────────────
@@ -185,6 +186,13 @@ const paymentSettingsSchema = z.object({
   pixLink: z.string().optional().nullable(),
   cardPaymentUrl: z.string().optional().nullable(),
   boletoUrl: z.string().optional().nullable(),
+
+  // Beneficiário / credor — usado na nota promissória e no comprovante
+  beneficiaryName: z.string().min(1).max(200).optional(),
+  beneficiaryDocument: z.string().max(32).optional().nullable(),
+  beneficiaryAddress: z.string().max(300).optional().nullable(),
+  paymentPlace: z.string().min(1).max(120).optional(),
+  boletoFirstDueDays: z.number().int().min(1).max(180).optional(),
 });
 
 // ─── Router principal ─────────────────────────────────────────────────────────
@@ -1136,6 +1144,55 @@ export const appRouter = router({
       ),
   }),
 
+  // ── Notas promissórias ────────────────────────────────────────────────────
+  // Geradas automaticamente ao criar um pedido em BOLETO (ver
+  // server/db.orders.ts). Aqui só a consulta/gestão do ciclo de vida do
+  // documento (envio para assinatura, retorno assinado).
+  promissoryNotes: router({
+    byOrder: protectedProcedure
+      .input(z.object({ orderId: z.number().int().positive() }))
+      .query(({ input }) => dbPromissoryNotes.listNotesByOrder(input.orderId)),
+
+    byCustomer: protectedProcedure
+      .input(z.object({ customerId: z.number().int().positive() }))
+      .query(({ input }) =>
+        dbPromissoryNotes.listNotesByCustomer(input.customerId)
+      ),
+
+    updateStatus: protectedProcedure
+      .input(
+        z.object({
+          noteId: z.number().int().positive(),
+          status: z.enum([
+            "GERADA",
+            "ENVIADA",
+            "ASSINADA_DEVOLVIDA",
+            "CANCELADA",
+          ]),
+          notes: z.string().max(500).optional(),
+        })
+      )
+      .mutation(({ input }) =>
+        dbPromissoryNotes.updateNoteStatus({
+          noteId: input.noteId,
+          status: input.status,
+          notes: input.notes,
+        })
+      ),
+
+    markAllSent: protectedProcedure
+      .input(z.object({ orderId: z.number().int().positive() }))
+      .mutation(({ input }) =>
+        dbPromissoryNotes.markAllNotesSentForOrder(input.orderId)
+      ),
+
+    allSigned: protectedProcedure
+      .input(z.object({ orderId: z.number().int().positive() }))
+      .query(({ input }) =>
+        dbPromissoryNotes.allNotesSignedForOrder(input.orderId)
+      ),
+  }),
+
   // ── Pedidos ────────────────────────────────────────────────────────────────
   orders: router({
     create: publicProcedure
@@ -1175,6 +1232,57 @@ export const appRouter = router({
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => dbOrders.getOrderById(input.id)),
+
+    // ── Comprovante em PDF — mesma fonte de dados usada no comprovante do
+    // WhatsApp (client/src/lib/receipt.ts), agora também disponível como PDF
+    // baixável/anexável, com o detalhamento de parcelas quando for boleto.
+    receiptPdf: protectedProcedure
+      .input(z.object({ orderId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const order = await dbOrders.getOrderById(input.orderId);
+        if (!order) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Pedido não encontrado",
+          });
+        }
+        const [notes, settings] = await Promise.all([
+          dbPromissoryNotes.listNotesByOrder(order.id),
+          dbPayment.getPaymentSettings(),
+        ]);
+        const PAYMENT_LABEL: Record<string, string> = {
+          PIX: "Pix",
+          DINHEIRO: "Dinheiro",
+          CARTAO: "Cartão",
+          BOLETO: "Boleto",
+        };
+        const { renderReceiptPdf } = await import("./pdf.documents");
+        const pdfBuffer = await renderReceiptPdf({
+          orderId: order.id,
+          customerName: order.buyerName,
+          customerContact: order.buyerContact,
+          productName: order.productName,
+          quantity: order.quantity,
+          unitPrice: order.unitPrice,
+          totalPrice: order.totalPrice,
+          paymentMethodLabel:
+            PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod,
+          confirmedAt: order.confirmedAt,
+          adminNotes: order.adminNotes,
+          installments: notes.length
+            ? notes.map(n => ({
+                number: n.installmentNumber,
+                amount: n.amount,
+                dueDate: n.dueDate,
+              }))
+            : null,
+          beneficiaryName: settings.beneficiaryName,
+        });
+        return {
+          base64: pdfBuffer.toString("base64"),
+          filename: `comprovante_pedido_${order.id}.pdf`,
+        };
+      }),
 
     confirm: protectedProcedure
       .input(

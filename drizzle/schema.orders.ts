@@ -67,6 +67,10 @@ export const orders = pgTable("permupay_orders", {
   paymentMethod: paymentMethodEnum("payment_method").notNull(),
   unitPrice: real("unit_price").notNull(),
   totalPrice: real("total_price").notNull(),
+  // Número de parcelas efetivamente praticado nesta venda (hoje só usado
+  // para BOLETO — gera 1 nota promissória por parcela). Nulo para pedidos
+  // antigos e para formas de pagamento sem parcelamento.
+  installments: integer("installments"),
 
   // Ciclo de vida
   status: orderStatusEnum("status").notNull().default("AGUARDANDO_PAGAMENTO"),

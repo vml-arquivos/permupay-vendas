@@ -16,12 +16,14 @@ import {
 import {
   CheckCircle2,
   CircleDollarSign,
+  Receipt,
   Search,
   ShoppingBag,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import { ReceiptModal, type ReceiptOrder } from "@/components/ReceiptModal";
 
 const fmt = (value: number) =>
   Number(value ?? 0).toLocaleString("pt-BR", {
@@ -50,6 +52,8 @@ export default function NovaVenda() {
     id: number;
     total: number;
   } | null>(null);
+  const [receiptOrder, setReceiptOrder] = useState<ReceiptOrder | null>(null);
+  const [showReceipt, setShowReceipt] = useState(false);
 
   const customersQuery = trpc.customers.list.useQuery({
     search: customerSearch.trim() || undefined,
@@ -79,6 +83,27 @@ export default function NovaVenda() {
           : "Venda registrada, aguardando pagamento."
       );
       setLastSale({ id: result.id, total: Number(result.totalPrice ?? 0) });
+
+      // Comprovante disponível imediatamente aqui também — antes, uma venda
+      // fechada pela Nova Venda não tinha nenhuma forma de gerar/enviar o
+      // comprovante ao cliente sem ir até a tela de Pedidos separadamente.
+      if (markAsPaid && selectedProduct && selectedCustomer) {
+        setReceiptOrder({
+          id: result.id,
+          buyerName: selectedCustomer.name,
+          buyerContact: selectedCustomer.contact,
+          productName: selectedProduct.name,
+          productImageUrl: selectedProduct.imageUrl ?? null,
+          quantity: Number(result.quantity ?? 1),
+          unitPrice: Number(result.unitPrice ?? 0),
+          totalPrice: Number(result.totalPrice ?? 0),
+          paymentMethod: result.paymentMethod,
+          confirmedAt: result.confirmedAt,
+          adminNotes: result.adminNotes,
+        });
+        setShowReceipt(true);
+      }
+
       setProductId(null);
       setQuantity("1");
       setUnitPrice("");
@@ -130,9 +155,21 @@ export default function NovaVenda() {
         </div>
 
         {lastSale && (
-          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            <CheckCircle2 className="h-5 w-5 shrink-0" />
-            Venda #{lastSale.id} registrada — {fmt(lastSale.total)}.
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="h-5 w-5 shrink-0" />
+              Venda #{lastSale.id} registrada — {fmt(lastSale.total)}.
+            </div>
+            {receiptOrder && receiptOrder.id === lastSale.id && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2 border-emerald-300 bg-white"
+                onClick={() => setShowReceipt(true)}
+              >
+                <Receipt className="h-4 w-4" /> Ver / enviar comprovante
+              </Button>
+            )}
           </div>
         )}
 
@@ -378,6 +415,12 @@ export default function NovaVenda() {
           </CardContent>
         </Card>
       </div>
+
+      <ReceiptModal
+        order={receiptOrder}
+        open={showReceipt}
+        onOpenChange={setShowReceipt}
+      />
     </DashboardLayout>
   );
 }

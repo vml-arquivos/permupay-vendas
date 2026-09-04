@@ -16,6 +16,75 @@ import { commissions, sellers } from "../drizzle/schema.sellers";
 
 type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 
+/**
+ * Gera automaticamente as notas promissórias de um pedido em BOLETO — uma
+ * por parcela, com dados reais do cliente (quando disponível) e da compra.
+ * Nunca bloqueia nem interrompe a venda: qualquer falha aqui fica só em log.
+ * Dinamicamente importa db.customers/db.promissoryNotes para não criar
+ * dependência circular (db.customers.ts já importa este módulo).
+ */
+async function triggerPromissoryNotesForBoletoOrder(
+  order: { id: number; totalPrice?: number; total_price?: number },
+  opts: {
+    installments: number | null;
+    productName: string;
+    buyerName: string;
+    customerId: number | null;
+  }
+): Promise<void> {
+  if (!opts.installments || opts.installments < 1) return;
+  try {
+    const { generatePromissoryNotesForOrder } = await import(
+      "./db.promissoryNotes"
+    );
+
+    let issuer = {
+      name: opts.buyerName,
+      document: null as string | null,
+      address: null as string | null,
+    };
+    if (opts.customerId) {
+      try {
+        const { getCustomerById } = await import("./db.customers");
+        const customer = await getCustomerById(opts.customerId);
+        if (customer) {
+          const addressParts = [
+            customer.address,
+            customer.city,
+            customer.state,
+            customer.zipCode ? `CEP ${customer.zipCode}` : null,
+          ].filter(Boolean);
+          issuer = {
+            name: customer.name || opts.buyerName,
+            document: customer.cpf || null,
+            address: addressParts.length ? addressParts.join(", ") : null,
+          };
+        }
+      } catch (error) {
+        console.error(
+          "[orders] Falha ao buscar dados do cliente para a nota promissória:",
+          error
+        );
+      }
+    }
+
+    await generatePromissoryNotesForOrder({
+      orderId: Number(order.id),
+      customerId: opts.customerId,
+      productDescription: opts.productName,
+      totalPrice: Number(order.totalPrice ?? order.total_price ?? 0),
+      installments: opts.installments,
+      purchaseDate: new Date(),
+      issuer,
+    });
+  } catch (error) {
+    console.error(
+      `[orders] Falha ao gerar notas promissórias do pedido #${order.id}:`,
+      error
+    );
+  }
+}
+
 function resolveOrderUnitPrice(
   product: typeof products.$inferSelect,
   paymentMethod: PaymentMethod
@@ -134,6 +203,14 @@ export async function createOrder(
   // Reserva curta para atendimento manual. Não baixa estoque automaticamente.
   const expiresAt = new Date(Date.now() + 5 * 60 * 60 * 1000);
 
+  // Número de parcelas praticado nesta venda — só relevante para BOLETO.
+  // Gravado no próprio pedido (e não só no produto) para nunca depender de
+  // um valor de produto que pode mudar depois da compra.
+  const installments =
+    data.paymentMethod === "BOLETO"
+      ? Math.max(1, Math.round(Number(product.boletoMonths ?? 1)))
+      : null;
+
   const [order] = await db
     .insert(orders)
     .values({
@@ -146,6 +223,7 @@ export async function createOrder(
       paymentMethod: data.paymentMethod,
       unitPrice,
       totalPrice,
+      installments,
       status: "AGUARDANDO_PAGAMENTO",
       expiresAt,
       sellerId,
@@ -154,6 +232,15 @@ export async function createOrder(
       checkoutGroupId: data.checkoutGroupId ?? null,
     } as InsertOrder)
     .returning();
+
+  if (data.paymentMethod === "BOLETO") {
+    await triggerPromissoryNotesForBoletoOrder(order, {
+      installments,
+      productName: product.name,
+      buyerName: data.buyerName,
+      customerId,
+    });
+  }
 
   return order;
 }
@@ -402,7 +489,7 @@ export async function createSellerOrder(data: {
     console.error("[orders] Falha ao vincular cliente à venda direta:", error);
   }
 
-  return db.transaction(async tx => {
+  const result = await db.transaction(async tx => {
     const sellerResult = data.sellerId
       ? ((await tx.execute(
           sql`SELECT * FROM permupay_sellers WHERE id = ${data.sellerId} AND active = TRUE LIMIT 1`
@@ -468,6 +555,10 @@ export async function createSellerOrder(data: {
       sellerType === "INTERNO" ? "VENDEDOR_INTERNO" : "VENDEDOR_EXTERNO";
     const confirmedBy =
       data.requestingUserId ?? (seller.user_id ? Number(seller.user_id) : null);
+    const installments =
+      data.paymentMethod === "BOLETO"
+        ? Math.max(1, Math.round(Number(product.boleto_months ?? 1)))
+        : null;
     const [created] = await tx
       .insert(orders)
       .values({
@@ -483,6 +574,7 @@ export async function createSellerOrder(data: {
         paymentMethod: data.paymentMethod,
         unitPrice,
         totalPrice,
+        installments,
         status: data.markAsPaid ? "PAGO" : "AGUARDANDO_PAGAMENTO",
         expiresAt,
         confirmedAt: data.markAsPaid ? new Date() : null,
@@ -490,7 +582,7 @@ export async function createSellerOrder(data: {
       } as InsertOrder)
       .returning();
 
-    if (!data.markAsPaid) return created;
+    if (!data.markAsPaid) return { created, installments, productName: String(product.name) };
     const orderForStock = {
       id: created.id,
       product_id: data.productId,
@@ -506,8 +598,19 @@ export async function createSellerOrder(data: {
       "Venda direta registrada como paga"
     );
     await registerCommissionIfApplicable(tx, orderForStock, product);
-    return created;
+    return { created, installments, productName: String(product.name) };
   });
+
+  if (result.installments) {
+    await triggerPromissoryNotesForBoletoOrder(result.created, {
+      installments: result.installments,
+      productName: result.productName,
+      buyerName: result.created.buyerName,
+      customerId: result.created.customerId,
+    });
+  }
+
+  return result.created;
 }
 
 /**
@@ -533,7 +636,7 @@ export async function createDirectSale(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return db.transaction(async tx => {
+  const result = await db.transaction(async tx => {
     const customerResult = (await tx.execute(sql`
       SELECT id, name, contact, contact_type
       FROM permupay_customers WHERE id = ${data.customerId} LIMIT 1
@@ -586,6 +689,10 @@ export async function createDirectSale(data: {
     const totalPrice = Number((unitPrice * quantity).toFixed(2));
     const expiresAt = new Date(Date.now() + 5 * 60 * 60 * 1000);
     const channel = sellerId ? "VENDA_DIRETA_VENDEDOR" : "VENDA_DIRETA_ADMIN";
+    const installments =
+      data.paymentMethod === "BOLETO"
+        ? Math.max(1, Math.round(Number(product.boleto_months ?? 1)))
+        : null;
 
     const [created] = await tx
       .insert(orders)
@@ -602,6 +709,7 @@ export async function createDirectSale(data: {
         paymentMethod: data.paymentMethod,
         unitPrice,
         totalPrice,
+        installments,
         status: data.markAsPaid ? "PAGO" : "AGUARDANDO_PAGAMENTO",
         expiresAt,
         confirmedAt: data.markAsPaid ? new Date() : null,
@@ -610,7 +718,8 @@ export async function createDirectSale(data: {
       } as InsertOrder)
       .returning();
 
-    if (!data.markAsPaid) return created;
+    if (!data.markAsPaid)
+      return { created, installments, productName: String(product.name) };
 
     const orderForStock = {
       id: created.id,
@@ -627,8 +736,19 @@ export async function createDirectSale(data: {
       "Venda direta (Nova Venda) registrada como paga"
     );
     await registerCommissionIfApplicable(tx, orderForStock, product);
-    return created;
+    return { created, installments, productName: String(product.name) };
   });
+
+  if (result.installments) {
+    await triggerPromissoryNotesForBoletoOrder(result.created, {
+      installments: result.installments,
+      productName: result.productName,
+      buyerName: result.created.buyerName,
+      customerId: result.created.customerId,
+    });
+  }
+
+  return result.created;
 }
 
 export type CartCheckoutInput = {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,11 +9,7 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  Copy,
-  MessageCircle,
   Receipt,
-  BadgeCheck,
-  ShieldCheck,
   Phone,
   Trash2,
 } from "lucide-react";
@@ -25,28 +21,12 @@ import {
   STATUS_LABEL_SHORT,
   type OrderStatus,
 } from "@/lib/orderStatus";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ReceiptModal, type ReceiptOrder } from "@/components/ReceiptModal";
+import { buildReceiptMessage, buildWhatsAppUrl } from "@/lib/receipt";
 
-type OrderItem = {
-  id: number;
-  productName: string;
-  productImageUrl: string | null;
-  buyerName: string;
-  buyerContact: string;
-  createdAt: string | Date;
-  confirmedAt?: string | Date | null;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
-  paymentMethod: string;
-  status: OrderStatus;
-  adminNotes?: string | null;
-};
+// Mesmo formato de comprovante usado em qualquer tela que confirme um
+// pedido — ver client/src/components/ReceiptModal.tsx e client/src/lib/receipt.ts.
+type OrderItem = ReceiptOrder & { status: OrderStatus; createdAt: string | Date };
 
 const fmt = (v: number) =>
   Number(v || 0).toLocaleString("pt-BR", {
@@ -58,237 +38,6 @@ const formatDateTime = (value?: string | Date | null) => {
   if (!value) return "—";
   return new Date(value).toLocaleString("pt-BR");
 };
-
-const normalizePhone = (value?: string | null) => {
-  if (!value) return "";
-  return value.replace(/\D/g, "");
-};
-
-function buildReceiptMessage(order: OrderItem) {
-  const lines = [
-    "✅ *COMPROVANTE DE PAGAMENTO CONFIRMADO*",
-    "*Shoop PermuPay*",
-    "",
-    `*Pedido:* #${order.id}`,
-    `*Cliente:* ${order.buyerName}`,
-    `*Contato:* ${order.buyerContact}`,
-    `*Produto:* ${order.productName}`,
-    `*Quantidade:* ${order.quantity}`,
-    `*Valor unitário:* ${fmt(order.unitPrice)}`,
-    `*Valor total:* ${fmt(order.totalPrice)}`,
-    `*Pagamento:* ${PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod}`,
-    `*Confirmado em:* ${formatDateTime(order.confirmedAt)}`,
-    "*Status:* Pagamento confirmado e pedido liberado para retirada.",
-    "",
-    "Se precisar, responda esta mensagem para receber atendimento.",
-    "Shoop PermuPay — atendimento e confirmação oficial.",
-  ];
-
-  if (order.adminNotes) {
-    lines.splice(lines.length - 2, 0, `*Observação:* ${order.adminNotes}`);
-  }
-
-  return lines.join("\n");
-}
-
-function ReceiptModal({
-  order,
-  open,
-  onOpenChange,
-}: {
-  order: OrderItem | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const message = useMemo(
-    () => (order ? buildReceiptMessage(order) : ""),
-    [order]
-  );
-
-  const handleCopy = async () => {
-    if (!message) return;
-    try {
-      await navigator.clipboard.writeText(message);
-      toast.success("Comprovante copiado.");
-    } catch {
-      toast.error("Não foi possível copiar o comprovante.");
-    }
-  };
-
-  const handleWhatsApp = () => {
-    if (!order) return;
-    const text = encodeURIComponent(message);
-    const phone = normalizePhone(order.buyerContact);
-    const url =
-      phone.length >= 10
-        ? `https://wa.me/55${phone.startsWith("55") ? phone.slice(2) : phone}?text=${text}`
-        : `https://wa.me/?text=${text}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-
-  if (!order) return null;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl overflow-hidden border-0 p-0">
-        <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-stone-900 text-white">
-          <div className="border-b border-white/10 px-6 py-5 sm:px-8">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/15">
-                  <span className="text-lg font-semibold tracking-[0.28em]">
-                    SP
-                  </span>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.35em] text-amber-200/80">
-                    Comprovante oficial
-                  </p>
-                  <DialogTitle className="mt-1 text-2xl font-semibold text-white">
-                    Shoop PermuPay
-                  </DialogTitle>
-                  <DialogDescription className="mt-1 text-sm text-slate-300">
-                    Confirmação premium de pagamento para envio ao cliente.
-                  </DialogDescription>
-                </div>
-              </div>
-              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-right">
-                <p className="text-[10px] uppercase tracking-[0.25em] text-emerald-200">
-                  Status
-                </p>
-                <p className="text-sm font-semibold text-emerald-100">
-                  Pagamento confirmado
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white px-6 py-6 text-slate-900 sm:px-8">
-            <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                <div className="mb-4 flex items-center gap-2">
-                  <Receipt className="h-5 w-5 text-slate-700" />
-                  <h3 className="text-base font-semibold">
-                    Resumo do comprovante
-                  </h3>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Info label="Pedido" value={`#${order.id}`} />
-                  <Info
-                    label="Confirmado em"
-                    value={formatDateTime(order.confirmedAt)}
-                  />
-                  <Info label="Cliente" value={order.buyerName} />
-                  <Info label="Contato" value={order.buyerContact} />
-                  <Info
-                    label="Pagamento"
-                    value={
-                      PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod
-                    }
-                  />
-                  <Info label="Quantidade" value={`${order.quantity} un.`} />
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
-                <div className="mb-4 flex items-center gap-2">
-                  <BadgeCheck className="h-5 w-5 text-emerald-700" />
-                  <h3 className="text-base font-semibold text-emerald-900">
-                    Valor confirmado
-                  </h3>
-                </div>
-                <p className="text-3xl font-bold text-emerald-900">
-                  {fmt(order.totalPrice)}
-                </p>
-                <p className="mt-2 text-sm text-emerald-800">
-                  {order.quantity}x {fmt(order.unitPrice)}
-                </p>
-                <div className="mt-5 rounded-2xl bg-white/80 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.25em] text-emerald-700">
-                    Produto
-                  </p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                      {order.productImageUrl ? (
-                        <img
-                          src={order.productImageUrl}
-                          alt={order.productName}
-                          className="h-full w-full object-contain"
-                        />
-                      ) : (
-                        <ShoppingBag
-                          className="h-5 w-5 text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                      )}
-                    </div>
-                    <p className="text-base font-semibold text-slate-900">
-                      {order.productName}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-3 flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-slate-700" />
-                <h3 className="text-base font-semibold">Mensagem do cliente</h3>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">
-                {message}
-              </div>
-            </div>
-
-            {order.adminNotes && (
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <p className="font-semibold">
-                  Observação interna enviada no comprovante
-                </p>
-                <p className="mt-1">{order.adminNotes}</p>
-              </div>
-            )}
-
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-5">
-              <div className="text-xs text-slate-500">
-                Esse comprovante confirma o recebimento do pagamento e a
-                liberação do pedido para retirada.
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleCopy}
-                  className="gap-2"
-                >
-                  <Copy className="h-4 w-4" />
-                  Copiar comprovante
-                </Button>
-                <Button
-                  onClick={handleWhatsApp}
-                  className="gap-2 bg-emerald-600 hover:bg-emerald-700"
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  Enviar pelo WhatsApp
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
-      <span className="block text-[11px] uppercase tracking-[0.2em] text-slate-400">
-        {label}
-      </span>
-      <strong className="mt-1 block text-sm text-slate-900">{value}</strong>
-    </div>
-  );
-}
 
 export default function Pedidos() {
   const utils = trpc.useUtils();
@@ -729,16 +478,10 @@ export default function Pedidos() {
                                   className="gap-2 bg-emerald-600 hover:bg-emerald-700"
                                   onClick={() => {
                                     const o = order as OrderItem;
-                                    const text = encodeURIComponent(
-                                      buildReceiptMessage(o)
-                                    );
-                                    const phone = normalizePhone(
+                                    const url = buildWhatsAppUrl(
+                                      buildReceiptMessage(o),
                                       o.buyerContact
                                     );
-                                    const url =
-                                      phone.length >= 10
-                                        ? `https://wa.me/55${phone.startsWith("55") ? phone.slice(2) : phone}?text=${text}`
-                                        : `https://wa.me/?text=${text}`;
                                     window.open(
                                       url,
                                       "_blank",

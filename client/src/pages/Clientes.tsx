@@ -24,9 +24,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import {
   CheckCircle2,
+  Download,
+  FileSignature,
   FileText,
   Plus,
   Search,
+  Send,
   ShieldCheck,
   ShoppingBag,
   Upload,
@@ -57,6 +60,26 @@ const CREDIT_STATUS_VARIANT: Record<
   APROVADO: "secondary",
   REPROVADO: "destructive",
 };
+
+const NOTE_STATUS_LABEL: Record<string, string> = {
+  GERADA: "Gerada — aguardando envio",
+  ENVIADA: "Enviada — aguardando assinatura",
+  ASSINADA_DEVOLVIDA: "Assinada e devolvida",
+  CANCELADA: "Cancelada",
+};
+
+const NOTE_STATUS_VARIANT: Record<
+  string,
+  "secondary" | "outline" | "destructive"
+> = {
+  GERADA: "outline",
+  ENVIADA: "secondary",
+  ASSINADA_DEVOLVIDA: "secondary",
+  CANCELADA: "destructive",
+};
+
+const formatDate = (value: string | Date) =>
+  new Date(value).toLocaleDateString("pt-BR", { timeZone: "UTC" });
 
 type UploadValue = {
   url: string;
@@ -169,6 +192,19 @@ function CustomerReportDialog({
     { customerId: customerId as number },
     { enabled: Boolean(customerId) }
   );
+  const notesQuery = trpc.promissoryNotes.byCustomer.useQuery(
+    { customerId: customerId as number },
+    { enabled: Boolean(customerId) }
+  );
+  const updateNoteStatus = trpc.promissoryNotes.updateStatus.useMutation({
+    onSuccess: async () => {
+      toast.success("Status da nota promissória atualizado.");
+      await utils.promissoryNotes.byCustomer.invalidate({
+        customerId: customerId as number,
+      });
+    },
+    onError: error => toast.error(error.message),
+  });
   const [creditNotes, setCreditNotes] = useState("");
   const [creditLimit, setCreditLimit] = useState("");
 
@@ -185,6 +221,7 @@ function CustomerReportDialog({
 
   const customer = customerQuery.data;
   const orders = ordersQuery.data ?? [];
+  const notes = notesQuery.data ?? [];
   const totalPaid = orders
     .filter(order => order.status === "PAGO")
     .reduce((acc, order) => acc + Number(order.totalPrice ?? 0), 0);
@@ -370,6 +407,90 @@ function CustomerReportDialog({
               ) : (
                 <p className="text-sm text-muted-foreground">
                   Este cliente ainda não possui compras registradas.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <p className="mb-2 flex items-center gap-2 font-semibold">
+                <FileSignature className="h-4 w-4" /> Notas promissórias
+              </p>
+              {notesQuery.isLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando…</p>
+              ) : notes.length ? (
+                <div className="space-y-2">
+                  {notes.map(note => (
+                    <div
+                      key={note.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium">
+                          Pedido #{note.orderId} — parcela {note.installmentNumber}/
+                          {note.installmentsTotal} — {fmt(note.amount)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Vencimento {formatDate(note.dueDate)} ·{" "}
+                          {note.productDescription}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={NOTE_STATUS_VARIANT[note.status] ?? "outline"}>
+                          {NOTE_STATUS_LABEL[note.status] ?? note.status}
+                        </Badge>
+                        {note.documentUrl && (
+                          <a
+                            href={note.documentUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary underline"
+                          >
+                            <Download className="h-3.5 w-3.5" /> PDF
+                          </a>
+                        )}
+                        {isAdmin && note.status === "GERADA" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1"
+                            disabled={updateNoteStatus.isPending}
+                            onClick={() =>
+                              updateNoteStatus.mutate({
+                                noteId: note.id,
+                                status: "ENVIADA",
+                              })
+                            }
+                          >
+                            <Send className="h-3.5 w-3.5" /> Marcar enviada
+                          </Button>
+                        )}
+                        {isAdmin && note.status === "ENVIADA" && (
+                          <Button
+                            size="sm"
+                            className="gap-1 bg-emerald-600 hover:bg-emerald-700"
+                            disabled={updateNoteStatus.isPending}
+                            onClick={() =>
+                              updateNoteStatus.mutate({
+                                noteId: note.id,
+                                status: "ASSINADA_DEVOLVIDA",
+                              })
+                            }
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Assinada e devolvida
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground">
+                    Envie os boletos bancários de pagamento somente depois que todas as
+                    parcelas acima estiverem marcadas como "Assinada e devolvida".
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Este cliente ainda não possui notas promissórias geradas. Elas são
+                  criadas automaticamente quando uma compra é feita em boleto parcelado.
                 </p>
               )}
             </div>

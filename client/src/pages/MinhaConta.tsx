@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
+  AlertTriangle,
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
   FileText,
+  LogOut,
   Minus,
   Package,
   Plus,
@@ -13,8 +15,10 @@ import {
   ShoppingBag,
   ShoppingCart,
   Sparkles,
+  Timer,
   Trash2,
   Upload,
+  UserPlus,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -32,13 +36,22 @@ import {
   PAYMENT_LABEL,
   type OrderStatus,
 } from "@/lib/orderStatus";
+import {
+  forgetRememberedContact,
+  getRememberedContact,
+  rememberContact,
+} from "@/lib/customerSession";
+import { formatTimeRemaining, isExpired } from "@shared/reservationExpiry";
 
 type PaymentMethod = "PIX" | "DINHEIRO" | "CARTAO" | "BOLETO";
 type UploadValue = { url: string; dataUrl: string; fileName: string; mimeType: string };
 
+// Contato vindo do link (?contact=...) tem prioridade; sem isso, reconhece o
+// cliente que já esteve aqui antes pelo contato lembrado neste navegador.
 const initialContact = () => {
   if (typeof window === "undefined") return "";
-  return new URLSearchParams(window.location.search).get("contact") ?? "";
+  const fromUrl = new URLSearchParams(window.location.search).get("contact");
+  return fromUrl?.trim() || getRememberedContact();
 };
 const fmt = (value: number) =>
   Number(value || 0).toLocaleString("pt-BR", {
@@ -109,6 +122,7 @@ export default function MinhaConta() {
   const [submittedContact, setSubmittedContact] = useState(initialContact);
   const identified = submittedContact.trim().length >= 5;
   const documentUpload = useDocumentUpload("clientes");
+  const [activeTab, setActiveTab] = useState("pedidos");
 
   const profileQuery = trpc.customers.myProfile.useQuery(
     { contact: submittedContact },
@@ -156,8 +170,14 @@ export default function MinhaConta() {
 
   const updateProfile = trpc.customers.updateProfile.useMutation({
     onSuccess: async () => {
-      toast.success("Cadastro atualizado com sucesso.");
+      toast.success(
+        isNewCustomer
+          ? "Conta criada com sucesso! Agora você já pode ver pedidos, recomendações e usar o carrinho."
+          : "Cadastro atualizado com sucesso."
+      );
+      rememberContact(submittedContact);
       await profileQuery.refetch();
+      if (isNewCustomer) setActiveTab("pedidos");
     },
     onError: error => toast.error(error.message),
   });
@@ -197,7 +217,35 @@ export default function MinhaConta() {
     if (value.length < 5)
       return toast.error("Informe um WhatsApp ou e-mail válido.");
     setSubmittedContact(value);
+    rememberContact(value);
   };
+
+  const switchAccount = () => {
+    forgetRememberedContact();
+    setContact("");
+    setSubmittedContact("");
+    setActiveTab("pedidos");
+  };
+
+  // Cadastro completo/criação de conta reaproveita o mesmo updateProfile
+  // (identifyOrCreateCustomer) usado para salvar o cadastro — é o mesmo
+  // endpoint que já cria o cliente quando ele ainda não existe.
+  const isNewCustomer =
+    identified && profileQuery.isFetched && !profileQuery.isLoading && !profileQuery.data;
+
+  const pendingOrders = useMemo(
+    () =>
+      (ordersQuery.data ?? []).filter(
+        o => o.status === "AGUARDANDO_PAGAMENTO" || o.status === "RESERVADO"
+      ),
+    [ordersQuery.data]
+  );
+  const nearestExpiry = useMemo(() => {
+    const sorted = [...pendingOrders].sort(
+      (a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime()
+    );
+    return sorted[0]?.expiresAt ?? null;
+  }, [pendingOrders]);
 
   const submitProfile = () => {
     if (!profileForm.name.trim())
@@ -270,26 +318,92 @@ export default function MinhaConta() {
         </header>
 
         <section className="rounded-2xl border bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex-1 space-y-2">
-              <label htmlFor="customer-contact" className="text-sm font-medium">
-                Seu WhatsApp ou e-mail
-              </label>
-              <Input
-                id="customer-contact"
-                value={contact}
-                onChange={event => setContact(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === "Enter") searchOrders();
-                }}
-                placeholder="(00) 00000-0000 ou voce@email.com"
-              />
+          {identified ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm">
+                <span className="text-muted-foreground">Conectado com:</span>{" "}
+                <strong>{submittedContact}</strong>
+              </div>
+              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={switchAccount}>
+                <LogOut className="h-3.5 w-3.5" /> Não é você? Trocar conta
+              </Button>
             </div>
-            <Button onClick={searchOrders} className="gap-2">
-              <Search className="h-4 w-4" /> Entrar na minha conta
-            </Button>
-          </div>
+          ) : (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-2">
+                <label htmlFor="customer-contact" className="text-sm font-medium">
+                  Seu WhatsApp ou e-mail
+                </label>
+                <Input
+                  id="customer-contact"
+                  value={contact}
+                  onChange={event => setContact(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === "Enter") searchOrders();
+                  }}
+                  placeholder="(00) 00000-0000 ou voce@email.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Já comprou com a gente? Use o mesmo contato para ver seus pedidos. Se for
+                  novo, sua conta é criada automaticamente no próximo passo.
+                </p>
+              </div>
+              <Button onClick={searchOrders} className="gap-2">
+                <Search className="h-4 w-4" /> Entrar ou criar minha conta
+              </Button>
+            </div>
+          )}
         </section>
+
+        {isNewCustomer && (
+          <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <div className="flex items-start gap-3">
+              <UserPlus className="mt-0.5 h-6 w-6 shrink-0 text-amber-700" />
+              <div>
+                <p className="font-semibold text-amber-900">
+                  Você é novo por aqui — vamos criar sua conta
+                </p>
+                <p className="mt-1 text-sm text-amber-800">
+                  Complete seu nome (e, se quiser, CPF/endereço/documentos) para liberar
+                  pedidos, recomendações e carrinho com este contato.
+                </p>
+              </div>
+            </div>
+            <Button
+              className="gap-2 bg-amber-600 hover:bg-amber-700"
+              onClick={() => setActiveTab("cadastro")}
+            >
+              <UserPlus className="h-4 w-4" /> Criar minha conta agora
+            </Button>
+          </section>
+        )}
+
+        {identified && pendingOrders.length > 0 && (
+          <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-blue-700" />
+              <div>
+                <p className="font-semibold text-blue-900">
+                  Você tem {pendingOrders.length}{" "}
+                  {pendingOrders.length === 1 ? "reserva" : "reservas"} aguardando pagamento
+                </p>
+                <p className="mt-1 flex items-center gap-1.5 text-sm text-blue-800">
+                  <Timer className="h-3.5 w-3.5" />
+                  {nearestExpiry
+                    ? `${formatTimeRemaining(nearestExpiry)} para a mais próxima — conclua o pagamento antes que expire.`
+                    : "Conclua o pagamento antes que a reserva expire."}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="gap-2 border-blue-300 bg-white"
+              onClick={() => setActiveTab("pedidos")}
+            >
+              <Package className="h-4 w-4" /> Ver e concluir pagamento
+            </Button>
+          </section>
+        )}
 
         {identified && (
           <>
@@ -312,7 +426,7 @@ export default function MinhaConta() {
               </div>
             </div>
 
-            <Tabs defaultValue="pedidos" className="space-y-5">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
               <TabsList className="grid h-auto w-full grid-cols-4">
                 <TabsTrigger value="pedidos" className="gap-2">
                   <Package className="h-4 w-4" />{" "}
@@ -420,6 +534,19 @@ export default function MinhaConta() {
                                       {PAYMENT_LABEL[order.paymentMethod] ??
                                         order.paymentMethod}
                                     </p>
+                                    {(status === "AGUARDANDO_PAGAMENTO" ||
+                                      status === "RESERVADO") && (
+                                      <p
+                                        className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                                          isExpired(order.expiresAt)
+                                            ? "bg-slate-200 text-slate-600"
+                                            : "bg-amber-100 text-amber-800"
+                                        }`}
+                                      >
+                                        <Timer className="h-3 w-3" />
+                                        {formatTimeRemaining(order.expiresAt)}
+                                      </p>
+                                    )}
                                   </div>
                                 </div>
                               );
