@@ -16,10 +16,11 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Copy, MessageCircle, Receipt, BadgeCheck, ShieldCheck, ShoppingBag, Download, FileSignature } from "lucide-react";
+import { Copy, MessageCircle, Receipt, BadgeCheck, ShieldCheck, ShoppingBag, Download, FileSignature, Mail, Link as LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { PAYMENT_LABEL } from "@/lib/orderStatus";
 import {
+  buildMailtoUrl,
   buildReceiptMessage,
   buildWhatsAppUrl,
   downloadBase64Pdf,
@@ -64,9 +65,15 @@ export function ReceiptModal({
     [notesQuery.data]
   );
 
+  const documentsLinkQuery = trpc.orders.documentsLink.useQuery(
+    { orderId: order?.id as number },
+    { enabled: Boolean(order?.id) }
+  );
+  const documentsUrl = documentsLinkQuery.data?.url ?? null;
+
   const message = useMemo(
-    () => (order ? buildReceiptMessage(order, installments) : ""),
-    [order, installments]
+    () => (order ? buildReceiptMessage(order, installments, documentsUrl) : ""),
+    [order, installments, documentsUrl]
   );
 
   const pdfQuery = trpc.orders.receiptPdf.useQuery(
@@ -87,6 +94,26 @@ export function ReceiptModal({
   const handleWhatsApp = () => {
     if (!order) return;
     window.open(buildWhatsAppUrl(message, order.buyerContact), "_blank", "noopener,noreferrer");
+  };
+
+  const handleEmail = () => {
+    if (!order) return;
+    const to = order.buyerContact.includes("@") ? order.buyerContact : undefined;
+    const url = buildMailtoUrl(message, {
+      to,
+      subject: `Comprovante e documentos — Pedido #${order.id} — Shoop PermuPay`,
+    });
+    window.location.href = url;
+  };
+
+  const handleCopyDocumentsLink = async () => {
+    if (!documentsUrl) return;
+    try {
+      await navigator.clipboard.writeText(documentsUrl);
+      toast.success("Link dos documentos copiado.");
+    } catch {
+      toast.error("Não foi possível copiar o link.");
+    }
   };
 
   const handleDownloadPdf = async () => {
@@ -219,6 +246,22 @@ export function ReceiptModal({
               <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">
                 {message}
               </div>
+              {documentsUrl && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-2 text-xs text-slate-600">
+                    <LinkIcon className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="truncate">{documentsUrl}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 shrink-0"
+                    onClick={handleCopyDocumentsLink}
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copiar link
+                  </Button>
+                </div>
+              )}
             </div>
 
             {order.adminNotes && (
@@ -245,6 +288,10 @@ export function ReceiptModal({
                 >
                   <Download className="h-4 w-4" />
                   {pdfQuery.isFetching ? "Gerando PDF..." : "Baixar PDF"}
+                </Button>
+                <Button variant="outline" onClick={handleEmail} className="gap-2">
+                  <Mail className="h-4 w-4" />
+                  Enviar por e-mail
                 </Button>
                 <Button onClick={handleWhatsApp} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
                   <MessageCircle className="h-4 w-4" />

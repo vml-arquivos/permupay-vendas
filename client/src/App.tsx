@@ -37,6 +37,7 @@ import Loja from "./pages/Loja";
 import MinhaConta from "./pages/MinhaConta";
 import Clientes from "./pages/Clientes";
 import NovaVenda from "./pages/NovaVenda";
+import Promissorias from "./pages/Promissorias";
 
 // Cotação de preços
 import Cotacoes from "./pages/Cotacoes";
@@ -198,6 +199,16 @@ function Router() {
           <PL>
             <Pedidos />
           </PL>
+        )}
+      </Route>
+
+      {/* ── PROMISSÓRIAS (central de notas — Promissorias.tsx já inclui
+          DashboardLayout internamente) ──────────────────────────────── */}
+      <Route path="/promissorias">
+        {() => (
+          <P>
+            <Promissorias />
+          </P>
         )}
       </Route>
 

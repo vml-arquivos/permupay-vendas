@@ -14,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useCart } from "@/contexts/CartContext";
+import { CustomerAuthPanel } from "@/components/CustomerAuthPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,17 +42,16 @@ export default function Loja() {
     { referralCode },
     { enabled: Boolean(referralCode) }
   );
+  const utils = trpc.useUtils();
+  const meQuery = trpc.customerAuth.me.useQuery();
   const cart = useCart();
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [success, setSuccess] = useState<{
-    ids: number[];
-    contact: string;
-  } | null>(null);
+  const [success, setSuccess] = useState<{ ids: number[] } | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PIX");
-  const [customer, setCustomer] = useState({
-    name: "",
-    contact: "",
+  // Identidade (nome/contato) vem sempre da sessão do cliente — aqui só
+  // ficam os dados de entrega opcionais.
+  const [delivery, setDelivery] = useState({
     email: "",
     address: "",
     city: "",
@@ -61,10 +61,7 @@ export default function Loja() {
   const checkout = trpc.customers.checkout.useMutation({
     onSuccess: result => {
       cart.clear();
-      setSuccess({
-        ids: result.orders.map(order => order.id),
-        contact: customer.contact,
-      });
+      setSuccess({ ids: result.orders.map(order => order.id) });
       setCheckoutOpen(false);
       toast.success("Pedido registrado com sucesso");
     },
@@ -72,8 +69,6 @@ export default function Loja() {
   });
 
   const submitCheckout = () => {
-    if (!customer.name.trim() || !customer.contact.trim())
-      return toast.error("Informe nome e WhatsApp ou e-mail.");
     checkout.mutate({
       referralCode,
       items: cart.items.map(item => ({
@@ -81,15 +76,11 @@ export default function Loja() {
         quantity: item.quantity,
         paymentMethod,
       })),
-      customer: {
-        ...customer,
-        contactType: customer.contact.includes("@") ? "EMAIL" : "WHATSAPP",
-        email: customer.email.trim() || undefined,
-        address: customer.address.trim() || undefined,
-        city: customer.city.trim() || undefined,
-        state: customer.state.trim().toUpperCase() || undefined,
-        zipCode: customer.zipCode.trim() || undefined,
-      },
+      email: delivery.email.trim() || undefined,
+      address: delivery.address.trim() || undefined,
+      city: delivery.city.trim() || undefined,
+      state: delivery.state.trim().toUpperCase() || undefined,
+      zipCode: delivery.zipCode.trim() || undefined,
     });
   };
 
@@ -108,7 +99,7 @@ export default function Loja() {
           </p>
           <div className="mt-6 flex flex-col gap-3">
             <Link
-              href={`/minha-conta?contact=${encodeURIComponent(success.contact)}`}
+              href="/minha-conta"
               className="inline-flex h-10 items-center justify-center rounded-md bg-slate-950 px-4 text-sm font-medium text-white hover:bg-slate-800"
             >
               Ver meus pedidos
@@ -263,126 +254,130 @@ export default function Loja() {
                       <span>{fmt(cart.total)}</span>
                     </div>
                     {checkoutOpen ? (
-                      <div className="space-y-3">
-                        <div className="space-y-1.5">
-                          <Label>Nome</Label>
-                          <Input
-                            value={customer.name}
-                            onChange={event =>
-                              setCustomer({
-                                ...customer,
-                                name: event.target.value,
-                              })
-                            }
+                      meQuery.isLoading ? (
+                        <p className="py-4 text-center text-sm text-muted-foreground">
+                          Carregando…
+                        </p>
+                      ) : !meQuery.data ? (
+                        <div className="space-y-3">
+                          <CustomerAuthPanel
+                            title="Entre ou crie sua conta para continuar"
+                            description="Para finalizar o pedido nesta loja, entre com sua conta ou crie uma — protege seus dados e seu histórico de compras."
+                            onSuccess={() => utils.customerAuth.me.invalidate()}
                           />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>WhatsApp ou e-mail</Label>
-                          <Input
-                            value={customer.contact}
-                            onChange={event =>
-                              setCustomer({
-                                ...customer,
-                                contact: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Forma de pagamento</Label>
-                          <select
-                            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                            value={paymentMethod}
-                            onChange={event =>
-                              setPaymentMethod(
-                                event.target.value as PaymentMethod
-                              )
-                            }
+                          <Button
+                            variant="ghost"
+                            className="w-full"
+                            onClick={() => setCheckoutOpen(false)}
                           >
-                            <option value="PIX">Pix</option>
-                            <option value="DINHEIRO">Dinheiro</option>
-                            <option value="CARTAO">Cartão</option>
-                            <option value="BOLETO">Boleto</option>
-                          </select>
+                            Voltar ao carrinho
+                          </Button>
                         </div>
-                        <details className="rounded-lg border p-3">
-                          <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium">
-                            Dados de entrega <ChevronDown className="h-4 w-4" />
-                          </summary>
-                          <div className="mt-3 space-y-3">
-                            <Input
-                              placeholder="E-mail (opcional)"
-                              type="email"
-                              value={customer.email}
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="rounded-lg border bg-slate-50 px-3 py-2 text-sm">
+                            Comprando como{" "}
+                            <strong>{meQuery.data.name}</strong>{" "}
+                            <span className="text-muted-foreground">
+                              ({meQuery.data.contact})
+                            </span>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Forma de pagamento</Label>
+                            <select
+                              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                              value={paymentMethod}
                               onChange={event =>
-                                setCustomer({
-                                  ...customer,
-                                  email: event.target.value,
-                                })
+                                setPaymentMethod(
+                                  event.target.value as PaymentMethod
+                                )
                               }
-                            />
-                            <Input
-                              placeholder="Endereço"
-                              value={customer.address}
-                              onChange={event =>
-                                setCustomer({
-                                  ...customer,
-                                  address: event.target.value,
-                                })
-                              }
-                            />
-                            <div className="grid grid-cols-2 gap-2">
+                            >
+                              <option value="PIX">Pix</option>
+                              <option value="DINHEIRO">Dinheiro</option>
+                              <option value="CARTAO">Cartão</option>
+                              <option value="BOLETO">Boleto</option>
+                            </select>
+                          </div>
+                          <details className="rounded-lg border p-3">
+                            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium">
+                              Dados de entrega (opcional) <ChevronDown className="h-4 w-4" />
+                            </summary>
+                            <div className="mt-3 space-y-3">
                               <Input
-                                placeholder="Cidade"
-                                value={customer.city}
+                                placeholder="E-mail (opcional)"
+                                type="email"
+                                value={delivery.email}
                                 onChange={event =>
-                                  setCustomer({
-                                    ...customer,
-                                    city: event.target.value,
+                                  setDelivery({
+                                    ...delivery,
+                                    email: event.target.value,
                                   })
                                 }
                               />
                               <Input
-                                placeholder="UF"
-                                maxLength={2}
-                                value={customer.state}
+                                placeholder="Endereço"
+                                value={delivery.address}
                                 onChange={event =>
-                                  setCustomer({
-                                    ...customer,
-                                    state: event.target.value.toUpperCase(),
+                                  setDelivery({
+                                    ...delivery,
+                                    address: event.target.value,
+                                  })
+                                }
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <Input
+                                  placeholder="Cidade"
+                                  value={delivery.city}
+                                  onChange={event =>
+                                    setDelivery({
+                                      ...delivery,
+                                      city: event.target.value,
+                                    })
+                                  }
+                                />
+                                <Input
+                                  placeholder="UF"
+                                  maxLength={2}
+                                  value={delivery.state}
+                                  onChange={event =>
+                                    setDelivery({
+                                      ...delivery,
+                                      state: event.target.value.toUpperCase(),
+                                    })
+                                  }
+                                />
+                              </div>
+                              <Input
+                                placeholder="CEP"
+                                value={delivery.zipCode}
+                                onChange={event =>
+                                  setDelivery({
+                                    ...delivery,
+                                    zipCode: event.target.value,
                                   })
                                 }
                               />
                             </div>
-                            <Input
-                              placeholder="CEP"
-                              value={customer.zipCode}
-                              onChange={event =>
-                                setCustomer({
-                                  ...customer,
-                                  zipCode: event.target.value,
-                                })
-                              }
-                            />
+                          </details>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={() => setCheckoutOpen(false)}
+                            >
+                              Voltar
+                            </Button>
+                            <Button
+                              onClick={submitCheckout}
+                              disabled={checkout.isPending}
+                            >
+                              {checkout.isPending
+                                ? "Registrando…"
+                                : "Confirmar pedido"}
+                            </Button>
                           </div>
-                        </details>
-                        <div className="grid grid-cols-2 gap-2">
-                          <Button
-                            variant="outline"
-                            onClick={() => setCheckoutOpen(false)}
-                          >
-                            Voltar
-                          </Button>
-                          <Button
-                            onClick={submitCheckout}
-                            disabled={checkout.isPending}
-                          >
-                            {checkout.isPending
-                              ? "Registrando…"
-                              : "Confirmar pedido"}
-                          </Button>
                         </div>
-                      </div>
+                      )
                     ) : (
                       <Button
                         className="w-full"

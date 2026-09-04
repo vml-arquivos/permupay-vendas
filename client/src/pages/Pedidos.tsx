@@ -12,6 +12,7 @@ import {
   Receipt,
   Phone,
   Trash2,
+  FileSignature,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -60,6 +61,19 @@ export default function Pedidos() {
   const confirm = trpc.orders.confirm.useMutation({
     onError: e => toast.error(e.message),
   });
+
+  // Notas promissórias/comprovante ficam disponíveis assim que o pedido em
+  // boleto é criado — antes mesmo da confirmação do pagamento, já que o
+  // fluxo é: gerar notas -> cliente assina e devolve -> só então enviar o
+  // boleto bancário. Antes, só dava pra acessar documentos depois de PAGO.
+  const handleOpenDocuments = async (orderId: number) => {
+    try {
+      const { url } = await utils.orders.documentsLink.fetch({ orderId });
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("Não foi possível gerar o link de documentos.");
+    }
+  };
 
   const cancel = trpc.orders.cancel.useMutation({
     onSuccess: async () => {
@@ -290,6 +304,21 @@ export default function Pedidos() {
                               {order.quantity}x {fmt(order.unitPrice)}
                             </p>
                           </div>
+
+                          {order.paymentMethod === "BOLETO" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-2"
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleOpenDocuments(order.id);
+                              }}
+                            >
+                              <FileSignature className="w-4 h-4" />
+                              Documentos
+                            </Button>
+                          )}
 
                           {isPending && (
                             <div

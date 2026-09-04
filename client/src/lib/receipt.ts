@@ -62,7 +62,8 @@ export function buildWhatsAppUrl(message: string, contact: string): string {
  */
 export function buildReceiptMessage(
   order: ReceiptOrderInput,
-  installments?: ReceiptInstallment[] | null
+  installments?: ReceiptInstallment[] | null,
+  documentsUrl?: string | null
 ): string {
   const lines = [
     "✅ *COMPROVANTE DE PAGAMENTO CONFIRMADO*",
@@ -92,17 +93,53 @@ export function buildReceiptMessage(
 
   lines.push(
     `*Confirmado em:* ${formatDateTime(order.confirmedAt)}`,
-    "*Status:* Pagamento confirmado e pedido liberado para retirada.",
+    "*Status:* Pagamento confirmado e pedido liberado para retirada."
+  );
+
+  if (documentsUrl) {
+    lines.push(
+      "",
+      `📄 *Baixe seu comprovante e suas notas promissórias:* ${documentsUrl}`
+    );
+  }
+
+  lines.push(
     "",
     "Se precisar, responda esta mensagem para receber atendimento.",
     "Shoop PermuPay — atendimento e confirmação oficial."
   );
 
   if (order.adminNotes) {
-    lines.splice(lines.length - 2, 0, `*Observação:* ${order.adminNotes}`);
+    const noteIndex = lines.length - 2;
+    lines.splice(noteIndex, 0, `*Observação:* ${order.adminNotes}`);
   }
 
   return lines.join("\n");
+}
+
+/** Remove marcação usada no texto do WhatsApp (*negrito*, _itálico_) para um corpo de e-mail em texto puro. */
+function stripWhatsAppMarkup(message: string): string {
+  return message.replace(/\*(.+?)\*/g, "$1").replace(/_(.+?)_/g, "$1");
+}
+
+/**
+ * Monta um link `mailto:` para o admin enviar o comprovante por e-mail
+ * diretamente do próprio cliente de e-mail (abre o app/webmail padrão já
+ * com destinatário, assunto e corpo preenchidos). O sistema não tem um
+ * servidor de e-mail transacional configurado — este é o mesmo padrão já
+ * usado para o WhatsApp (link que abre o app do usuário), aplicado ao
+ * e-mail.
+ */
+export function buildMailtoUrl(
+  message: string,
+  opts: { to?: string; subject: string }
+): string {
+  // encodeURIComponent (não URLSearchParams) para não trocar espaços por
+  // "+" — alguns clientes de e-mail exibem o "+" literalmente no corpo.
+  const subject = encodeURIComponent(opts.subject);
+  const body = encodeURIComponent(stripWhatsAppMarkup(message));
+  const to = opts.to?.includes("@") ? encodeURIComponent(opts.to.trim()) : "";
+  return `mailto:${to}?subject=${subject}&body=${body}`;
 }
 
 /** Converte um PDF em base64 (retornado pelo backend) num download no navegador. */

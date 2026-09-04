@@ -232,18 +232,45 @@ function CustomerReportDialog({
     )
     .reduce((acc, order) => acc + Number(order.totalPrice ?? 0), 0);
 
+  const handleOpenDocuments = async (orderId: number) => {
+    try {
+      const { url } = await utils.orders.documentsLink.fetch({ orderId });
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("Não foi possível gerar o link de documentos.");
+    }
+  };
+
+  const handleCopyDocuments = async (orderId: number) => {
+    try {
+      const { url } = await utils.orders.documentsLink.fetch({ orderId });
+      await navigator.clipboard.writeText(url);
+      toast.success("Link de documentos copiado.");
+    } catch {
+      toast.error("Não foi possível copiar o link de documentos.");
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogTitle>{customer?.name ?? "Cliente"}</DialogTitle>
-        <DialogDescription>
-          Relatório completo de compras, forma de pagamento e situação.
-        </DialogDescription>
+      {/* max-h + overflow-y-auto: sem isso, um cliente com muitas compras e
+          notas fazia o diálogo ficar mais alto que a tela, cortando e
+          embaralhando o conteúdo com a página por trás — este era o layout
+          "horrível" reportado. Agora o conteúdo rola dentro do próprio
+          diálogo, que nunca ultrapassa a tela. */}
+      <DialogContent className="flex max-h-[88vh] max-w-3xl flex-col overflow-hidden p-0">
+        <div className="border-b px-6 pb-4 pt-6">
+          <DialogTitle>{customer?.name ?? "Cliente"}</DialogTitle>
+          <DialogDescription>
+            Relatório completo: compras, análise de crédito e documentos
+            (comprovantes e notas promissórias).
+          </DialogDescription>
+        </div>
 
         {!customer ? (
-          <p className="text-sm text-muted-foreground">Carregando…</p>
+          <p className="px-6 py-8 text-sm text-muted-foreground">Carregando…</p>
         ) : (
-          <div className="space-y-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border p-3">
                 <span className="block text-xs text-muted-foreground">
@@ -277,223 +304,302 @@ function CustomerReportDialog({
               </div>
             </div>
 
-            <div className="rounded-xl border p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">Análise de crédito</p>
-                <Badge
-                  variant={
-                    CREDIT_STATUS_VARIANT[customer.creditStatus] ?? "outline"
-                  }
-                >
-                  {CREDIT_STATUS_LABEL[customer.creditStatus] ??
-                    customer.creditStatus}
-                </Badge>
-              </div>
-              {customer.creditNotes && (
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Observação atual: {customer.creditNotes}
-                </p>
-              )}
-              {isAdmin ? (
-                <div className="space-y-2">
-                  <Textarea
-                    placeholder="Observações da análise de crédito (opcional)"
-                    value={creditNotes}
-                    onChange={event => setCreditNotes(event.target.value)}
-                  />
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Limite de crédito (R$, opcional)"
-                    value={creditLimit}
-                    onChange={event => setCreditLimit(event.target.value)}
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      className="gap-1 bg-emerald-600 hover:bg-emerald-700"
-                      disabled={updateCredit.isPending}
-                      onClick={() =>
-                        updateCredit.mutate({
-                          customerId: customer.id,
-                          creditStatus: "APROVADO",
-                          creditNotes: creditNotes || undefined,
-                          creditLimit: creditLimit
-                            ? Number(creditLimit)
-                            : undefined,
-                        })
-                      }
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Aprovar crédito
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1 text-destructive"
-                      disabled={updateCredit.isPending}
-                      onClick={() =>
-                        updateCredit.mutate({
-                          customerId: customer.id,
-                          creditStatus: "REPROVADO",
-                          creditNotes: creditNotes || undefined,
-                        })
-                      }
-                    >
-                      Reprovar crédito
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Somente o administrador pode alterar a análise de crédito.
-                </p>
-              )}
-            </div>
+            <Tabs defaultValue="compras" className="mt-5 space-y-4">
+              <TabsList className="grid h-auto w-full grid-cols-3">
+                <TabsTrigger value="compras" className="gap-1.5">
+                  <ShoppingBag className="h-3.5 w-3.5" /> Compras
+                </TabsTrigger>
+                <TabsTrigger value="documentos" className="gap-1.5">
+                  <FileSignature className="h-3.5 w-3.5" /> Documentos
+                  {notes.length > 0 && (
+                    <span className="ml-1 rounded-full bg-primary/10 px-1.5 text-[10px] font-bold text-primary">
+                      {notes.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="credito" className="gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5" /> Crédito
+                </TabsTrigger>
+              </TabsList>
 
-            <div>
-              <p className="mb-2 font-semibold">Histórico de compras</p>
-              {ordersQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">Carregando…</p>
-              ) : orders.length ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[600px] text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground">
-                        <th className="px-2 py-2">Produto</th>
-                        <th className="px-2 py-2">Pagamento</th>
-                        <th className="px-2 py-2">Situação</th>
-                        <th className="px-2 py-2 text-right">Valor</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orders.map(order => (
-                        <tr key={order.id} className="border-b last:border-0">
-                          <td className="px-2 py-2">
-                            <div className="flex items-center gap-2">
-                              <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                                {order.productImageUrl ? (
-                                  <img
-                                    src={order.productImageUrl}
-                                    alt={order.productName}
-                                    className="h-full w-full object-contain"
-                                  />
-                                ) : (
-                                  <ShoppingBag className="h-4 w-4 text-muted-foreground" />
-                                )}
-                              </div>
-                              <span>{order.productName}</span>
-                            </div>
-                          </td>
-                          <td className="px-2 py-2">
-                            {PAYMENT_LABEL[order.paymentMethod] ??
-                              order.paymentMethod}
-                          </td>
-                          <td className="px-2 py-2">
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded-full border font-medium ${STATUS_COLOR[order.status as OrderStatus]}`}
-                            >
-                              {STATUS_LABEL_SHORT[order.status as OrderStatus]}
-                            </span>
-                          </td>
-                          <td className="px-2 py-2 text-right font-semibold">
-                            {fmt(order.totalPrice)}
-                          </td>
+              {/* ── COMPRAS ──────────────────────────────────────────── */}
+              <TabsContent value="compras" className="space-y-3">
+                {ordersQuery.isLoading ? (
+                  <p className="text-sm text-muted-foreground">Carregando…</p>
+                ) : orders.length ? (
+                  <div className="overflow-x-auto rounded-xl border">
+                    <table className="w-full min-w-[640px] text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                          <th className="px-3 py-2">Pedido</th>
+                          <th className="px-3 py-2">Produto</th>
+                          <th className="px-3 py-2">Pagamento</th>
+                          <th className="px-3 py-2">Situação</th>
+                          <th className="px-3 py-2 text-right">Valor</th>
+                          <th className="px-3 py-2 text-right">Documentos</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Este cliente ainda não possui compras registradas.
-                </p>
-              )}
-            </div>
+                      </thead>
+                      <tbody>
+                        {orders.map(order => (
+                          <tr key={order.id} className="border-b last:border-0">
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              #{order.id}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+                                  {order.productImageUrl ? (
+                                    <img
+                                      src={order.productImageUrl}
+                                      alt={order.productName}
+                                      className="h-full w-full object-contain"
+                                    />
+                                  ) : (
+                                    <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+                                  )}
+                                </div>
+                                <span>{order.productName}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              {PAYMENT_LABEL[order.paymentMethod] ??
+                                order.paymentMethod}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full border font-medium ${STATUS_COLOR[order.status as OrderStatus]}`}
+                              >
+                                {STATUS_LABEL_SHORT[order.status as OrderStatus]}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold">
+                              {fmt(order.totalPrice)}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 gap-1 px-2 text-xs"
+                                onClick={() => handleOpenDocuments(order.id)}
+                              >
+                                <Download className="h-3.5 w-3.5" /> Ver
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Este cliente ainda não possui compras registradas.
+                  </p>
+                )}
+              </TabsContent>
 
-            <div>
-              <p className="mb-2 flex items-center gap-2 font-semibold">
-                <FileSignature className="h-4 w-4" /> Notas promissórias
-              </p>
-              {notesQuery.isLoading ? (
-                <p className="text-sm text-muted-foreground">Carregando…</p>
-              ) : notes.length ? (
-                <div className="space-y-2">
-                  {notes.map(note => (
-                    <div
-                      key={note.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium">
-                          Pedido #{note.orderId} — parcela {note.installmentNumber}/
-                          {note.installmentsTotal} — {fmt(note.amount)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Vencimento {formatDate(note.dueDate)} ·{" "}
-                          {note.productDescription}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={NOTE_STATUS_VARIANT[note.status] ?? "outline"}>
-                          {NOTE_STATUS_LABEL[note.status] ?? note.status}
-                        </Badge>
-                        {note.documentUrl && (
-                          <a
-                            href={note.documentUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-primary underline"
-                          >
-                            <Download className="h-3.5 w-3.5" /> PDF
-                          </a>
-                        )}
-                        {isAdmin && note.status === "GERADA" && (
+              {/* ── DOCUMENTOS (comprovantes + notas promissórias) ──────── */}
+              <TabsContent value="documentos" className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Link com comprovante e notas promissórias de cada pedido — o mesmo
+                  incluído automaticamente na mensagem enviada ao cliente por WhatsApp/e-mail.
+                </p>
+                {orders.length > 0 && (
+                  <div className="space-y-2">
+                    {orders.map(order => (
+                      <div
+                        key={order.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            Pedido #{order.id} — {order.productName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod} ·{" "}
+                            {fmt(order.totalPrice)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
                           <Button
                             size="sm"
                             variant="outline"
-                            className="gap-1"
-                            disabled={updateNoteStatus.isPending}
-                            onClick={() =>
-                              updateNoteStatus.mutate({
-                                noteId: note.id,
-                                status: "ENVIADA",
-                              })
-                            }
+                            className="h-8 gap-1.5 text-xs"
+                            onClick={() => handleCopyDocuments(order.id)}
                           >
-                            <Send className="h-3.5 w-3.5" /> Marcar enviada
+                            Copiar link
                           </Button>
-                        )}
-                        {isAdmin && note.status === "ENVIADA" && (
                           <Button
                             size="sm"
-                            className="gap-1 bg-emerald-600 hover:bg-emerald-700"
-                            disabled={updateNoteStatus.isPending}
-                            onClick={() =>
-                              updateNoteStatus.mutate({
-                                noteId: note.id,
-                                status: "ASSINADA_DEVOLVIDA",
-                              })
-                            }
+                            className="h-8 gap-1.5 text-xs"
+                            onClick={() => handleOpenDocuments(order.id)}
                           >
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Assinada e devolvida
+                            <Download className="h-3.5 w-3.5" /> Abrir
                           </Button>
-                        )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {notes.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="mb-1 flex items-center gap-2 text-sm font-semibold">
+                      <FileSignature className="h-4 w-4" /> Notas promissórias
+                    </p>
+                    {notes.map(note => (
+                      <div
+                        key={note.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            Pedido #{note.orderId} — parcela {note.installmentNumber}/
+                            {note.installmentsTotal} — {fmt(note.amount)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Vencimento {formatDate(note.dueDate)} ·{" "}
+                            {note.productDescription}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={NOTE_STATUS_VARIANT[note.status] ?? "outline"}>
+                            {NOTE_STATUS_LABEL[note.status] ?? note.status}
+                          </Badge>
+                          {note.documentUrl && (
+                            <a
+                              href={note.documentUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary underline"
+                            >
+                              <Download className="h-3.5 w-3.5" /> PDF
+                            </a>
+                          )}
+                          {isAdmin && note.status === "GERADA" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1"
+                              disabled={updateNoteStatus.isPending}
+                              onClick={() =>
+                                updateNoteStatus.mutate({
+                                  noteId: note.id,
+                                  status: "ENVIADA",
+                                })
+                              }
+                            >
+                              <Send className="h-3.5 w-3.5" /> Marcar enviada
+                            </Button>
+                          )}
+                          {isAdmin && note.status === "ENVIADA" && (
+                            <Button
+                              size="sm"
+                              className="gap-1 bg-emerald-600 hover:bg-emerald-700"
+                              disabled={updateNoteStatus.isPending}
+                              onClick={() =>
+                                updateNoteStatus.mutate({
+                                  noteId: note.id,
+                                  status: "ASSINADA_DEVOLVIDA",
+                                })
+                              }
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Assinada e devolvida
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <p className="text-xs text-muted-foreground">
+                      Envie os boletos bancários de pagamento somente depois que todas as
+                      parcelas acima estiverem marcadas como "Assinada e devolvida".
+                    </p>
+                  </div>
+                )}
+
+                {!orders.length && !notes.length && (
+                  <p className="text-sm text-muted-foreground">
+                    Este cliente ainda não possui pedidos ou documentos.
+                  </p>
+                )}
+              </TabsContent>
+
+              {/* ── CRÉDITO ──────────────────────────────────────────── */}
+              <TabsContent value="credito" className="space-y-3">
+                <div className="rounded-xl border p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">Análise de crédito</p>
+                    <Badge
+                      variant={
+                        CREDIT_STATUS_VARIANT[customer.creditStatus] ?? "outline"
+                      }
+                    >
+                      {CREDIT_STATUS_LABEL[customer.creditStatus] ??
+                        customer.creditStatus}
+                    </Badge>
+                  </div>
+                  {customer.creditNotes && (
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Observação atual: {customer.creditNotes}
+                    </p>
+                  )}
+                  {isAdmin ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        placeholder="Observações da análise de crédito (opcional)"
+                        value={creditNotes}
+                        onChange={event => setCreditNotes(event.target.value)}
+                      />
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Limite de crédito (R$, opcional)"
+                        value={creditLimit}
+                        onChange={event => setCreditLimit(event.target.value)}
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          className="gap-1 bg-emerald-600 hover:bg-emerald-700"
+                          disabled={updateCredit.isPending}
+                          onClick={() =>
+                            updateCredit.mutate({
+                              customerId: customer.id,
+                              creditStatus: "APROVADO",
+                              creditNotes: creditNotes || undefined,
+                              creditLimit: creditLimit
+                                ? Number(creditLimit)
+                                : undefined,
+                            })
+                          }
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Aprovar crédito
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 text-destructive"
+                          disabled={updateCredit.isPending}
+                          onClick={() =>
+                            updateCredit.mutate({
+                              customerId: customer.id,
+                              creditStatus: "REPROVADO",
+                              creditNotes: creditNotes || undefined,
+                            })
+                          }
+                        >
+                          Reprovar crédito
+                        </Button>
                       </div>
                     </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">
-                    Envie os boletos bancários de pagamento somente depois que todas as
-                    parcelas acima estiverem marcadas como "Assinada e devolvida".
-                  </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Somente o administrador pode alterar a análise de crédito.
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Este cliente ainda não possui notas promissórias geradas. Elas são
-                  criadas automaticamente quando uma compra é feita em boleto parcelado.
-                </p>
-              )}
-            </div>
+              </TabsContent>
+            </Tabs>
           </div>
         )}
       </DialogContent>
