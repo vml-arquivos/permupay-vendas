@@ -209,10 +209,17 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+const resolveApiUrl = () => {
+  const configured = ENV.forgeApiUrl?.trim();
+  if (!configured) return "https://forge.manus.im/v1/chat/completions";
+  const base = configured.replace(/\/$/, "");
+  // Alguns provedores OpenAI-compatíveis (ex.: Gemini) já expõem a rota
+  // completa terminando em "/chat/completions" — nesse caso usamos o valor
+  // como está, em vez de acrescentar "/v1/chat/completions" por cima.
+  return base.endsWith("/chat/completions")
+    ? base
+    : `${base}/v1/chat/completions`;
+};
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
