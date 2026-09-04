@@ -77,6 +77,10 @@ export async function requestExternalProductSuggestion(input: { imageUrl?: strin
   try {
     const result = await invokeLLM({
       messages: [{ role: "user", content }],
+      // Nota: "maxLength" e "strict" foram removidos de propósito — nem todo
+      // provedor OpenAI-compatível (ex.: Gemini) suporta esses extras do
+      // schema, e o limite de 160 caracteres já é aplicado de forma segura
+      // em normalizeProductSuggestion() abaixo, então nada se perde.
       outputSchema: {
         name: "product_suggestion",
         schema: {
@@ -85,13 +89,11 @@ export async function requestExternalProductSuggestion(input: { imageUrl?: strin
             name: { type: "string" },
             category: { type: "string", enum: [...CATEGORIES] },
             categoryLabel: { type: "string" },
-            shortDescription: { type: "string", maxLength: 160 },
+            shortDescription: { type: "string" },
             description: { type: "string" },
           },
           required: ["name", "category", "shortDescription", "description"],
-          additionalProperties: false,
         },
-        strict: true,
       },
     });
     const text = parseContent(result.choices?.[0]?.message?.content);
@@ -99,6 +101,14 @@ export async function requestExternalProductSuggestion(input: { imageUrl?: strin
     return normalizeProductSuggestion(JSON.parse(text));
   } catch (error) {
     if (error instanceof Error && (error.message === AI_NOT_CONFIGURED_MESSAGE || error.message.startsWith("A IA "))) throw error;
+    // Log da causa real ANTES de trocar pela mensagem genérica do usuário —
+    // sem isso, o erro de verdade (status HTTP, corpo da resposta do provedor,
+    // JSON inválido etc.) se perde e nunca aparece nos logs do servidor.
+    console.error("[AI] requestExternalProductSuggestion falhou:", {
+      message: error instanceof Error ? error.message : String(error),
+      forgeApiUrl: ENV.forgeApiUrl,
+      llmModelName: ENV.llmModelName,
+    });
     throw new Error("Não foi possível obter uma sugestão da IA agora. Você pode continuar o cadastro manualmente.");
   }
 }

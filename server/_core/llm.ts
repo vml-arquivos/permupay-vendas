@@ -303,9 +303,14 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
+  // "max_tokens" é campo padrão OpenAI-compatível (seguro para qualquer provedor).
+  // NUNCA envie aqui campos específicos de um único proxy (ex.: "thinking") —
+  // provedores OpenAI-compatíveis mais rígidos (Gemini incluso) podem rejeitar
+  // a requisição inteira ao encontrar um campo que não reconhecem.
+  if (params.maxTokens ?? params.max_tokens) {
+    payload.max_tokens = params.maxTokens ?? params.max_tokens;
+  } else {
+    payload.max_tokens = 4096;
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({

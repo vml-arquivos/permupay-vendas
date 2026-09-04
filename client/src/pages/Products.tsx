@@ -608,6 +608,38 @@ export default function Products() {
                         </div>
                       </div>
 
+                      {/* Ações principais — SEMPRE visíveis, sem precisar expandir.
+                          Editar/Compartilhar/Despublicar são as ações mais usadas no
+                          dia a dia; exigir um clique em "Expandir" antes só pra chegar
+                          nelas era o problema relatado. */}
+                      <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-2">
+                        <Link href={`/produtos/${product.id}/editar`}>
+                          <Button size="sm" className="gap-1.5">
+                            <Edit2 className="h-3.5 w-3.5" /> {view === "paraPublicar" ? "Configurar venda" : "Editar"}
+                          </Button>
+                        </Link>
+                        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => shareProduct(product)}>
+                          <Share2 className="h-3.5 w-3.5" /> Compartilhar
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={`gap-1.5 ${product.published ? "text-amber-600 hover:text-amber-700" : "text-green-600 hover:text-green-700"}`}
+                          onClick={() => togglePublished.mutate({ productId: product.id, published: !product.published })}
+                          disabled={togglePublished.isPending}
+                        >
+                          {product.published ? (
+                            <>
+                              <EyeOff className="h-3.5 w-3.5" /> Despublicar
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-3.5 w-3.5" /> Publicar
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
                       {!compact && (
                         <>
                           <div className="grid gap-2 rounded-lg border border-border/60 p-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -638,11 +670,6 @@ export default function Products() {
                           </div>
 
                           <div className="flex flex-wrap gap-2 border-t border-border/50 pt-2">
-                            <Link href={`/produtos/${product.id}/editar`}>
-                              <Button variant="outline" size="sm" className="gap-1.5">
-                                <Edit2 className="h-3.5 w-3.5" /> {view === "paraPublicar" ? "Configurar venda" : "Editar"}
-                              </Button>
-                            </Link>
                             <Link href={`/simulador?productId=${product.id}`}>
                               <Button variant="outline" size="sm" className="gap-1.5">
                                 <RefreshCw className="h-3.5 w-3.5" /> Simular
@@ -650,26 +677,6 @@ export default function Products() {
                             </Link>
                             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => duplicate.mutate({ id: product.id })}>
                               <Copy className="h-3.5 w-3.5" /> Duplicar
-                            </Button>
-                            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => shareProduct(product)}>
-                              <Share2 className="h-3.5 w-3.5" /> Compartilhar
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className={`gap-1.5 ${product.published ? "text-amber-600 hover:text-amber-700" : "text-green-600 hover:text-green-700"}`}
-                              onClick={() => togglePublished.mutate({ productId: product.id, published: !product.published })}
-                              disabled={togglePublished.isPending}
-                            >
-                              {product.published ? (
-                                <>
-                                  <EyeOff className="h-3.5 w-3.5" /> Despublicar
-                                </>
-                              ) : (
-                                <>
-                                  <Eye className="h-3.5 w-3.5" /> Publicar
-                                </>
-                              )}
                             </Button>
                             <div className="ml-auto flex flex-wrap gap-2">
                               <Button
