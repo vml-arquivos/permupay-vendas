@@ -470,6 +470,127 @@ export async function createSellerOrder(data: {
   });
 }
 
+/**
+ * Venda direta interna — usada pela tela "Nova Venda" do painel, tanto pelo
+ * administrador quanto por um vendedor autenticado, sempre para um cliente
+ * já cadastrado (permupay_customers). Não depende de link público/token,
+ * diferente de `createSellerOrder` (que atende o fluxo de vendedor externo
+ * via link). Reaproveita os mesmos helpers de baixa de estoque e comissão
+ * para não duplicar regras de negócio.
+ */
+export async function createDirectSale(data: {
+  customerId: number;
+  productId: number;
+  quantity: number;
+  unitPrice: number;
+  paymentMethod: PaymentMethod;
+  markAsPaid: boolean;
+  sellerId?: number | null;
+  createdByUserId: number;
+  allowBelowCost?: boolean;
+  notes?: string;
+}): Promise<Order> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return db.transaction(async tx => {
+    const customerResult = (await tx.execute(sql`
+      SELECT id, name, contact, contact_type
+      FROM permupay_customers WHERE id = ${data.customerId} LIMIT 1
+    `)) as any;
+    const customer = customerResult?.rows?.[0];
+    if (!customer)
+      throw new Error(
+        "Cliente não encontrado. Cadastre o cliente antes de registrar a venda."
+      );
+
+    let sellerId: number | null = null;
+    let referralCode: string | null = null;
+    if (data.sellerId) {
+      const sellerResult = (await tx.execute(sql`
+        SELECT id, referral_code FROM permupay_sellers
+        WHERE id = ${data.sellerId} AND active = TRUE LIMIT 1
+      `)) as any;
+      const seller = sellerResult?.rows?.[0];
+      if (!seller) throw new Error("Vendedor inválido ou inativo");
+      sellerId = Number(seller.id);
+      referralCode = seller.referral_code;
+    }
+
+    const productResult = (await tx.execute(
+      sql`SELECT * FROM permupay_products WHERE id = ${data.productId} FOR UPDATE`
+    )) as any;
+    const product = productResult?.rows?.[0];
+    if (!product || product.active === false)
+      throw new Error("Produto não encontrado ou inativo");
+
+    const quantity = Math.max(1, Math.floor(Number(data.quantity || 1)));
+    const currentStock = Number(product.stock_quantity ?? 0);
+    if (currentStock < quantity) throw new Error("Estoque insuficiente");
+
+    const unitPrice = Number(data.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0)
+      throw new Error("Preço de venda inválido");
+    const finalCost = Number(
+      product.final_unit_cost_brl ??
+        product.average_cost_brl ??
+        product.cost_price ??
+        0
+    );
+    if (!data.allowBelowCost && unitPrice < finalCost) {
+      throw new Error(
+        `O preço não pode ficar abaixo do custo do produto (R$ ${finalCost.toFixed(2)})`
+      );
+    }
+
+    const totalPrice = Number((unitPrice * quantity).toFixed(2));
+    const expiresAt = new Date(Date.now() + 5 * 60 * 60 * 1000);
+    const channel = sellerId ? "VENDA_DIRETA_VENDEDOR" : "VENDA_DIRETA_ADMIN";
+
+    const [created] = await tx
+      .insert(orders)
+      .values({
+        productId: data.productId,
+        quantity,
+        channel,
+        sellerId,
+        referralCode,
+        customerId: data.customerId,
+        buyerName: String(customer.name),
+        buyerContact: String(customer.contact),
+        buyerContactType: String(customer.contact_type ?? "WHATSAPP"),
+        paymentMethod: data.paymentMethod,
+        unitPrice,
+        totalPrice,
+        status: data.markAsPaid ? "PAGO" : "AGUARDANDO_PAGAMENTO",
+        expiresAt,
+        confirmedAt: data.markAsPaid ? new Date() : null,
+        confirmedBy: data.markAsPaid ? data.createdByUserId : null,
+        adminNotes: data.notes?.trim() || null,
+      } as InsertOrder)
+      .returning();
+
+    if (!data.markAsPaid) return created;
+
+    const orderForStock = {
+      id: created.id,
+      product_id: data.productId,
+      quantity,
+      total_price: totalPrice,
+      seller_id: sellerId,
+    };
+    await applyStockDeductionForOrder(
+      tx,
+      orderForStock,
+      product,
+      data.createdByUserId,
+      "Venda direta (Nova Venda) registrada como paga"
+    );
+    await registerCommissionIfApplicable(tx, orderForStock, product);
+    return created;
+  });
+}
+
 export type CartCheckoutInput = {
   items: Array<{
     productId: number;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCustomerContact } from "./db.customers";
+import { normalizeCpf, normalizeCustomerContact } from "./db.customers";
 
 describe("customer contact normalization", () => {
   it("normalizes WhatsApp contacts to digits", () => {
@@ -18,5 +18,17 @@ describe("customer contact normalization", () => {
     expect(normalizeCustomerContact("Client@Example.com")).toBe(
       "client@example.com"
     );
+  });
+});
+
+describe("customer CPF normalization", () => {
+  it("strips formatting characters", () => {
+    expect(normalizeCpf("123.456.789-00")).toBe("12345678900");
+  });
+
+  it("returns null for empty/undefined values", () => {
+    expect(normalizeCpf(undefined)).toBeNull();
+    expect(normalizeCpf(null)).toBeNull();
+    expect(normalizeCpf("")).toBeNull();
   });
 });

@@ -1021,6 +1021,70 @@ export const appRouter = router({
         })
       )
       .mutation(({ input }) => dbOrders.createCartCheckout(input)),
+
+    // ── Cadastro interno de clientes (crediário / análise de crédito) ────────
+    register: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(2),
+          contact: z.string().trim().min(8),
+          contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          email: z.string().email().optional().or(z.literal("")),
+          address: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().length(2).optional(),
+          zipCode: z.string().optional(),
+          cpf: z.string().optional(),
+          rg: z.string().optional(),
+          birthDate: z.string().optional(),
+          documentFrontUrl: z.string().url().optional().or(z.literal("")),
+          documentBackUrl: z.string().url().optional().or(z.literal("")),
+          proofAddressUrl: z.string().url().optional().or(z.literal("")),
+          referredBySellerReferralCode: z.string().max(60).optional(),
+        })
+      )
+      .mutation(({ input }) =>
+        dbCustomers.identifyOrCreateCustomer({
+          ...input,
+          email: input.email || undefined,
+          documentFrontUrl: input.documentFrontUrl || undefined,
+          documentBackUrl: input.documentBackUrl || undefined,
+          proofAddressUrl: input.proofAddressUrl || undefined,
+        })
+      ),
+
+    list: protectedProcedure
+      .input(
+        z
+          .object({
+            search: z.string().optional(),
+            creditStatus: z
+              .enum(["NAO_ANALISADO", "APROVADO", "REPROVADO"])
+              .optional(),
+          })
+          .optional()
+      )
+      .query(({ input }) => dbCustomers.listCustomers(input ?? {})),
+
+    byId: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(({ input }) => dbCustomers.getCustomerById(input.id)),
+
+    updateCreditStatus: adminOnlyProcedure
+      .input(
+        z.object({
+          customerId: z.number().int().positive(),
+          creditStatus: z.enum(["NAO_ANALISADO", "APROVADO", "REPROVADO"]),
+          creditNotes: z.string().max(1000).optional(),
+          creditLimit: z.number().min(0).optional(),
+        })
+      )
+      .mutation(({ input, ctx }) =>
+        dbCustomers.updateCreditStatus({
+          ...input,
+          reviewerUserId: ctx.user.id,
+        })
+      ),
   }),
 
   // ── Pedidos ────────────────────────────────────────────────────────────────
@@ -1109,6 +1173,57 @@ export const appRouter = router({
     ),
 
     counts: protectedProcedure.query(() => dbOrders.getOrderCounts()),
+
+    // ── Nova Venda: venda direta interna para cliente já cadastrado ──────────
+    // Usado tanto pelo administrador quanto por um vendedor autenticado.
+    createDirectSale: protectedProcedure
+      .input(
+        z.object({
+          customerId: z.number().int().positive(),
+          productId: z.number().int().positive(),
+          quantity: z.number().int().min(1).default(1),
+          unitPrice: z.number().positive(),
+          paymentMethod: z.enum(["PIX", "DINHEIRO", "CARTAO", "BOLETO"]),
+          markAsPaid: z.boolean().default(true),
+          sellerId: z.number().int().positive().optional(),
+          allowBelowCost: z.boolean().optional(),
+          notes: z.string().max(500).optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const isAdmin = ctx.user.role === "admin";
+        let sellerId: number | null = null;
+
+        if (isAdmin) {
+          sellerId = input.sellerId ?? null;
+        } else {
+          const ownSeller = await dbSellers.getSellerByUserId(
+            ctx.user.id,
+            true
+          );
+          if (!ownSeller) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message:
+                "Você não possui um cadastro de vendedor ativo vinculado à sua conta",
+            });
+          }
+          sellerId = ownSeller.id;
+        }
+
+        return dbOrders.createDirectSale({
+          customerId: input.customerId,
+          productId: input.productId,
+          quantity: input.quantity,
+          unitPrice: input.unitPrice,
+          paymentMethod: input.paymentMethod,
+          markAsPaid: input.markAsPaid,
+          sellerId,
+          createdByUserId: ctx.user.id,
+          allowBelowCost: isAdmin ? Boolean(input.allowBelowCost) : false,
+          notes: input.notes,
+        });
+      }),
   }),
 
   // ── Dashboard ─────────────────────────────────────────────────────────────

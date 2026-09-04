@@ -167,6 +167,22 @@ export async function getSellerByReferralCode(
   return seller ?? null;
 }
 
+export async function getSellerByUserId(
+  userId: number,
+  onlyActive = true
+): Promise<Seller | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const conditions = [eq(sellers.userId, userId)];
+  if (onlyActive) conditions.push(eq(sellers.active, true));
+  const [seller] = await db
+    .select()
+    .from(sellers)
+    .where(and(...conditions))
+    .limit(1);
+  return seller ?? null;
+}
+
 export async function getSellerByAccessToken(
   accessToken: string,
   onlyActive = true

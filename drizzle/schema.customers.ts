@@ -1,6 +1,8 @@
 import {
+  date,
   integer,
   pgTable,
+  real,
   serial,
   text,
   timestamp,
@@ -22,9 +24,29 @@ export const customers = pgTable("permupay_customers", {
     () => sellers.id,
     { onDelete: "set null" }
   ),
+  // Documento e dados para crediário / análise de crédito / boleto-promissória
+  cpf: text("cpf"),
+  rg: text("rg"),
+  birthDate: date("birth_date"),
+  documentFrontUrl: text("document_front_url"),
+  documentBackUrl: text("document_back_url"),
+  proofAddressUrl: text("proof_address_url"),
+  // Análise de crédito
+  creditStatus: text("credit_status").notNull().default("NAO_ANALISADO"),
+  creditNotes: text("credit_notes"),
+  creditLimit: real("credit_limit"),
+  reviewedBy: integer("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const CUSTOMER_CREDIT_STATUSES = [
+  "NAO_ANALISADO",
+  "APROVADO",
+  "REPROVADO",
+] as const;
+export type CustomerCreditStatus = (typeof CUSTOMER_CREDIT_STATUSES)[number];
 
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = typeof customers.$inferInsert;

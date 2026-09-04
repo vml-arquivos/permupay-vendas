@@ -35,6 +35,8 @@ import VendaDireta from "./pages/VendaDireta";
 import SejaVendedor from "./pages/SejaVendedor";
 import Loja from "./pages/Loja";
 import MinhaConta from "./pages/MinhaConta";
+import Clientes from "./pages/Clientes";
+import NovaVenda from "./pages/NovaVenda";
 
 // Cotação de preços
 import Cotacoes from "./pages/Cotacoes";
@@ -196,6 +198,22 @@ function Router() {
           <PL>
             <Pedidos />
           </PL>
+        )}
+      </Route>
+
+      {/* ── CLIENTES E NOVA VENDA (admin e vendedores autenticados) ────── */}
+      <Route path="/clientes">
+        {() => (
+          <P>
+            <Clientes />
+          </P>
+        )}
+      </Route>
+      <Route path="/nova-venda">
+        {() => (
+          <P>
+            <NovaVenda />
+          </P>
         )}
       </Route>
 

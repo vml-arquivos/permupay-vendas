@@ -1,7 +1,8 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import {
   customers,
   type Customer,
+  type CustomerCreditStatus,
   type InsertCustomer,
 } from "../drizzle/schema.customers";
 import { sellers } from "../drizzle/schema.sellers";
@@ -20,6 +21,13 @@ export type CustomerInput = {
   state?: string;
   zipCode?: string;
   referredBySellerReferralCode?: string;
+  // KYC / documentação (opcionais — preenchidos no cadastro completo)
+  cpf?: string;
+  rg?: string;
+  birthDate?: string;
+  documentFrontUrl?: string;
+  documentBackUrl?: string;
+  proofAddressUrl?: string;
 };
 
 export function normalizeCustomerContact(
@@ -37,6 +45,12 @@ function cleanOptional(value?: string | null): string | null | undefined {
   if (value === null) return null;
   const normalized = value.trim();
   return normalized || null;
+}
+
+export function normalizeCpf(value?: string | null): string | null {
+  if (!value) return null;
+  const digits = value.replace(/\D/g, "");
+  return digits || null;
 }
 
 async function resolveSellerId(referralCode?: string): Promise<number | null> {
@@ -81,10 +95,18 @@ export async function identifyOrCreateCustomer(
       "city",
       "state",
       "zipCode",
+      "rg",
+      "documentFrontUrl",
+      "documentBackUrl",
+      "proofAddressUrl",
     ] as const;
     for (const field of optionalFields) {
       const value = cleanOptional(data[field]);
       if (value !== undefined) update[field] = value;
+    }
+    if (data.cpf !== undefined) update.cpf = normalizeCpf(data.cpf);
+    if (data.birthDate !== undefined) {
+      update.birthDate = cleanOptional(data.birthDate) ?? null;
     }
     const [updated] = await db
       .update(customers)
@@ -110,6 +132,12 @@ export async function identifyOrCreateCustomer(
       state: cleanOptional(data.state)?.toUpperCase() ?? null,
       zipCode: cleanOptional(data.zipCode) ?? null,
       referredBySellerId,
+      cpf: normalizeCpf(data.cpf),
+      rg: cleanOptional(data.rg) ?? null,
+      birthDate: cleanOptional(data.birthDate) ?? null,
+      documentFrontUrl: cleanOptional(data.documentFrontUrl) ?? null,
+      documentBackUrl: cleanOptional(data.documentBackUrl) ?? null,
+      proofAddressUrl: cleanOptional(data.proofAddressUrl) ?? null,
     })
     .returning();
 
@@ -134,4 +162,83 @@ export async function getCustomerByContact(
 
 export async function listCustomerOrders(customerId: number) {
   return dbOrders.listOrders({ customerId });
+}
+
+export async function getCustomerById(id: number): Promise<Customer | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [customer] = await db
+    .select()
+    .from(customers)
+    .where(eq(customers.id, id))
+    .limit(1);
+  return customer ?? null;
+}
+
+export type ListCustomersFilters = {
+  search?: string;
+  creditStatus?: CustomerCreditStatus;
+};
+
+export async function listCustomers(
+  filters: ListCustomersFilters = {}
+): Promise<Customer[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions = [];
+  if (filters.search?.trim()) {
+    const term = `%${filters.search.trim()}%`;
+    conditions.push(
+      or(
+        ilike(customers.name, term),
+        ilike(customers.contact, term),
+        ilike(customers.email, term),
+        ilike(customers.cpf, term)
+      )
+    );
+  }
+  if (filters.creditStatus) {
+    conditions.push(eq(customers.creditStatus, filters.creditStatus));
+  }
+
+  const query = db.select().from(customers);
+  const rows = conditions.length
+    ? await query.where(and(...conditions)).orderBy(desc(customers.createdAt))
+    : await query.orderBy(desc(customers.createdAt));
+  return rows;
+}
+
+export async function updateCreditStatus(params: {
+  customerId: number;
+  creditStatus: CustomerCreditStatus;
+  creditNotes?: string;
+  creditLimit?: number;
+  reviewerUserId?: number;
+}): Promise<Customer> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const update: Partial<InsertCustomer> = {
+    creditStatus: params.creditStatus,
+    reviewedAt: new Date(),
+    updatedAt: new Date(),
+  };
+  if (params.creditNotes !== undefined) {
+    update.creditNotes = cleanOptional(params.creditNotes) ?? null;
+  }
+  if (params.creditLimit !== undefined) {
+    update.creditLimit = params.creditLimit;
+  }
+  if (params.reviewerUserId !== undefined) {
+    update.reviewedBy = params.reviewerUserId;
+  }
+
+  const [updated] = await db
+    .update(customers)
+    .set(update)
+    .where(eq(customers.id, params.customerId))
+    .returning();
+  if (!updated) throw new Error("Cliente não encontrado");
+  return updated;
 }

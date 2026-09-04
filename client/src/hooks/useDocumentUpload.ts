@@ -8,7 +8,7 @@ interface UploadResult {
   mimeType: string;
 }
 
-export function useDocumentUpload() {
+export function useDocumentUpload(folder: string = "vendedores") {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const callbackRef = useRef<((result: UploadResult) => void) | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -40,7 +40,7 @@ export function useDocumentUpload() {
           reader.readAsDataURL(file);
         });
         const response = await fetch(
-          `/api/upload/image?folder=vendedores&filename=${encodeURIComponent(file.name)}`,
+          `/api/upload/image?folder=${encodeURIComponent(folder)}&filename=${encodeURIComponent(file.name)}`,
           {
             method: "POST",
             headers: {

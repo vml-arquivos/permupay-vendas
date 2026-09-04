@@ -40,6 +40,8 @@ import {
   CreditCard,
   Tag,
   ShoppingCart,
+  UserRound,
+  CircleDollarSign,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -64,6 +66,8 @@ const menuModules = [
   {
     label: "Vendas",
     items: [
+      { icon: CircleDollarSign, label: "Nova Venda", path: "/nova-venda" },
+      { icon: UserRound, label: "Clientes", path: "/clientes" },
       { icon: ClipboardList, label: "Pedidos", path: "/pedidos" },
       { icon: Heart, label: "Desejos", path: "/desejos-admin" },
     ],

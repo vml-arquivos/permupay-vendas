@@ -12,6 +12,30 @@
 -- PIX fiscal = ZERO forçado em código; não há coluna tax_cash aqui.
 -- ============================================================
 
+-- Correção de bug pré-existente: nenhuma migration anterior criava a tabela
+-- permupay_payment_settings (ela só existia em ambientes onde foi criada por
+-- fora, via `drizzle-kit push`). Instalações novas do zero quebravam aqui.
+-- Guard idempotente — não afeta ambientes onde a tabela já existe. Bloco
+-- copiado literalmente de 0015_recovery_payment_settings.sql (fix já
+-- validado anteriormente) para que uma base 100% nova também funcione,
+-- já que 0013 roda antes de 0015 na sequência do migrate.mjs.
+CREATE TABLE IF NOT EXISTS permupay_payment_settings (
+  id                           serial PRIMARY KEY,
+  card_debit_fee               real NOT NULL DEFAULT 1.5,
+  card_credit_cash_fee         real NOT NULL DEFAULT 2.5,
+  card_credit_installment_fee  real NOT NULL DEFAULT 3.5,
+  card_installments            integer NOT NULL DEFAULT 6,
+  cash_discount_percent        real NOT NULL DEFAULT 0,
+  updated_at                   timestamptz NOT NULL DEFAULT now()
+);
+--> statement-breakpoint
+ALTER TABLE permupay_payment_settings
+  ADD COLUMN IF NOT EXISTS card_debit_fee real NOT NULL DEFAULT 1.5,
+  ADD COLUMN IF NOT EXISTS card_credit_cash_fee real NOT NULL DEFAULT 2.5,
+  ADD COLUMN IF NOT EXISTS card_credit_installment_fee real NOT NULL DEFAULT 3.5,
+  ADD COLUMN IF NOT EXISTS card_installments real NOT NULL DEFAULT 6,
+  ADD COLUMN IF NOT EXISTS cash_discount_percent real NOT NULL DEFAULT 0;
+
 -- Fiscal
 ALTER TABLE permupay_payment_settings
   ADD COLUMN IF NOT EXISTS tax_regime text NOT NULL DEFAULT 'SIMPLES_NACIONAL',
