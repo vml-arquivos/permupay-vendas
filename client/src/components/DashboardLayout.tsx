@@ -42,7 +42,6 @@ import {
   ShoppingCart,
   UserRound,
   CircleDollarSign,
-  FileSignature,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -70,7 +69,6 @@ const menuModules = [
       { icon: CircleDollarSign, label: "Nova Venda", path: "/nova-venda" },
       { icon: UserRound, label: "Clientes", path: "/clientes" },
       { icon: ClipboardList, label: "Pedidos", path: "/pedidos" },
-      { icon: FileSignature, label: "Promissórias", path: "/promissorias" },
       { icon: Heart, label: "Desejos", path: "/desejos-admin" },
     ],
   },
