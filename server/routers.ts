@@ -995,6 +995,21 @@ export const appRouter = router({
         return dbCustomers.listCustomerOrders(customer.id);
       }),
 
+    myProfile: publicProcedure
+      .input(z.object({ contact: z.string().min(5) }))
+      .query(({ input }) => dbCustomers.getCustomerByContact(input.contact)),
+
+    recommendations: publicProcedure
+      .input(
+        z.object({
+          contact: z.string().optional(),
+          limit: z.number().int().min(1).max(24).default(8),
+        })
+      )
+      .query(({ input }) =>
+        dbCustomers.getRecommendedProducts(input.contact ?? "", input.limit)
+      ),
+
     checkout: publicProcedure
       .input(
         z.object({
@@ -1021,6 +1036,40 @@ export const appRouter = router({
         })
       )
       .mutation(({ input }) => dbOrders.createCartCheckout(input)),
+
+    // ── Autoatendimento: cliente completa/atualiza o próprio cadastro ────────
+    // Mesma função (identifyOrCreateCustomer) usada pelo checkout e pelo
+    // cadastro interno — garante que seja sempre o mesmo registro por
+    // contato, e nunca expõe/altera os campos de análise de crédito (esses
+    // continuam restritos ao admin via updateCreditStatus).
+    updateProfile: publicProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(2),
+          contact: z.string().trim().min(8),
+          contactType: z.enum(["WHATSAPP", "EMAIL"]).default("WHATSAPP"),
+          email: z.string().email().optional().or(z.literal("")),
+          address: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().length(2).optional(),
+          zipCode: z.string().optional(),
+          cpf: z.string().optional(),
+          rg: z.string().optional(),
+          birthDate: z.string().optional(),
+          documentFrontUrl: z.string().url().optional().or(z.literal("")),
+          documentBackUrl: z.string().url().optional().or(z.literal("")),
+          proofAddressUrl: z.string().url().optional().or(z.literal("")),
+        })
+      )
+      .mutation(({ input }) =>
+        dbCustomers.identifyOrCreateCustomer({
+          ...input,
+          email: input.email || undefined,
+          documentFrontUrl: input.documentFrontUrl || undefined,
+          documentBackUrl: input.documentBackUrl || undefined,
+          proofAddressUrl: input.proofAddressUrl || undefined,
+        })
+      ),
 
     // ── Cadastro interno de clientes (crediário / análise de crédito) ────────
     register: protectedProcedure

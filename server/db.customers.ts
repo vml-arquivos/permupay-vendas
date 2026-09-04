@@ -6,6 +6,8 @@ import {
   type InsertCustomer,
 } from "../drizzle/schema.customers";
 import { sellers } from "../drizzle/schema.sellers";
+import { orders } from "../drizzle/schema.orders";
+import { products } from "../drizzle/schema";
 import { getDb } from "./db";
 import * as dbOrders from "./db.orders";
 
@@ -207,6 +209,44 @@ export async function listCustomers(
     ? await query.where(and(...conditions)).orderBy(desc(customers.createdAt))
     : await query.orderBy(desc(customers.createdAt));
   return rows;
+}
+
+/**
+ * Recomendações simples para a área do cliente: prioriza produtos publicados
+ * das mesmas categorias que o cliente já comprou (excluindo o que ele já
+ * levou); completa com os demais produtos publicados até o limite. Sem
+ * histórico de compras (cliente novo ou não encontrado), cai para os
+ * produtos publicados mais recentes — a mesma lista já usada na vitrine.
+ */
+export async function getRecommendedProducts(contact: string, limit = 8) {
+  const { getPublishedProducts } = await import("./db.batches");
+  const all = await getPublishedProducts();
+
+  const customer = await getCustomerByContact(contact);
+  if (!customer) return all.slice(0, limit);
+
+  const db = await getDb();
+  if (!db) return all.slice(0, limit);
+
+  const purchasedRows = await db
+    .select({ productId: products.id, category: products.category })
+    .from(orders)
+    .innerJoin(products, eq(orders.productId, products.id))
+    .where(eq(orders.customerId, customer.id));
+
+  if (!purchasedRows.length) return all.slice(0, limit);
+
+  const purchasedProductIds = new Set(purchasedRows.map(r => r.productId));
+  const purchasedCategories = new Set(purchasedRows.map(r => r.category));
+
+  const sameCategory = (all as any[]).filter(
+    p => purchasedCategories.has(p.category) && !purchasedProductIds.has(p.id)
+  );
+  const others = (all as any[]).filter(
+    p => !purchasedProductIds.has(p.id) && !purchasedCategories.has(p.category)
+  );
+
+  return [...sameCategory, ...others].slice(0, limit);
 }
 
 export async function updateCreditStatus(params: {

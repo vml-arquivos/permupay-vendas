@@ -99,6 +99,29 @@ export async function createOrder(
   if (requireReferral && !sellerId)
     throw new Error("Token de vendedor inválido ou inativo");
 
+  // Identifica ou cria o cadastro do cliente (mesmo cadastro usado em
+  // /clientes, no carrinho da loja de afiliados — createCartCheckout — e
+  // nas vendas diretas). Garante um único histórico de compras por cliente,
+  // por CPF/contato, não importa se ele comprou pela vitrine, pela página
+  // principal ou por um catálogo de vendedor. Nunca bloqueia a compra: se o
+  // vínculo com o cliente falhar por qualquer motivo, o pedido continua
+  // sendo criado normalmente (compatível com o comportamento anterior).
+  let customerId = data.customerId ?? null;
+  if (!customerId) {
+    try {
+      const { identifyOrCreateCustomer } = await import("./db.customers");
+      const customer = await identifyOrCreateCustomer({
+        name: data.buyerName,
+        contact: data.buyerContact,
+        contactType: data.buyerContactType === "EMAIL" ? "EMAIL" : "WHATSAPP",
+        referredBySellerReferralCode: normalizedReferralCode ?? undefined,
+      });
+      customerId = customer.id;
+    } catch (error) {
+      console.error("[orders] Falha ao vincular cliente ao pedido:", error);
+    }
+  }
+
   const quantity = Math.max(1, Number(data.quantity || 1));
   const availableStock = Number(product.stockQuantity ?? 0);
   if (availableStock < quantity) throw new Error("Estoque insuficiente");
@@ -127,7 +150,7 @@ export async function createOrder(
       expiresAt,
       sellerId,
       referralCode: normalizedReferralCode,
-      customerId: data.customerId ?? null,
+      customerId,
       checkoutGroupId: data.checkoutGroupId ?? null,
     } as InsertOrder)
     .returning();
@@ -363,6 +386,22 @@ export async function createSellerOrder(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // Mesmo cadastro de cliente usado em /clientes e nas demais formas de
+  // compra — resolvido fora da transação da venda para não misturar
+  // conexões. Nunca bloqueia a venda: se falhar, o pedido segue normalmente.
+  let customerId: number | null = null;
+  try {
+    const { identifyOrCreateCustomer } = await import("./db.customers");
+    const customer = await identifyOrCreateCustomer({
+      name: data.buyerName,
+      contact: data.buyerContact,
+      contactType: data.buyerContactType === "EMAIL" ? "EMAIL" : "WHATSAPP",
+    });
+    customerId = customer.id;
+  } catch (error) {
+    console.error("[orders] Falha ao vincular cliente à venda direta:", error);
+  }
+
   return db.transaction(async tx => {
     const sellerResult = data.sellerId
       ? ((await tx.execute(
@@ -437,6 +476,7 @@ export async function createSellerOrder(data: {
         channel,
         sellerId: Number(seller.id),
         referralCode: seller.referral_code,
+        customerId,
         buyerName: data.buyerName.trim(),
         buyerContact: data.buyerContact.trim(),
         buyerContactType: data.buyerContactType,

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { captureReferralFromLocation } from "@/lib/referral";
+import { useCart } from "@/contexts/CartContext";
 import {
   ArrowRight,
   ChevronLeft,
@@ -10,6 +11,7 @@ import {
   Search,
   ShoppingBag,
   Sparkles,
+  UserRound,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import heroSauvage from "@/assets/hero-sauvage.png";
@@ -247,6 +249,7 @@ export default function Marketplace() {
   const { data, isLoading } = trpc.marketplace.products.useQuery();
   const products = (data ?? []) as CatalogProduct[];
   const PANEL = import.meta.env.VITE_PANEL_URL ?? "";
+  const cart = useCart();
 
   const [activeSlide, setActiveSlide] = useState(0);
   const [category, setCategory] = useState<string | null>(null);
@@ -318,12 +321,40 @@ export default function Marketplace() {
             </a>
           </nav>
 
-          <a
-            href={`${PANEL}/login`}
-            className="border border-neutral-900 px-5 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-neutral-900 transition-colors hover:bg-neutral-900 hover:text-white"
-          >
-            Entrar
-          </a>
+          <div className="flex items-center gap-4">
+            <Link href="/minha-conta">
+              <button
+                className="flex items-center gap-1.5 text-neutral-500 transition-colors hover:text-neutral-900"
+                aria-label="Minha conta"
+                title="Minha conta"
+              >
+                <UserRound className="h-[18px] w-[18px]" />
+                <span className="hidden text-xs font-medium uppercase tracking-[0.2em] lg:inline">
+                  Minha conta
+                </span>
+              </button>
+            </Link>
+            <Link href="/minha-conta">
+              <button
+                className="relative flex items-center text-neutral-500 transition-colors hover:text-neutral-900"
+                aria-label="Meu carrinho"
+                title="Meu carrinho"
+              >
+                <ShoppingBag className="h-[18px] w-[18px]" />
+                {cart.itemCount > 0 && (
+                  <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-950 px-1 text-[9px] font-bold text-white">
+                    {cart.itemCount}
+                  </span>
+                )}
+              </button>
+            </Link>
+            <a
+              href={`${PANEL}/login`}
+              className="border border-neutral-900 px-5 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-neutral-900 transition-colors hover:bg-neutral-900 hover:text-white"
+            >
+              Entrar
+            </a>
+          </div>
         </div>
       </header>
 

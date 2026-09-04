@@ -414,7 +414,7 @@ export default function Loja() {
             href="/minha-conta"
             className="inline-flex items-center gap-2 text-sm text-muted-foreground underline"
           >
-            <UserRound className="h-4 w-4" /> Meus pedidos
+            <UserRound className="h-4 w-4" /> Minha conta
           </Link>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -14,8 +14,9 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { captureReferralFromLocation } from "@/lib/referral";
+import { useCart } from "@/contexts/CartContext";
 import {
-  ArrowLeft, Share2, ShoppingBag, Heart, MessageCircle,
+  ArrowLeft, Share2, ShoppingBag, Heart, MessageCircle, UserRound, ShoppingCart,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BuyModal } from "@/components/BuyModal";
@@ -62,6 +63,7 @@ export default function ProductPage() {
   const params = useParams<{ id?: string }>();
   const productId = params.id ? Number(params.id) : undefined;
   const [showBuyModal, setShowBuyModal] = useState(false);
+  const cart = useCart();
 
   useEffect(() => {
     captureReferralFromLocation();
@@ -154,14 +156,44 @@ export default function ProductPage() {
             <img src={logo} alt="Shoop" className="h-9 w-auto object-contain cursor-pointer select-none" />
           </Link>
 
-          <button
-            onClick={handleShare}
-            className="flex items-center gap-1.5 text-xs transition-colors"
-            style={{ color: "#aaa", fontFamily: SANS }}
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline uppercase tracking-[0.16em]">Compartilhar</span>
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleShare}
+              className="flex items-center gap-1.5 text-xs transition-colors"
+              style={{ color: "#aaa", fontFamily: SANS }}
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline uppercase tracking-[0.16em]">Compartilhar</span>
+            </button>
+            <Link href="/minha-conta">
+              <button
+                aria-label="Minha conta"
+                title="Minha conta"
+                className="transition-colors"
+                style={{ color: "#aaa" }}
+              >
+                <UserRound className="w-4 h-4" />
+              </button>
+            </Link>
+            <Link href="/minha-conta">
+              <button
+                aria-label="Meu carrinho"
+                title="Meu carrinho"
+                className="relative transition-colors"
+                style={{ color: "#aaa" }}
+              >
+                <ShoppingBag className="w-4 h-4" />
+                {cart.itemCount > 0 && (
+                  <span
+                    className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white"
+                    style={{ backgroundColor: "#111" }}
+                  >
+                    {cart.itemCount}
+                  </span>
+                )}
+              </button>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -326,6 +358,23 @@ export default function ProductPage() {
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "#111"; }}
                 >
                   Reservar produto
+                </button>
+
+                <button
+                  onClick={() => {
+                    cart.addItem({
+                      productId: p.id,
+                      name: p.name,
+                      imageUrl: p.imageUrl ?? null,
+                      unitPrice: pixVal ?? cardVal ?? boletoVal ?? 0,
+                    });
+                    toast.success("Adicionado ao carrinho", { duration: 1200 });
+                  }}
+                  className="w-full py-3 text-sm font-medium border transition-all hover:border-neutral-400 flex items-center justify-center gap-2 uppercase tracking-[0.1em]"
+                  style={{ borderColor: "#e0e0e0", color: "#555", fontFamily: SANS }}
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  Adicionar ao carrinho
                 </button>
 
                 <p
