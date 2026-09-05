@@ -310,28 +310,43 @@ function NI({ value, onChange, placeholder, prefix, suffix, disabled }: {
   );
 }
 
-/** Card de seção — idêntico ao de ConfiguracoesPagamento */
+/** Card de seção — leve sombra para separar visualmente cada bloco do
+ *  cadastro sem introduzir nenhuma cor ou elemento novo de marca. */
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-6">
+    <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
       {children}
     </div>
   );
 }
 
-/** Header de seção — idêntico ao de ConfiguracoesPagamento */
+/** Cor de destaque do ícone de cada seção — só para leitura visual rápida
+ *  ("qual bloco é este?"), sem alterar nenhuma função do formulário. */
+type SectionAccent = "neutral" | "blue" | "amber" | "emerald" | "violet";
+
+const SECTION_ACCENTS: Record<SectionAccent, string> = {
+  neutral: "text-muted-foreground bg-muted border-border",
+  blue: "text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-950/30 dark:border-blue-900/40",
+  amber: "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-950/30 dark:border-amber-900/40",
+  emerald: "text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-900/40",
+  violet: "text-violet-700 bg-violet-50 border-violet-200 dark:text-violet-300 dark:bg-violet-950/30 dark:border-violet-900/40",
+};
+
+/** Header de seção — mesma estrutura de ConfiguracoesPagamento, com um
+ *  acento de cor por seção (`accent`) para facilitar a leitura visual do
+ *  cadastro inteiro sem remover nenhuma função existente. */
 function SectionHeader({
-  icon, title, subtitle,
+  icon, title, subtitle, accent = "neutral",
 }: {
-  icon: React.ReactNode; title: string; subtitle: string;
+  icon: React.ReactNode; title: string; subtitle: string; accent?: SectionAccent;
 }) {
   return (
     <div className="flex items-start gap-3 pb-4 border-b border-border mb-5">
-      <div className="w-9 h-9 rounded-md border border-border bg-muted flex items-center justify-center text-muted-foreground shrink-0">
+      <div className={`w-9 h-9 rounded-md border flex items-center justify-center shrink-0 ${SECTION_ACCENTS[accent]}`}>
         {icon}
       </div>
       <div>
-        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="text-[0.95rem] font-bold text-foreground tracking-tight">{title}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
       </div>
     </div>
@@ -398,8 +413,6 @@ export default function ProductForm() {
   const isEditing = !!productId;
 
   const [form, setForm] = useState<FormState>(defaultForm);
-  const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
-  const [calcError, setCalcError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
@@ -716,17 +729,18 @@ export default function ProductForm() {
     return n(form.desiredMarginRate);
   }, [form.marginMode, form.desiredMarginRate, form.desiredMarginValue, form.manualSalePrice, finalUnitCost, manualPricing]);
 
-  const handleCalculate = useCallback(() => {
-    setCalcError(null);
-    if (!form.name.trim()) { setCalcError("Informe o nome do produto."); return; }
-    if (costPriceBrl <= 0) { setCalcError("Informe o preço de custo."); return; }
-    if (form.marginMode === "MANUAL") {
-      if (n(form.manualSalePrice) <= 0) { setCalcError("Informe o preço manual de venda."); return; }
-      setPricingResult(null);
-      return;
+  // Cálculo automático de preços — antes só rodava quando alguém clicava em
+  // "Calcular Preços", o que fazia produtos ficarem com valor errado/zerado
+  // na vitrine sempre que esse clique era esquecido. Agora, com nome e custo
+  // preenchidos (e configurações globais carregadas), o preço em todas as
+  // formas de pagamento é recalculado automaticamente a cada mudança
+  // relevante — sem precisar pedir. Enquanto os campos ainda não estão
+  // completos, fica silenciosamente em espera (sem exibir erro prematuro).
+  const autoPricing = useMemo<{ result: PricingResult | null; error: string | null }>(() => {
+    if (form.marginMode === "MANUAL") return { result: null, error: null };
+    if (!form.name.trim() || costPriceBrl <= 0 || !globalSettings.data) {
+      return { result: null, error: null };
     }
-
-    if (!globalSettings.data) { setCalcError("Aguardando configurações globais de pagamento..."); return; }
 
     const gs = globalSettings.data;
     const input: PricingInput = {
@@ -765,9 +779,33 @@ export default function ProductForm() {
     };
 
     const calc = calculatePricing(input);
-    if (isPricingError(calc)) { setCalcError(calc.message); return; }
-    setPricingResult(calc);
-  }, [form, costPriceBrl, effectiveMarginRate, globalSettings.data]);
+    if (isPricingError(calc)) return { result: null, error: calc.message };
+    return { result: calc, error: null };
+  }, [
+    form.name, form.category, form.ncm, form.marginMode,
+    form.packagingCost, form.inboundShippingCost, form.operationalCost,
+    costPriceBrl, effectiveMarginRate, globalSettings.data,
+  ]);
+
+  const pricingResult = autoPricing.result;
+  const calcError = autoPricing.error;
+
+  // Botão "Calcular Preços" — mantido por familiaridade e para dar
+  // confirmação explícita a quem clicar, mas o cálculo em si já roda
+  // automaticamente acima; o clique não é mais obrigatório para os valores
+  // ficarem corretos.
+  const handleCalculate = useCallback(() => {
+    if (!form.name.trim()) { toast.error("Informe o nome do produto."); return; }
+    if (costPriceBrl <= 0) { toast.error("Informe o preço de custo."); return; }
+    if (form.marginMode === "MANUAL") {
+      if (n(form.manualSalePrice) <= 0) { toast.error("Informe o preço manual de venda."); return; }
+      toast.success("Preço manual calculado ao lado, em tempo real.");
+      return;
+    }
+    if (!globalSettings.data) { toast.error("Aguardando configurações globais de pagamento..."); return; }
+    if (calcError) { toast.error(calcError); return; }
+    toast.success("Preços já calculados automaticamente para todas as formas de pagamento.");
+  }, [form.name, form.marginMode, form.manualSalePrice, costPriceBrl, globalSettings.data, calcError]);
 
   const handleSave = useCallback(async () => {
     if (!form.name.trim()) { toast.error("Informe o nome do produto."); return; }
@@ -910,15 +948,23 @@ export default function ProductForm() {
                 </a>
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCalculate}
-              disabled={!form.name.trim() || costPriceBrl <= 0 || globalSettings.isLoading}
-              className="gap-2"
-            >
-              <Calculator className="w-3.5 h-3.5" /> Calcular Preços
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCalculate}
+                  disabled={!form.name.trim() || costPriceBrl <= 0 || globalSettings.isLoading}
+                  className="gap-2"
+                >
+                  <Calculator className="w-3.5 h-3.5" /> Calcular Preços
+                  {pricingResult && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                O cálculo já roda sozinho a cada mudança de nome, custo ou margem. Use este botão só para conferir.
+              </TooltipContent>
+            </Tooltip>
             <Button
               size="sm"
               onClick={handleSave}
@@ -952,6 +998,7 @@ export default function ProductForm() {
               <SectionCard>
                 <SectionHeader
                   icon={<Layers className="w-4 h-4" />}
+                  accent="violet"
                   title="Selecionar Produto da Entrada de Produtos"
                   subtitle="Use um produto já cadastrado para publicar/configurar comercialmente sem duplicar"
                 />
@@ -991,6 +1038,7 @@ export default function ProductForm() {
             <SectionCard>
               <SectionHeader
                 icon={<Package className="w-4 h-4" />}
+                accent="blue"
                 title="Identidade do Produto"
                 subtitle="Nome, categoria, descrição e visibilidade na vitrine"
               />
@@ -1240,6 +1288,7 @@ export default function ProductForm() {
             <SectionCard>
               <SectionHeader
                 icon={<DollarSign className="w-4 h-4" />}
+                accent="amber"
                 title="Custos & Estoque"
                 subtitle="Preço de custo, compatibilidade com produtos antigos e controle de estoque"
               />
@@ -1374,6 +1423,7 @@ export default function ProductForm() {
             <SectionCard>
               <SectionHeader
                 icon={<BarChart2 className="w-4 h-4" />}
+                accent="emerald"
                 title="Margem de Lucro Desejada"
                 subtitle="Percentual ou valor absoluto de margem sobre o custo unitário"
               />
@@ -1542,16 +1592,26 @@ export default function ProductForm() {
                 </div>
               )}
 
-              {/* Botão calcular */}
+              {/* Botão calcular — o cálculo já roda automaticamente (ver
+                  autoPricing); o botão fica como conferência explícita. */}
               {finalUnitCost > 0 && (
-                <Button
-                  onClick={handleCalculate}
-                  disabled={globalSettings.isLoading}
-                  className="w-full gap-2"
-                  size="sm"
-                >
-                  <RefreshCcw className="w-3.5 h-3.5" /> Calcular Preços
-                </Button>
+                <div className="space-y-1.5">
+                  <Button
+                    onClick={handleCalculate}
+                    disabled={globalSettings.isLoading}
+                    variant={pricingResult || form.marginMode === "MANUAL" ? "outline" : "default"}
+                    className="w-full gap-2"
+                    size="sm"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" /> Calcular Preços
+                  </Button>
+                  {(pricingResult || (form.marginMode === "MANUAL" && manualPricing)) && (
+                    <p className="flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      Atualizado automaticamente
+                    </p>
+                  )}
+                </div>
               )}
 
               {/* Resultado manual */}

@@ -182,7 +182,7 @@ function ProductCard({ product }: { product: CatalogProduct }) {
           {stock && (
             <div className="absolute inset-x-0 bottom-0 translate-y-full transition-transform duration-300 group-hover:translate-y-0">
               <div className="bg-neutral-950 py-3 text-center text-[9px] font-semibold uppercase tracking-[0.22em] text-white">
-                Ver produto
+                Ver peça
               </div>
             </div>
           )}
@@ -451,7 +451,7 @@ export default function Marketplace() {
                     <div className="order-2 flex flex-1 flex-col justify-center gap-3 px-7 py-7 sm:order-1 sm:px-10 sm:py-8">
                       <span className="inline-flex w-fit items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-[8px] font-semibold uppercase tracking-[0.24em] text-amber-800">
                         <Sparkles className="h-3 w-3" />
-                        {currentBanner.promoTag || "Destaques"}
+                        {currentBanner.promoTag || "Peça em destaque"}
                       </span>
                       <h3
                         className="line-clamp-2 text-xl font-extrabold text-neutral-900 sm:text-[1.75rem]"
