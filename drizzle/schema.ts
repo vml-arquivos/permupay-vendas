@@ -536,6 +536,16 @@ export const paymentSettings = pgTable("permupay_payment_settings", {
   cardPaymentUrl: text("card_payment_url"),
   boletoUrl: text("boleto_url"),
 
+  // ── Métodos de pagamento habilitados (padrão global) ───────────────────────
+  // Usado como (a) valor inicial de PRODUTOS NOVOS quando o cadastro não
+  // informa nada, e (b) fonte do botão "aplicar a todos os produtos" na tela
+  // de Configurações de Pagamento. Não sobrescreve produtos existentes
+  // automaticamente — só quando o usuário aciona a aplicação em massa.
+  pixEnabled: boolean("pix_enabled").notNull().default(true),
+  cardEnabled: boolean("card_enabled").notNull().default(true),
+  boletoEnabled: boolean("boleto_enabled").notNull().default(true),
+  cashEnabled: boolean("cash_enabled").notNull().default(true),
+
   // ── Beneficiário / credor (usado na nota promissória e no comprovante) ────
   beneficiaryName: text("beneficiary_name").notNull().default("Shoop PermuPay"),
   beneficiaryDocument: text("beneficiary_document"),

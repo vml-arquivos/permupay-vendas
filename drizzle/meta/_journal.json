@@ -232,6 +232,13 @@
       "when": 1779940000000,
       "tag": "0033_customer_history_and_communications",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1779950000000,
+      "tag": "0034_payment_settings_methods",
+      "breakpoints": true
     }
   ]
 }

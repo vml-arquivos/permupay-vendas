@@ -200,6 +200,14 @@ const paymentSettingsSchema = z.object({
   cardPaymentUrl: z.string().optional().nullable(),
   boletoUrl: z.string().optional().nullable(),
 
+  // Formas de pagamento ativas (padrão global) — decide o valor inicial de
+  // produtos novos; para produtos já existentes, só muda quando o usuário
+  // aciona explicitamente "aplicar a todos os produtos".
+  pixEnabled: z.boolean().optional(),
+  cardEnabled: z.boolean().optional(),
+  boletoEnabled: z.boolean().optional(),
+  cashEnabled: z.boolean().optional(),
+
   // Beneficiário / credor — usado na nota promissória e no comprovante
   beneficiaryName: z.string().min(1).max(200).optional(),
   beneficiaryDocument: z.string().max(32).optional().nullable(),
@@ -241,6 +249,14 @@ export const appRouter = router({
     update: protectedProcedure
       .input(paymentSettingsSchema)
       .mutation(({ input }) => dbPayment.updatePaymentSettings(input)),
+
+    // "Aplicar a todos os produtos": sobrescreve pixEnabled/cardEnabled/
+    // boletoEnabled/cashEnabled de TODOS os produtos com o padrão global
+    // atual. Ação em massa e explícita — só admin, e só quando acionada
+    // manualmente pelo botão dedicado (nunca automática ao salvar).
+    applyMethodsToAllProducts: adminOnlyProcedure.mutation(() =>
+      dbPayment.applyPaymentMethodsToAllProducts()
+    ),
   }),
 
   // ── Produtos ───────────────────────────────────────────────────────────────

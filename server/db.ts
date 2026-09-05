@@ -376,6 +376,39 @@ export async function getProductCostContext(
   };
 }
 
+/**
+ * Resolve os 4 flags de forma de pagamento (pixEnabled/cardEnabled/
+ * boletoEnabled/cashEnabled) de um produto novo:
+ *   - se o campo veio explícito no payload (inclusive `false`), usa o valor
+ *     explícito — o usuário decidiu para ESTE produto especificamente;
+ *   - senão, herda o padrão global atual (Configurações de Pagamento →
+ *     "Formas de pagamento ativas"), para que a config global vire o ponto
+ *     de partida real de produtos novos em vez de sempre nascer tudo ligado.
+ *
+ * Função pura (sem I/O) para poder ser testada sem mockar o banco.
+ */
+export function resolveProductPaymentMethodFlags(
+  data: {
+    pixEnabled?: boolean;
+    cardEnabled?: boolean;
+    boletoEnabled?: boolean;
+    cashEnabled?: boolean;
+  },
+  globalDefaults: {
+    pixEnabled?: boolean | null;
+    cardEnabled?: boolean | null;
+    boletoEnabled?: boolean | null;
+    cashEnabled?: boolean | null;
+  }
+): { pixEnabled: boolean; cardEnabled: boolean; boletoEnabled: boolean; cashEnabled: boolean } {
+  return {
+    pixEnabled: data.pixEnabled !== undefined ? data.pixEnabled === true : (globalDefaults.pixEnabled ?? true),
+    cardEnabled: data.cardEnabled !== undefined ? data.cardEnabled === true : (globalDefaults.cardEnabled ?? true),
+    boletoEnabled: data.boletoEnabled !== undefined ? data.boletoEnabled === true : (globalDefaults.boletoEnabled ?? true),
+    cashEnabled: data.cashEnabled !== undefined ? data.cashEnabled === true : (globalDefaults.cashEnabled ?? true),
+  };
+}
+
 export async function createProduct(data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -415,6 +448,16 @@ export async function createProduct(data: any) {
     let inheritedPixLink: string | null = null;
     let inheritedCard: string | null = null;
     let inheritedBoleto: string | null = null;
+    // Métodos habilitados: um produto novo, quando não especifica nada,
+    // herda o padrão global atual (em vez de sempre nascer com tudo
+    // habilitado) — assim a configuração global vira o ponto de partida
+    // real para produtos novos, sem precisar tocar em cada produto.
+    let globalPaymentDefaults: {
+      pixEnabled?: boolean | null;
+      cardEnabled?: boolean | null;
+      boletoEnabled?: boolean | null;
+      cashEnabled?: boolean | null;
+    } = {};
     try {
       const { getPaymentSettings } = await import("./db.payment-settings");
       const gs = await getPaymentSettings();
@@ -422,7 +465,14 @@ export async function createProduct(data: any) {
       inheritedPixLink  = gs.pixLink     ?? null;
       inheritedCard     = gs.cardPaymentUrl ?? null;
       inheritedBoleto   = gs.boletoUrl   ?? null;
+      globalPaymentDefaults = {
+        pixEnabled: gs.pixEnabled,
+        cardEnabled: gs.cardEnabled,
+        boletoEnabled: gs.boletoEnabled,
+        cashEnabled: gs.cashEnabled,
+      };
     } catch { /* fallback silencioso — não bloqueia criação */ }
+    const resolvedPaymentMethods = resolveProductPaymentMethodFlags(data, globalPaymentDefaults);
 
     const productData = {
       name: String(data.name).trim(),
@@ -484,12 +534,10 @@ export async function createProduct(data: any) {
       productCondition: normalizeProductCondition(data.productCondition),
       conditionNotes: data.conditionNotes ? String(data.conditionNotes).trim() : null,
       isUniquePiece: data.isUniquePiece === true,
-      // Métodos de pagamento habilitados — default true (todos habilitados)
-      // quando não informado, preservando o comportamento anterior.
-      pixEnabled: data.pixEnabled !== false,
-      cardEnabled: data.cardEnabled !== false,
-      boletoEnabled: data.boletoEnabled !== false,
-      cashEnabled: data.cashEnabled !== false,
+      // Métodos de pagamento habilitados: usa o valor explícito enviado
+      // (inclusive `false`); se não informado, herda o padrão global atual
+      // (Configurações de Pagamento → "Formas de pagamento ativas").
+      ...resolvedPaymentMethods,
     };
 
     const [r] = await db.insert(products).values(productData).returning();

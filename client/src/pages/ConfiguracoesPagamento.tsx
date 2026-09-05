@@ -38,9 +38,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Lock, Unlock, Save, Loader2, Info, CreditCard,
   FileText, Zap, Banknote, Percent, ShieldCheck,
-  AlertCircle, Link2,
+  AlertCircle, Link2, Layers, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { QRCodeSVG } from "qrcode.react";
@@ -210,6 +221,11 @@ interface FormState {
   pixLink: string;
   cardPaymentUrl: string;
   boletoUrl: string;
+  // Formas de pagamento ativas (padrão global)
+  pixEnabled: boolean;
+  cardEnabled: boolean;
+  boletoEnabled: boolean;
+  cashEnabled: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -240,12 +256,19 @@ const EMPTY_FORM: FormState = {
   pixLink: "",
   cardPaymentUrl: "",
   boletoUrl: "",
+  pixEnabled: true,
+  cardEnabled: true,
+  boletoEnabled: true,
+  cashEnabled: true,
 };
 
 function dataToForm(data: Record<string, unknown>): FormState {
   const s = (k: string, fallback: string) =>
     data[k] != null ? String(data[k]) : fallback;
   const b = (k: string) => Boolean(data[k]);
+  // Formas de pagamento: coluna no banco é NOT NULL DEFAULT true — só
+  // considera desativado quando o valor vier explicitamente como false.
+  const bt = (k: string) => data[k] !== false;
   return {
     taxRegime: s("taxRegime", "SIMPLES_NACIONAL"),
     taxBoleto: s("taxBoleto", "6"),
@@ -274,6 +297,10 @@ function dataToForm(data: Record<string, unknown>): FormState {
     pixLink: data["pixLink"] != null && data["pixLink"] !== "null" ? String(data["pixLink"]) : "",
     cardPaymentUrl: data["cardPaymentUrl"] != null && data["cardPaymentUrl"] !== "null" ? String(data["cardPaymentUrl"]) : "",
     boletoUrl: data["boletoUrl"] != null && data["boletoUrl"] !== "null" ? String(data["boletoUrl"]) : "",
+    pixEnabled: bt("pixEnabled"),
+    cardEnabled: bt("cardEnabled"),
+    boletoEnabled: bt("boletoEnabled"),
+    cashEnabled: bt("cashEnabled"),
   };
 }
 
@@ -300,6 +327,17 @@ export default function ConfiguracoesPagamento() {
     onError: (e) => toast.error(e.message),
   });
 
+  const applyToAllMutation = trpc.paymentSettings.applyMethodsToAllProducts.useMutation({
+    onSuccess: (result) => {
+      toast.success(
+        `Aplicado com sucesso: ${result.updatedCount} produto(s) atualizado(s) com as formas de pagamento ativas.`
+      );
+      // Reflete o resultado nos produtos sem precisar recarregar a tela.
+      query.refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const set = (field: keyof FormState) => (value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
@@ -311,6 +349,10 @@ export default function ConfiguracoesPagamento() {
   };
 
   const handleSave = () => {
+    if (!form.pixEnabled && !form.cardEnabled && !form.boletoEnabled && !form.cashEnabled) {
+      toast.error("Ative pelo menos uma forma de pagamento antes de salvar.");
+      return;
+    }
     updateMutation.mutate({
       // Fiscal (taxCash/PIX não é enviado — forçado 0 no servidor)
       taxRegime: form.taxRegime as any,
@@ -344,8 +386,16 @@ export default function ConfiguracoesPagamento() {
       pixLink: form.pixLink || null,
       cardPaymentUrl: form.cardPaymentUrl || null,
       boletoUrl: form.boletoUrl || null,
+      // Formas de pagamento ativas (padrão global)
+      pixEnabled: form.pixEnabled,
+      cardEnabled: form.cardEnabled,
+      boletoEnabled: form.boletoEnabled,
+      cashEnabled: form.cashEnabled,
     });
   };
+
+  const noMethodEnabled =
+    !form.pixEnabled && !form.cardEnabled && !form.boletoEnabled && !form.cashEnabled;
 
   const locked = !editing;
 
@@ -389,7 +439,7 @@ export default function ConfiguracoesPagamento() {
               <Button
                 size="sm"
                 onClick={handleSave}
-                disabled={updateMutation.isPending}
+                disabled={updateMutation.isPending || noMethodEnabled}
                 className="gap-2"
               >
                 {updateMutation.isPending
@@ -638,6 +688,168 @@ export default function ConfiguracoesPagamento() {
           </div>
         </SectionCard>
 
+        {/* ── FORMAS DE PAGAMENTO ATIVAS (padrão global) ───────────────── */}
+        <SectionCard>
+          <SectionHeader
+            icon={<Banknote className="w-4 h-4" />}
+            title="Formas de pagamento ativas"
+            subtitle="Escolha quais formas de pagamento ficam disponíveis para os clientes"
+          />
+
+          <div className="flex items-start gap-2.5 p-3 rounded-md border border-border bg-muted/30 mb-5">
+            <Info className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground">
+              Esta seleção é o <strong className="text-foreground">padrão global</strong>: define quais formas de
+              pagamento já vêm ativadas em <strong className="text-foreground">produtos novos</strong>. Produtos já
+              existentes só mudam quando você clicar em{" "}
+              <strong className="text-foreground">"Aplicar a todos os produtos"</strong> abaixo — até lá, cada
+              produto continua com o que foi configurado individualmente na tela de edição do produto.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-center justify-between p-3.5 rounded-md border border-border bg-muted/20">
+              <div className="flex items-center gap-2.5">
+                <Zap className="w-4 h-4 text-emerald-600 dark:text-emerald-500 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Pix</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Sempre isento de imposto</p>
+                </div>
+              </div>
+              <Switch
+                checked={form.pixEnabled}
+                onCheckedChange={(v) => !locked && set("pixEnabled")(v)}
+                disabled={locked}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3.5 rounded-md border border-border bg-muted/20">
+              <div className="flex items-center gap-2.5">
+                <CreditCard className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Cartão</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Débito e crédito</p>
+                </div>
+              </div>
+              <Switch
+                checked={form.cardEnabled}
+                onCheckedChange={(v) => !locked && set("cardEnabled")(v)}
+                disabled={locked}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3.5 rounded-md border border-border bg-muted/20">
+              <div className="flex items-center gap-2.5">
+                <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Boleto</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">À vista ou parcelado</p>
+                </div>
+              </div>
+              <Switch
+                checked={form.boletoEnabled}
+                onCheckedChange={(v) => !locked && set("boletoEnabled")(v)}
+                disabled={locked}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3.5 rounded-md border border-border bg-muted/20">
+              <div className="flex items-center gap-2.5">
+                <Banknote className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Dinheiro</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Pagamento presencial</p>
+                </div>
+              </div>
+              <Switch
+                checked={form.cashEnabled}
+                onCheckedChange={(v) => !locked && set("cashEnabled")(v)}
+                disabled={locked}
+              />
+            </div>
+          </div>
+
+          {noMethodEnabled && (
+            <div className="flex items-start gap-2.5 p-3 mt-4 rounded-md border border-destructive/40 bg-destructive/10">
+              <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
+              <p className="text-xs text-destructive">
+                Nenhuma forma de pagamento está ativa. Com todas desligadas, novos produtos nasceriam sem nenhuma
+                opção de pagamento disponível para o cliente. Ative pelo menos uma antes de salvar.
+              </p>
+            </div>
+          )}
+
+          <div className="mt-5 pt-5 border-t border-border">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+                  Aplicar a todos os produtos
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Sobrescreve as formas de pagamento de <strong className="text-foreground">todos</strong> os
+                  produtos já cadastrados com a seleção salva acima. Ação em massa — não afeta o padrão de produtos
+                  novos (isso já é automático).
+                </p>
+                {editing && (
+                  <p className="text-xs text-amber-700 dark:text-amber-500 mt-1.5">
+                    Salve as alterações acima antes de aplicar a todos os produtos.
+                  </p>
+                )}
+              </div>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 shrink-0"
+                    disabled={editing || applyToAllMutation.isPending}
+                  >
+                    {applyToAllMutation.isPending
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Layers className="w-3.5 h-3.5" />
+                    }
+                    Aplicar a todos os produtos
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-500" />
+                      Aplicar formas de pagamento a todos os produtos?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-2 text-sm text-muted-foreground">
+                        <p>
+                          Isto vai sobrescrever a configuração de formas de pagamento (Pix, Cartão, Boleto, Dinheiro)
+                          de <strong className="text-foreground">todos os produtos cadastrados</strong>, usando o que
+                          está salvo agora nesta tela:
+                        </p>
+                        <p className="text-foreground font-medium">
+                          Pix: {form.pixEnabled ? "ativo" : "inativo"} · Cartão: {form.cardEnabled ? "ativo" : "inativo"} ·
+                          {" "}Boleto: {form.boletoEnabled ? "ativo" : "inativo"} · Dinheiro: {form.cashEnabled ? "ativo" : "inativo"}
+                        </p>
+                        <p>
+                          Configurações individuais já feitas na tela de cada produto serão perdidas. Esta ação não
+                          pode ser desfeita automaticamente — só ajustando produto por produto de novo.
+                        </p>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => applyToAllMutation.mutate()}>
+                      Aplicar a todos os produtos
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        </SectionCard>
+
         {/* ── E. PAGAMENTOS EXTERNOS ───────────────────────────────────── */}
         <SectionCard>
           <SectionHeader
@@ -756,6 +968,10 @@ export default function ConfiguracoesPagamento() {
                 { label: "Desconto Crédito", value: n(form.discountCredit) > 0 ? `−${form.discountCredit}%` : "—" },
                 { label: "Plataforma", value: PAYMENT_PLATFORM_LABELS[form.paymentPlatform] ?? form.paymentPlatform },
                 { label: "Chave Pix", value: form.pixKey || "—" },
+                { label: "Pix ativo", value: form.pixEnabled ? "Sim" : "Não" },
+                { label: "Cartão ativo", value: form.cardEnabled ? "Sim" : "Não" },
+                { label: "Boleto ativo", value: form.boletoEnabled ? "Sim" : "Não" },
+                { label: "Dinheiro ativo", value: form.cashEnabled ? "Sim" : "Não" },
               ].map((item) => (
                 <div key={item.label}>
                   <p className="text-xs text-muted-foreground">{item.label}</p>

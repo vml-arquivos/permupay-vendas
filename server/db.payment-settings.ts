@@ -15,7 +15,7 @@
 
 import { eq } from "drizzle-orm";
 import { getDb } from "./db";
-import { paymentSettings, type PaymentSetting } from "../drizzle/schema";
+import { paymentSettings, products, type PaymentSetting } from "../drizzle/schema";
 
 const DEFAULTS: Omit<PaymentSetting, "id" | "updatedAt"> = {
   // Fiscal
@@ -52,6 +52,11 @@ const DEFAULTS: Omit<PaymentSetting, "id" | "updatedAt"> = {
   pixLink: null,
   cardPaymentUrl: null,
   boletoUrl: null,
+  // Métodos de pagamento habilitados (padrão global)
+  pixEnabled: true,
+  cardEnabled: true,
+  boletoEnabled: true,
+  cashEnabled: true,
   // Beneficiário / credor — usado na nota promissória e no comprovante
   beneficiaryName: "Shoop PermuPay",
   beneficiaryDocument: null,
@@ -91,4 +96,45 @@ export async function updatePaymentSettings(
     .returning();
 
   return updated;
+}
+
+/**
+ * "Aplicar a todos os produtos" — sobrescreve pixEnabled/cardEnabled/
+ * boletoEnabled/cashEnabled de TODOS os produtos com os valores atuais da
+ * configuração global. É uma ação explícita e em massa (o usuário aciona um
+ * botão dedicado na tela de Configurações de Pagamento) — nunca acontece
+ * sozinha ao salvar a configuração global, para não sobrescrever produtos já
+ * configurados individualmente sem o usuário pedir.
+ *
+ * Retorna quantos produtos foram atualizados, para a UI confirmar a ação.
+ */
+export async function applyPaymentMethodsToAllProducts(): Promise<{
+  updatedCount: number;
+  settings: Pick<PaymentSetting, "pixEnabled" | "cardEnabled" | "boletoEnabled" | "cashEnabled">;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const settings = await getPaymentSettings();
+
+  const updated = await db
+    .update(products)
+    .set({
+      pixEnabled: settings.pixEnabled,
+      cardEnabled: settings.cardEnabled,
+      boletoEnabled: settings.boletoEnabled,
+      cashEnabled: settings.cashEnabled,
+      updatedAt: new Date(),
+    })
+    .returning({ id: products.id });
+
+  return {
+    updatedCount: updated.length,
+    settings: {
+      pixEnabled: settings.pixEnabled,
+      cardEnabled: settings.cardEnabled,
+      boletoEnabled: settings.boletoEnabled,
+      cashEnabled: settings.cashEnabled,
+    },
+  };
 }
