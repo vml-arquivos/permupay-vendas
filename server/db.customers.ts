@@ -182,6 +182,107 @@ export async function getCustomerById(id: number): Promise<Customer | null> {
   return customer ?? null;
 }
 
+export type UpdateCustomerByIdInput = {
+  name?: string;
+  contact?: string;
+  contactType?: CustomerContactType;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  cpf?: string;
+  rg?: string;
+  birthDate?: string;
+};
+
+/**
+ * Edição administrativa da ficha do cliente (/clientes/:id → "Editar
+ * cadastro"). Diferente de `identifyOrCreateCustomer` (que faz upsert por
+ * contato, usado no cadastro rápido/checkout), esta função edita um
+ * registro já existente PELO ID — permite inclusive corrigir o próprio
+ * contato de um cadastro, sem risco de acidentalmente "resgatar"/mesclar
+ * outro cliente que já use aquele contato (checa colisão explicitamente).
+ */
+export async function updateCustomerById(
+  id: number,
+  data: UpdateCustomerByIdInput
+): Promise<Customer> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await getCustomerById(id);
+  if (!existing) throw new Error("Cliente não encontrado");
+
+  const update: Partial<InsertCustomer> = { updatedAt: new Date() };
+
+  if (data.name !== undefined) {
+    const name = data.name.trim();
+    if (name.length < 2) throw new Error("Nome do cliente é obrigatório");
+    update.name = name;
+  }
+
+  if (data.contact !== undefined) {
+    const contactType = data.contactType ?? existing.contactType as CustomerContactType;
+    const contact = normalizeCustomerContact(data.contact, contactType);
+    if (contact.length < 5) throw new Error("Contato do cliente é inválido");
+    if (contact.toLowerCase() !== existing.contact.toLowerCase()) {
+      const [conflict] = await db
+        .select({ id: customers.id })
+        .from(customers)
+        .where(eq(sql`LOWER(${customers.contact})`, contact.toLowerCase()))
+        .limit(1);
+      if (conflict && conflict.id !== id) {
+        throw new Error("Já existe outro cliente cadastrado com este contato.");
+      }
+    }
+    update.contact = contact;
+    update.contactType = contactType;
+  } else if (data.contactType !== undefined) {
+    update.contactType = data.contactType;
+  }
+
+  const optionalFields = ["email", "address", "city", "zipCode", "rg"] as const;
+  for (const field of optionalFields) {
+    const value = cleanOptional(data[field]);
+    if (value !== undefined) update[field] = value;
+  }
+  if (data.state !== undefined) {
+    update.state = cleanOptional(data.state)?.toUpperCase() ?? null;
+  }
+  if (data.cpf !== undefined) update.cpf = normalizeCpf(data.cpf);
+  if (data.birthDate !== undefined) {
+    update.birthDate = cleanOptional(data.birthDate) ?? null;
+  }
+
+  const [updated] = await db
+    .update(customers)
+    .set(update)
+    .where(eq(customers.id, id))
+    .returning();
+  if (!updated) throw new Error("Cliente não encontrado");
+  return updated;
+}
+
+/**
+ * Exclui o cadastro do cliente. Pedidos e notas promissórias já existentes
+ * NÃO são apagados — a coluna `customer_id` deles é apenas zerada (ON DELETE
+ * SET NULL, ver drizzle/schema.orders.ts e schema.promissoryNotes.ts), então
+ * o histórico de vendas/faturamento permanece intacto. Só o histórico de
+ * análise de crédito e a trilha de comunicações deste cliente (que só fazem
+ * sentido junto do cadastro) são removidos em cascata pelo próprio banco.
+ *
+ * Ação irreversível e administrativa — o chamador (router) deve restringir
+ * a admin e a UI deve confirmar explicitamente antes de chamar isto.
+ */
+export async function deleteCustomer(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getCustomerById(id);
+  if (!existing) throw new Error("Cliente não encontrado");
+  await db.delete(customers).where(eq(customers.id, id));
+}
+
 // ─── Segurança da área do cliente (senha) ──────────────────────────────────
 // Mesmo padrão de hashing (bcryptjs, custo 12) já usado em server/db.ts para
 // os usuários internos.

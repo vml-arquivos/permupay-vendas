@@ -14,14 +14,15 @@
  * mesmo modelo já usado em /clientes (CRM interno, sem escopo por vendedor).
  * Alterar análise de crédito continua restrito a admin (adminOnlyProcedure).
  */
-import { useState } from "react";
-import { Link, useParams } from "wouter";
+import { useEffect, useState } from "react";
+import { Link, useParams, useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -32,19 +33,42 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
   Download,
   FileSignature,
   FileText,
+  Loader2,
   Mail,
   MessageCircle,
+  Pencil,
+  Printer,
   ShieldCheck,
   ShoppingBag,
+  Trash2,
   Wallet,
   History,
   UserRound,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PAYMENT_LABEL, STATUS_COLOR, STATUS_LABEL_SHORT } from "@/lib/orderStatus";
@@ -99,16 +123,34 @@ function EmptyState({ icon: Icon, text }: { icon: React.ElementType; text: strin
   );
 }
 
+const emptyCustomerForm = () => ({
+  name: "",
+  contact: "",
+  contactType: "WHATSAPP" as "WHATSAPP" | "EMAIL",
+  email: "",
+  cpf: "",
+  rg: "",
+  birthDate: "",
+  address: "",
+  city: "",
+  state: "",
+  zipCode: "",
+});
+
 export default function ClienteDetalhe() {
   const { id } = useParams<{ id: string }>();
   const customerId = Number(id);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
 
   const [ordersPage, setOrdersPage] = useState(0);
   const [creditNotes, setCreditNotes] = useState("");
   const [creditLimit, setCreditLimit] = useState("");
+  const [editingCadastro, setEditingCadastro] = useState(false);
+  const [customerForm, setCustomerForm] = useState(emptyCustomerForm());
+  const [printingAll, setPrintingAll] = useState(false);
 
   const validId = Number.isFinite(customerId) && customerId > 0;
 
@@ -136,6 +178,27 @@ export default function ClienteDetalhe() {
     { customerId },
     { enabled: validId }
   );
+
+  const updateCustomer = trpc.customers.update.useMutation({
+    onSuccess: async () => {
+      toast.success("Cadastro atualizado com sucesso.");
+      setEditingCadastro(false);
+      await Promise.all([
+        utils.customers.byId.invalidate({ id: customerId }),
+        utils.customers.list.invalidate(),
+      ]);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const deleteCustomerMutation = trpc.customers.delete.useMutation({
+    onSuccess: async () => {
+      toast.success("Cadastro excluído. Pedidos e notas já emitidos foram preservados.");
+      await utils.customers.list.invalidate();
+      setLocation("/clientes");
+    },
+    onError: (error) => toast.error(error.message),
+  });
 
   const logCommunication = trpc.customers.communications.log.useMutation({
     onSuccess: () => utils.customers.communications.list.invalidate({ customerId }),
@@ -165,6 +228,27 @@ export default function ClienteDetalhe() {
     },
     onError: (error) => toast.error(error.message),
   });
+
+  // Carrega o formulário de edição sempre que os dados do cliente chegarem
+  // (ou trocarem) — mas nunca por cima de uma edição em andamento, para não
+  // apagar o que o usuário já digitou se uma invalidação disparar de novo.
+  useEffect(() => {
+    if (!customerQuery.data || editingCadastro) return;
+    const c = customerQuery.data;
+    setCustomerForm({
+      name: c.name ?? "",
+      contact: c.contact ?? "",
+      contactType: (c.contactType as "WHATSAPP" | "EMAIL") ?? "WHATSAPP",
+      email: c.email ?? "",
+      cpf: c.cpf ?? "",
+      rg: c.rg ?? "",
+      birthDate: c.birthDate ? String(c.birthDate).slice(0, 10) : "",
+      address: c.address ?? "",
+      city: c.city ?? "",
+      state: c.state ?? "",
+      zipCode: c.zipCode ?? "",
+    });
+  }, [customerQuery.data, editingCadastro]);
 
   if (!validId) {
     return (
@@ -280,6 +364,65 @@ export default function ClienteDetalhe() {
     }
   };
 
+  const handleSaveCadastro = () => {
+    if (!customerForm.name.trim()) return toast.error("Informe o nome do cliente.");
+    if (!customerForm.contact.trim()) return toast.error("Informe o contato do cliente.");
+    updateCustomer.mutate({
+      id: customerId,
+      name: customerForm.name.trim(),
+      contact: customerForm.contact.trim(),
+      contactType: customerForm.contactType,
+      email: customerForm.email.trim(),
+      cpf: customerForm.cpf.trim() || undefined,
+      rg: customerForm.rg.trim() || undefined,
+      birthDate: customerForm.birthDate || undefined,
+      address: customerForm.address.trim() || undefined,
+      city: customerForm.city.trim() || undefined,
+      state: customerForm.state.trim() || undefined,
+      zipCode: customerForm.zipCode.trim() || undefined,
+    });
+  };
+
+  const handleCancelEditCadastro = () => {
+    setEditingCadastro(false);
+    setCustomerForm({
+      name: customer.name ?? "",
+      contact: customer.contact ?? "",
+      contactType: (customer.contactType as "WHATSAPP" | "EMAIL") ?? "WHATSAPP",
+      email: customer.email ?? "",
+      cpf: customer.cpf ?? "",
+      rg: customer.rg ?? "",
+      birthDate: customer.birthDate ? String(customer.birthDate).slice(0, 10) : "",
+      address: customer.address ?? "",
+      city: customer.city ?? "",
+      state: customer.state ?? "",
+      zipCode: customer.zipCode ?? "",
+    });
+  };
+
+  const handlePrintAllNotes = async () => {
+    const printableNotes = notes.filter((n: any) => n.status !== "CANCELADA");
+    if (printableNotes.length === 0) {
+      toast.error("Este cliente não tem notas promissórias para imprimir.");
+      return;
+    }
+    setPrintingAll(true);
+    try {
+      const result = await utils.promissoryNotes.mergedPdfByCustomer.fetch({ customerId });
+      const byteChars = atob(result.base64);
+      const bytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank", "noopener,noreferrer");
+      toast.success(`${result.count} nota(s) promissória(s) prontas — abra e use "Imprimir" no visualizador de PDF.`);
+    } catch (error: any) {
+      toast.error(error?.message ?? "Não foi possível juntar as notas promissórias para impressão.");
+    } finally {
+      setPrintingAll(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-5xl space-y-5 p-4 sm:p-6">
@@ -293,52 +436,164 @@ export default function ClienteDetalhe() {
             <h1 className="truncate text-2xl font-bold tracking-tight">{customer.name}</h1>
             <p className="text-sm text-muted-foreground">{customer.contact}</p>
           </div>
-          <Badge variant={CREDIT_STATUS_VARIANT[customer.creditStatus] ?? "outline"}>
-            {CREDIT_STATUS_LABEL[customer.creditStatus] ?? customer.creditStatus}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={CREDIT_STATUS_VARIANT[customer.creditStatus] ?? "outline"}>
+              {CREDIT_STATUS_LABEL[customer.creditStatus] ?? customer.creditStatus}
+            </Badge>
+            {!editingCadastro ? (
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditingCadastro(true)}>
+                <Pencil className="h-3.5 w-3.5" /> Editar cadastro
+              </Button>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={handleCancelEditCadastro} disabled={updateCustomer.isPending}>
+                  <X className="h-3.5 w-3.5" /> Cancelar
+                </Button>
+                <Button size="sm" className="gap-1.5" onClick={handleSaveCadastro} disabled={updateCustomer.isPending}>
+                  {updateCustomer.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                  Atualizar
+                </Button>
+              </>
+            )}
+            {isAdmin && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="outline" className="gap-1.5 text-destructive hover:text-destructive">
+                    <Trash2 className="h-3.5 w-3.5" /> Excluir cadastro
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir o cadastro de {customer.name}?</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-2 text-sm text-muted-foreground">
+                        <p>Esta ação apaga o cadastro do cliente e não pode ser desfeita.</p>
+                        <p>
+                          Pedidos e notas promissórias já emitidos <strong className="text-foreground">não são apagados</strong> — eles ficam sem
+                          cliente vinculado, preservando o histórico de vendas e faturamento.
+                        </p>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() => deleteCustomerMutation.mutate({ id: customerId })}
+                    >
+                      Excluir cadastro
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
         </div>
 
-        {/* ── Cadastro (resumo) ─────────────────────────────────────────── */}
+        {/* ── Cadastro (resumo / edição) ────────────────────────────────── */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <UserRound className="h-4 w-4" /> Cadastro
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border p-3">
-              <span className="block text-xs text-muted-foreground">Contato</span>
-              <strong className="text-sm">{customer.contact}</strong>
-            </div>
-            <div className="rounded-xl border p-3">
-              <span className="block text-xs text-muted-foreground">E-mail</span>
-              <strong className="text-sm">{customer.email || "Não informado"}</strong>
-            </div>
-            <div className="rounded-xl border p-3">
-              <span className="block text-xs text-muted-foreground">CPF</span>
-              <strong className="text-sm">{customer.cpf || "Não informado"}</strong>
-            </div>
-            <div className="rounded-xl border p-3">
-              <span className="block text-xs text-muted-foreground">Endereço</span>
-              <strong className="text-sm">
-                {customer.address ? `${customer.address}${customer.city ? ` — ${customer.city}/${customer.state ?? ""}` : ""}` : "Não informado"}
-              </strong>
-            </div>
-            <div className="rounded-xl border p-3">
-              <span className="block text-xs text-muted-foreground">Total pago</span>
-              <strong className="text-sm text-emerald-700">{fmt(totalPaid)}</strong>
-            </div>
-            <div className="rounded-xl border p-3">
-              <span className="block text-xs text-muted-foreground">Em aberto</span>
-              <strong className="text-sm text-amber-700">{fmt(totalPending)}</strong>
-            </div>
-            <div className="rounded-xl border p-3">
-              <span className="block text-xs text-muted-foreground">Cliente desde</span>
-              <strong className="text-sm">{customer.createdAt ? formatDate(customer.createdAt) : "—"}</strong>
-            </div>
-            <div className="rounded-xl border p-3">
-              <span className="block text-xs text-muted-foreground">Total de pedidos</span>
-              <strong className="text-sm">{ordersTotal}</strong>
+          <CardContent className="space-y-4">
+            {editingCadastro ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-1.5 lg:col-span-2">
+                  <Label className="text-xs">Nome completo</Label>
+                  <Input value={customerForm.name} onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Tipo de contato</Label>
+                  <Select
+                    value={customerForm.contactType}
+                    onValueChange={(v) => setCustomerForm({ ...customerForm, contactType: v as "WHATSAPP" | "EMAIL" })}
+                  >
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
+                      <SelectItem value="EMAIL">E-mail</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Contato (WhatsApp ou e-mail)</Label>
+                  <Input value={customerForm.contact} onChange={(e) => setCustomerForm({ ...customerForm, contact: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">E-mail</Label>
+                  <Input type="email" value={customerForm.email} onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">CPF</Label>
+                  <Input value={customerForm.cpf} onChange={(e) => setCustomerForm({ ...customerForm, cpf: e.target.value.replace(/\D/g, "").slice(0, 11) })} inputMode="numeric" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">RG</Label>
+                  <Input value={customerForm.rg} onChange={(e) => setCustomerForm({ ...customerForm, rg: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Data de nascimento</Label>
+                  <Input type="date" value={customerForm.birthDate} onChange={(e) => setCustomerForm({ ...customerForm, birthDate: e.target.value })} />
+                </div>
+                <div className="space-y-1.5 lg:col-span-2">
+                  <Label className="text-xs">Endereço completo</Label>
+                  <Input value={customerForm.address} onChange={(e) => setCustomerForm({ ...customerForm, address: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Cidade</Label>
+                  <Input value={customerForm.city} onChange={(e) => setCustomerForm({ ...customerForm, city: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Estado (UF)</Label>
+                  <Input maxLength={2} value={customerForm.state} onChange={(e) => setCustomerForm({ ...customerForm, state: e.target.value.toUpperCase() })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">CEP</Label>
+                  <Input value={customerForm.zipCode} onChange={(e) => setCustomerForm({ ...customerForm, zipCode: e.target.value })} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl border p-3">
+                  <span className="block text-xs text-muted-foreground">Contato</span>
+                  <strong className="text-sm">{customer.contact}</strong>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <span className="block text-xs text-muted-foreground">E-mail</span>
+                  <strong className="text-sm">{customer.email || "Não informado"}</strong>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <span className="block text-xs text-muted-foreground">CPF</span>
+                  <strong className="text-sm">{customer.cpf || "Não informado"}</strong>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <span className="block text-xs text-muted-foreground">Endereço</span>
+                  <strong className="text-sm">
+                    {customer.address ? `${customer.address}${customer.city ? ` — ${customer.city}/${customer.state ?? ""}` : ""}` : "Não informado"}
+                  </strong>
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl border p-3">
+                <span className="block text-xs text-muted-foreground">Total pago</span>
+                <strong className="text-sm text-emerald-700">{fmt(totalPaid)}</strong>
+              </div>
+              <div className="rounded-xl border p-3">
+                <span className="block text-xs text-muted-foreground">Em aberto</span>
+                <strong className="text-sm text-amber-700">{fmt(totalPending)}</strong>
+              </div>
+              <div className="rounded-xl border p-3">
+                <span className="block text-xs text-muted-foreground">Cliente desde</span>
+                <strong className="text-sm">{customer.createdAt ? formatDate(customer.createdAt) : "—"}</strong>
+              </div>
+              <div className="rounded-xl border p-3">
+                <span className="block text-xs text-muted-foreground">Total de pedidos</span>
+                <strong className="text-sm">{ordersTotal}</strong>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -467,10 +722,18 @@ export default function ClienteDetalhe() {
           </TabsContent>
 
           {/* ── DOCUMENTOS (comprovantes + notas promissórias) ───────────── */}
-          <TabsContent value="documentos" className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Link com comprovante e notas promissórias de cada pedido desta página — o mesmo incluído na mensagem de WhatsApp/e-mail.
-            </p>
+          <TabsContent value="documentos" className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground max-w-md">
+                Link com comprovante e notas promissórias de cada pedido desta página — o mesmo incluído na mensagem de WhatsApp/e-mail.
+              </p>
+              {notes.length > 0 && (
+                <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={handlePrintAllNotes} disabled={printingAll}>
+                  {printingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+                  Imprimir todas de uma vez
+                </Button>
+              )}
+            </div>
             {notes.length > 0 ? (
               <div className="space-y-2">
                 {notes.map((note: any) => (
@@ -491,9 +754,14 @@ export default function ClienteDetalhe() {
                         {NOTE_STATUS_LABEL[note.status] ?? note.status}
                       </Badge>
                       {note.documentUrl && (
-                        <a href={note.documentUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary underline">
-                          <Download className="h-3.5 w-3.5" /> PDF
-                        </a>
+                        <>
+                          <a href={note.documentUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary underline">
+                            <Download className="h-3.5 w-3.5" /> Baixar
+                          </a>
+                          <a href={note.documentUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary underline">
+                            <Printer className="h-3.5 w-3.5" /> Imprimir
+                          </a>
+                        </>
                       )}
                       {isAdmin && note.status === "GERADA" && (
                         <Button size="sm" variant="outline" className="gap-1" disabled={updateNoteStatus.isPending} onClick={() => updateNoteStatus.mutate({ noteId: note.id, status: "ENVIADA" })}>

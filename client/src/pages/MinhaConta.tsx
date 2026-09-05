@@ -287,6 +287,20 @@ function MinhaContaLogada({ customer }: { customer: SafeCustomer }) {
     });
   };
 
+  const paidOrders = useMemo(
+    () => (ordersQuery.data ?? []).filter(o => o.status === "PAGO"),
+    [ordersQuery.data]
+  );
+
+  const handleOpenDocuments = async (orderId: number) => {
+    try {
+      const { url } = await utils.customers.myOrderDocumentsLink.fetch({ orderId });
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Não foi possível abrir os documentos deste pedido.");
+    }
+  };
+
   const submitCheckout = () => {
     if (!cart.items.length) return toast.error("Seu carrinho está vazio.");
     checkout.mutate({
@@ -383,11 +397,16 @@ function MinhaContaLogada({ customer }: { customer: SafeCustomer }) {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
-          <TabsList className="grid h-auto w-full grid-cols-4">
+          <TabsList className="grid h-auto w-full grid-cols-5">
             <TabsTrigger value="pedidos" className="gap-2">
               <Package className="h-4 w-4" />{" "}
               <span className="hidden sm:inline">Meus pedidos</span>
               <span className="sm:hidden">Pedidos</span>
+            </TabsTrigger>
+            <TabsTrigger value="pagamentos" className="gap-2">
+              <CheckCircle2 className="h-4 w-4" />{" "}
+              <span className="hidden sm:inline">Pagamentos</span>
+              <span className="sm:hidden">Pagtos</span>
             </TabsTrigger>
             <TabsTrigger value="recomendados" className="gap-2">
               <Sparkles className="h-4 w-4" />{" "}
@@ -503,6 +522,14 @@ function MinhaContaLogada({ customer }: { customer: SafeCustomer }) {
                                     {formatTimeRemaining(order.expiresAt)}
                                   </p>
                                 )}
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  className="mt-1 h-auto gap-1 p-0 text-xs"
+                                  onClick={() => handleOpenDocuments(order.id)}
+                                >
+                                  <FileText className="h-3.5 w-3.5" /> Ver comprovante e boletos
+                                </Button>
                               </div>
                             </div>
                           );
@@ -513,6 +540,73 @@ function MinhaContaLogada({ customer }: { customer: SafeCustomer }) {
                 })}
               </div>
             )}
+          </TabsContent>
+
+          {/* ── PAGAMENTOS (histórico) ─────────────────────────────────── */}
+          <TabsContent value="pagamentos" className="space-y-4">
+            {ordersQuery.isLoading ? (
+              <div className="rounded-2xl border bg-white p-8 text-center text-sm text-muted-foreground">
+                Buscando seu histórico de pagamentos…
+              </div>
+            ) : paidOrders.length === 0 ? (
+              <div className="rounded-2xl border bg-white p-10 text-center">
+                <CheckCircle2 className="mx-auto h-10 w-10 text-muted-foreground/30" />
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Você ainda não tem pagamentos confirmados.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border bg-white">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                        <th className="px-4 py-3">Pedido</th>
+                        <th className="px-4 py-3">Produto</th>
+                        <th className="px-4 py-3">Forma</th>
+                        <th className="px-4 py-3">Confirmado em</th>
+                        <th className="px-4 py-3 text-right">Valor</th>
+                        <th className="px-4 py-3 text-right">Documentos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paidOrders.map(order => (
+                        <tr key={order.id} className="border-b last:border-0">
+                          <td className="px-4 py-3 text-xs text-muted-foreground">#{order.id}</td>
+                          <td className="px-4 py-3">{order.productName}</td>
+                          <td className="px-4 py-3">
+                            {PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod}
+                          </td>
+                          <td className="px-4 py-3">
+                            {order.confirmedAt
+                              ? new Date(order.confirmedAt).toLocaleString("pt-BR")
+                              : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-emerald-700">
+                            {fmt(Number(order.totalPrice))}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              onClick={() => handleOpenDocuments(order.id)}
+                            >
+                              <FileText className="h-3.5 w-3.5" /> Comprovante
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Boletos e notas promissórias de compras parceladas também ficam disponíveis no link de
+              documentos de cada pedido — pagamentos via boleto liberam o comprovante assim que forem
+              confirmados pela equipe.
+            </p>
           </TabsContent>
 
           {/* ── RECOMENDADOS ───────────────────────────────────────── */}

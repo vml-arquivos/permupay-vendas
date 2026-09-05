@@ -13,6 +13,7 @@
  */
 
 import { eq, and, desc } from "drizzle-orm";
+import { PDFDocument } from "pdf-lib";
 import { getDb } from "./db";
 import {
   promissoryNotes,
@@ -255,4 +256,48 @@ export async function markAllNotesSentForOrder(orderId: number): Promise<number>
     )
     .returning();
   return rows.length;
+}
+
+/**
+ * Junta os PDFs reais (já gerados e armazenados, um por nota — ver
+ * `generatePromissoryNotesForOrder`) de uma lista de notas promissórias em
+ * um único PDF, na ordem informada. Usado por "Imprimir todas de uma vez"
+ * na ficha do cliente: em vez de reconstruir o conteúdo da nota do zero
+ * (arriscando divergir do PDF oficial já emitido), busca cada PDF pela sua
+ * própria URL pública e mescla as páginas de verdade com pdf-lib.
+ *
+ * Lança erro se nenhuma nota tiver `documentUrl` (nada para imprimir) — o
+ * chamador decide como comunicar isso ao usuário.
+ */
+export async function mergeNotesPdfs(notes: PromissoryNote[]): Promise<Buffer> {
+  const withDocs = notes.filter((n) => !!n.documentUrl);
+  if (withDocs.length === 0) {
+    throw new Error("Nenhuma nota promissória com PDF disponível para imprimir.");
+  }
+
+  const merged = await PDFDocument.create();
+  for (const note of withDocs) {
+    try {
+      const response = await fetch(note.documentUrl as string);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const sourceDoc = await PDFDocument.load(arrayBuffer);
+      const pages = await merged.copyPages(sourceDoc, sourceDoc.getPageIndices());
+      for (const page of pages) merged.addPage(page);
+    } catch (error) {
+      console.error(
+        `[promissoryNotes] Falha ao juntar o PDF da nota #${note.id} (pedido #${note.orderId}):`,
+        error
+      );
+    }
+  }
+
+  if (merged.getPageCount() === 0) {
+    throw new Error("Não foi possível carregar nenhum dos PDFs das notas promissórias.");
+  }
+
+  const bytes = await merged.save();
+  return Buffer.from(bytes);
 }

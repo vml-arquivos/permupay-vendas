@@ -1157,6 +1157,23 @@ export const appRouter = router({
     // Idem — a própria sessão já garante que só o dono vê seu perfil.
     myProfile: customerProcedure.query(({ ctx }) => ctx.customer),
 
+    // ── Documentos do próprio pedido (Minha Conta → comprovante/boletos) ────
+    // Mesmo link público usado no WhatsApp/e-mail (server/_core/documentRoutes),
+    // mas aqui exposto só para o dono do pedido logado — confere
+    // explicitamente que o pedido pertence a este cliente antes de gerar o
+    // link, para um cliente nunca conseguir ver documentos de outro só
+    // adivinhando um orderId.
+    myOrderDocumentsLink: customerProcedure
+      .input(z.object({ orderId: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        const order = await dbOrders.getOrderById(input.orderId);
+        if (!order || order.customerId !== ctx.customer.id) {
+          throw new Error("Pedido não encontrado.");
+        }
+        const token = await dbOrders.getOrGenerateAccessToken(input.orderId);
+        return { url: buildDocumentsUrl(token) };
+      }),
+
     recommendations: publicProcedure
       .input(
         z.object({
@@ -1298,6 +1315,45 @@ export const appRouter = router({
         return customer ? dbCustomers.toSafeCustomer(customer) : null;
       }),
 
+    // ── Editar cadastro (ficha do cliente → "Editar cadastro" / "Atualizar") ─
+    // Equipe interna (protectedProcedure, mesmo nível de acesso de `register`
+    // e `list`) pode corrigir/completar os dados de qualquer cliente.
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          name: z.string().trim().min(2).optional(),
+          contact: z.string().trim().min(5).optional(),
+          contactType: z.enum(["WHATSAPP", "EMAIL"]).optional(),
+          email: z.string().email().optional().or(z.literal("")),
+          address: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().length(2).optional().or(z.literal("")),
+          zipCode: z.string().optional(),
+          cpf: z.string().optional(),
+          rg: z.string().optional(),
+          birthDate: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        const updated = await dbCustomers.updateCustomerById(id, {
+          ...data,
+          email: data.email || undefined,
+        });
+        return dbCustomers.toSafeCustomer(updated);
+      }),
+
+    // ── Excluir cadastro (ficha do cliente → "Excluir cadastro") ─────────────
+    // Só admin — ação irreversível. Pedidos/notas já emitidos são preservados
+    // (customer_id vira NULL neles, ver deleteCustomer em db.customers.ts).
+    delete: adminOnlyProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await dbCustomers.deleteCustomer(input.id);
+        return { success: true };
+      }),
+
     updateCreditStatus: adminOnlyProcedure
       .input(
         z.object({
@@ -1434,6 +1490,21 @@ export const appRouter = router({
       .query(({ input }) =>
         dbPromissoryNotes.allNotesSignedForOrder(input.orderId)
       ),
+
+    // ── "Imprimir todas de uma vez" (ficha do cliente) ───────────────────────
+    // Junta os PDFs reais já emitidos (não recria o conteúdo) num único PDF,
+    // devolvido em base64 — o cliente tRPC decodifica e abre num blob: URL
+    // para o navegador imprimir todas as páginas de uma vez só.
+    mergedPdfByCustomer: protectedProcedure
+      .input(z.object({ customerId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const notes = await dbPromissoryNotes.listNotesByCustomer(
+          input.customerId
+        );
+        const printable = notes.filter((n) => n.status !== "CANCELADA");
+        const buffer = await dbPromissoryNotes.mergeNotesPdfs(printable);
+        return { base64: buffer.toString("base64"), count: printable.length };
+      }),
   }),
 
   // ── Pedidos ────────────────────────────────────────────────────────────────

@@ -30,14 +30,31 @@ import {
 // dimensão de data/pedido e continuam mostrando o total geral, por design.
 
 type DatePreset = 'today' | 'yesterday' | '7d' | '30d' | 'all' | 'custom';
-type StatusChip = 'AGUARDANDO' | 'PAGO' | 'CANCELADO' | 'EXPIRADO';
+type StatusFilterValue = 'AGUARDANDO' | 'PAGO' | 'CANCELADO' | 'EXPIRADO' | '';
 
-const STATUS_CHIP_TO_ENUM: Record<StatusChip, string[]> = {
+const STATUS_FILTER_TO_ENUM: Record<Exclude<StatusFilterValue, ''>, string[]> = {
   AGUARDANDO: ['AGUARDANDO_PAGAMENTO', 'RESERVADO'],
   PAGO: ['PAGO'],
   CANCELADO: ['CANCELADO'],
   EXPIRADO: ['EXPIRADO'],
 };
+
+const DATE_PRESET_OPTIONS: [DatePreset, string][] = [
+  ['all', 'Todo o período'],
+  ['today', 'Hoje'],
+  ['yesterday', 'Ontem'],
+  ['7d', 'Últimos 7 dias'],
+  ['30d', 'Últimos 30 dias'],
+  ['custom', 'Período personalizado…'],
+];
+
+const STATUS_FILTER_OPTIONS: [StatusFilterValue, string][] = [
+  ['', 'Todos os status'],
+  ['AGUARDANDO', 'Aguardando pagamento'],
+  ['PAGO', 'Pago'],
+  ['CANCELADO', 'Cancelado'],
+  ['EXPIRADO', 'Expirado'],
+];
 
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
@@ -190,10 +207,9 @@ export default function Dashboard() {
   );
   const [customFrom, setCustomFrom] = useState(readParam(initial, 'de'));
   const [customTo, setCustomTo] = useState(readParam(initial, 'ate'));
-  const [statusChips, setStatusChips] = useState<StatusChip[]>(() => {
-    const raw = readParam(initial, 'status');
-    return raw ? (raw.split(',').filter(Boolean) as StatusChip[]) : [];
-  });
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>(
+    (readParam(initial, 'status') as StatusFilterValue) || ''
+  );
   const [productId, setProductId] = useState(readParam(initial, 'produto'));
   const [sellerId, setSellerId] = useState(readParam(initial, 'vendedor'));
   const [customerId, setCustomerId] = useState(readParam(initial, 'cliente'));
@@ -208,8 +224,8 @@ export default function Dashboard() {
   );
 
   const statusEnumValues = useMemo(
-    () => statusChips.flatMap((chip) => STATUS_CHIP_TO_ENUM[chip]),
-    [statusChips]
+    () => (statusFilter ? STATUS_FILTER_TO_ENUM[statusFilter] : []),
+    [statusFilter]
   );
 
   const filtersInput = useMemo(
@@ -224,7 +240,7 @@ export default function Dashboard() {
   );
 
   const hasActiveFilters =
-    datePreset !== 'all' || statusChips.length > 0 || !!productId || !!sellerId || !!customerId;
+    datePreset !== 'all' || !!statusFilter || !!productId || !!sellerId || !!customerId;
 
   // Mantém a URL sincronizada com os filtros (sem gerar entradas novas no
   // histórico do navegador a cada mudança).
@@ -235,26 +251,20 @@ export default function Dashboard() {
       if (customFrom) params.set('de', customFrom);
       if (customTo) params.set('ate', customTo);
     }
-    if (statusChips.length) params.set('status', statusChips.join(','));
+    if (statusFilter) params.set('status', statusFilter);
     if (productId) params.set('produto', productId);
     if (sellerId) params.set('vendedor', sellerId);
     if (customerId) params.set('cliente', customerId);
     const qs = params.toString();
     const newUrl = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
     window.history.replaceState(null, '', newUrl);
-  }, [datePreset, customFrom, customTo, statusChips, productId, sellerId, customerId]);
-
-  const toggleStatusChip = (chip: StatusChip) => {
-    setStatusChips((prev) =>
-      prev.includes(chip) ? prev.filter((c) => c !== chip) : [...prev, chip]
-    );
-  };
+  }, [datePreset, customFrom, customTo, statusFilter, productId, sellerId, customerId]);
 
   const clearFilters = () => {
     setDatePreset('all');
     setCustomFrom('');
     setCustomTo('');
-    setStatusChips([]);
+    setStatusFilter('');
     setProductId('');
     setSellerId('');
     setCustomerId('');
@@ -370,74 +380,28 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          {([
-            ['today', 'Hoje'],
-            ['yesterday', 'Ontem'],
-            ['7d', '7 dias'],
-            ['30d', '30 dias'],
-            ['all', 'Tudo'],
-            ['custom', 'Personalizado'],
-          ] as [DatePreset, string][]).map(([value, label]) => (
-            <button
-              key={value}
-              onClick={() => setDatePreset(value)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                datePreset === value
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border text-muted-foreground hover:bg-accent'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {datePreset === 'custom' && (
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs text-muted-foreground">
-              De
-              <input
-                type="date"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-                className="ml-1.5 h-8 rounded-md border border-border bg-background px-2 text-xs"
-              />
-            </label>
-            <label className="text-xs text-muted-foreground">
-              Até
-              <input
-                type="date"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-                className="ml-1.5 h-8 rounded-md border border-border bg-background px-2 text-xs"
-              />
-            </label>
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          {([
-            ['AGUARDANDO', 'Aguardando'],
-            ['PAGO', 'Pago'],
-            ['CANCELADO', 'Cancelado'],
-            ['EXPIRADO', 'Expirado'],
-          ] as [StatusChip, string][]).map(([value, label]) => (
-            <button
-              key={value}
-              onClick={() => toggleStatusChip(value)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                statusChips.includes(value)
-                  ? 'bg-primary/10 text-primary border-primary/40'
-                  : 'border-border text-muted-foreground hover:bg-accent'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {/* Uma linha de seletores — um por dimensão de filtro, sem repetição
+            de botões. "Personalizado" no período revela os dois campos de
+            data logo abaixo, só quando fazem sentido. */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          <select
+            value={datePreset}
+            onChange={(e) => setDatePreset(e.target.value as DatePreset)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+          >
+            {DATE_PRESET_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilterValue)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+          >
+            {STATUS_FILTER_OPTIONS.map(([value, label]) => (
+              <option key={value || 'todos'} value={value}>{label}</option>
+            ))}
+          </select>
           <select
             value={productId}
             onChange={(e) => setProductId(e.target.value)}
@@ -469,6 +433,29 @@ export default function Dashboard() {
             ))}
           </select>
         </div>
+
+        {datePreset === 'custom' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-muted-foreground">
+              De
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="ml-1.5 h-8 rounded-md border border-border bg-background px-2 text-xs"
+              />
+            </label>
+            <label className="text-xs text-muted-foreground">
+              Até
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="ml-1.5 h-8 rounded-md border border-border bg-background px-2 text-xs"
+              />
+            </label>
+          </div>
+        )}
 
         <p className="text-[11px] text-muted-foreground">
           Os filtros acima afetam os KPIs de pedidos e vendas abaixo. Os totais de catálogo (Produtos, Simulações) mostram sempre o total geral.
