@@ -89,6 +89,7 @@ const productInput = z.object({
   conditionNotes: z.string().optional(),
   isUniquePiece: z.boolean().optional(),
   published: z.boolean().optional(),
+  featuredInHero: z.boolean().optional(),
   taxCash: z.number().min(0).optional(),
   taxBoleto: z.number().min(0).optional(),
   taxDebit: z.number().min(0).optional(),

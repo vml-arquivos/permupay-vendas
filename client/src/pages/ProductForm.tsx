@@ -87,6 +87,7 @@ interface FormState {
   conditionNotes: string;
   isUniquePiece: boolean;
   published: boolean;
+  featuredInHero: boolean;
   active: boolean;
   // Métodos de pagamento habilitados para este produto — vitrine e venda interna.
   pixEnabled: boolean;
@@ -141,6 +142,7 @@ const defaultForm: FormState = {
   conditionNotes: "",
   isUniquePiece: false,
   published: false,
+  featuredInHero: false,
   active: true,
   pixEnabled: true,
   cardEnabled: true,
@@ -576,6 +578,7 @@ export default function ProductForm() {
         conditionNotes: p.conditionNotes || "",
         isUniquePiece: p.isUniquePiece === true,
         published: p.published ?? false,
+        featuredInHero: (p as any).featuredInHero ?? false,
         active: p.active ?? true,
         pixEnabled: (p as any).pixEnabled ?? true,
         cardEnabled: (p as any).cardEnabled ?? true,
@@ -661,6 +664,7 @@ export default function ProductForm() {
       conditionNotes: selected.conditionNotes || prev.conditionNotes,
       isUniquePiece: selected.isUniquePiece === true || prev.isUniquePiece,
       published: selected.published ?? prev.published,
+      featuredInHero: (selected as any).featuredInHero ?? prev.featuredInHero,
       active: selected.active ?? prev.active,
       pixEnabled: selected.pixEnabled ?? prev.pixEnabled,
       cardEnabled: selected.cardEnabled ?? prev.cardEnabled,
@@ -790,6 +794,7 @@ export default function ProductForm() {
       conditionNotes: form.conditionNotes || undefined,
       isUniquePiece: form.isUniquePiece,
       published: form.published,
+      featuredInHero: form.featuredInHero,
       active: form.active,
       pixEnabled: form.pixEnabled,
       cardEnabled: form.cardEnabled,
@@ -1124,6 +1129,29 @@ export default function ProductForm() {
                   onCheckedChange={(v) => set("published")(v)}
                 />
               </div>
+
+              {/* Destacar no carrossel — curadoria manual do banner principal da
+                  vitrine. Quando nenhum produto está marcado, a vitrine escolhe
+                  automaticamente os destaques a partir do próprio catálogo em
+                  estoque, então isto é opcional, não obrigatório. */}
+              <div className="flex items-center justify-between p-3.5 rounded-md border border-border bg-muted/20 mt-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Destacar no carrossel da vitrine</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Aparece no banner giratório da página principal. Sem nenhum produto marcado, a vitrine escolhe automaticamente.
+                  </p>
+                </div>
+                <Switch
+                  checked={form.featuredInHero}
+                  onCheckedChange={(v) => set("featuredInHero")(v)}
+                  disabled={!form.published}
+                />
+              </div>
+              {form.featuredInHero && !form.published && (
+                <p className="text-xs text-amber-700 -mt-1">
+                  Publique o produto na vitrine para que o destaque no carrossel funcione.
+                </p>
+              )}
 
               {/* Formas de pagamento aceitas — controla o que aparece na vitrine
                   pública (BuyModal) e na Nova Venda interna. O backend também

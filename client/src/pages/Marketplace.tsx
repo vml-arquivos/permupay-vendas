@@ -14,9 +14,6 @@ import {
   UserRound,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
-import heroSauvage from "@/assets/hero-sauvage.png";
-import heroOneMillion from "@/assets/hero-one-million.png";
-import heroLaVie from "@/assets/hero-la-vie-est-belle.png";
 
 interface CatalogProduct {
   id: number;
@@ -37,31 +34,9 @@ interface CatalogProduct {
   boletoMonths?: number | null;
   salesChannel?: "SHOP" | "QUASE_ZERO" | "BOTH" | string | null;
   productCondition?: string | null;
+  featuredInHero?: boolean;
+  displayOrder?: number;
 }
-
-type HeroBanner = {
-  image: string;
-  title: string;
-  subtitle: string;
-};
-
-const HERO_BANNERS: HeroBanner[] = [
-  {
-    image: heroSauvage,
-    title: "Sauvage Dior 200ML",
-    subtitle: "Curadoria premium de perfumaria",
-  },
-  {
-    image: heroOneMillion,
-    title: "One Million 100ML",
-    subtitle: "Seleção sofisticada e marcante",
-  },
-  {
-    image: heroLaVie,
-    title: "La Vie Est Belle 100ML",
-    subtitle: "Fragrâncias leves e elegantes",
-  },
-];
 
 const CAT: Record<string, string> = {
   CELULAR: "Celulares",
@@ -109,6 +84,49 @@ const isShopProduct = (product: CatalogProduct) => {
   return channel !== "QUASE_ZERO";
 };
 
+// Cor de destaque do preço — mesma família do dourado/âmbar já usado na
+// marca ("dos desejos", Quase Zero), só um tom mais profundo para dar
+// hierarquia ao valor sem introduzir uma cor nova ao sistema.
+const PRICE_ACCENT = "#92400e";
+
+/**
+ * Bloco de preço compartilhado entre o grid de produtos e o carrossel
+ * principal — destaque sutil (cor + microrrótulo "no pix"), nunca um selo
+ * ou faixa berrante. `size="lg"` é usado só no banner principal.
+ */
+function PriceTag({ product, size = "md" }: { product: CatalogProduct; size?: "md" | "lg" }) {
+  const pix = pixPrice(product);
+  const card = cardPrice(product);
+  const installments = Math.max(1, Math.round(product.cardInstallments ?? 3));
+
+  if (!pix) {
+    return <p className="pt-1 text-xs italic text-neutral-400">Consulte o preço</p>;
+  }
+
+  const priceClass = size === "lg" ? "text-3xl sm:text-[2.5rem]" : "text-lg";
+
+  return (
+    <div className="pt-1">
+      <div className="flex items-baseline gap-2">
+        <p
+          className={`${priceClass} font-extrabold leading-none tracking-[-0.03em]`}
+          style={{ color: PRICE_ACCENT }}
+        >
+          {fmt(pix)}
+        </p>
+        <span className="text-[8px] font-semibold uppercase tracking-[0.22em] text-amber-700/60">
+          no pix
+        </span>
+      </div>
+      {card && installments > 1 && (
+        <p className={`mt-1 font-semibold uppercase text-neutral-500 ${size === "lg" ? "text-xs tracking-wide" : "text-[10px] tracking-wide"}`}>
+          ou {installments}x de {fmt(card / installments)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Logo({ size = 92 }: { size?: number }) {
   return (
     <img
@@ -135,9 +153,6 @@ function ProductSkeleton() {
 
 function ProductCard({ product }: { product: CatalogProduct }) {
   const stock = hasStock(product);
-  const pix = pixPrice(product);
-  const card = cardPrice(product);
-  const installments = Math.max(1, Math.round(product.cardInstallments ?? 3));
 
   return (
     <Link href={`/vitrine/${product.id}`}>
@@ -191,20 +206,7 @@ function ProductCard({ product }: { product: CatalogProduct }) {
           >
             {product.name}
           </h3>
-          {pix ? (
-            <div className="pt-1">
-              <p className="text-lg font-bold tracking-[-0.04em] text-neutral-950">
-                {fmt(pix)}
-              </p>
-              {card && installments > 1 && (
-                <p className="text-[10px] font-semibold uppercase text-neutral-800">
-                  ou {installments}x de {fmt(card / installments)}
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="pt-1 text-xs italic text-neutral-400">Consulte o preço</p>
-          )}
+          <PriceTag product={product} />
         </div>
       </article>
     </Link>
@@ -212,8 +214,6 @@ function ProductCard({ product }: { product: CatalogProduct }) {
 }
 
 function QuaseZeroCard({ product }: { product: CatalogProduct }) {
-  const pix = pixPrice(product);
-
   return (
     <Link href={`/vitrine/${product.id}`}>
       <article
@@ -239,7 +239,7 @@ function QuaseZeroCard({ product }: { product: CatalogProduct }) {
         <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-stone-950" style={{ fontFamily: SERIF }}>
           {product.name}
         </h3>
-        {pix && <p className="mt-2 text-base font-bold text-stone-950">{fmt(pix)}</p>}
+        <PriceTag product={product} />
       </article>
     </Link>
   );
@@ -258,16 +258,46 @@ export default function Marketplace() {
   const shopProducts = useMemo(() => products.filter(isShopProduct), [products]);
   const quaseZeroProducts = useMemo(() => products.filter(isQuaseZeroProduct), [products]);
 
+  // Carrossel principal: nunca uma imagem estática. Usa a curadoria manual
+  // do admin ("Destacar no carrossel", ver ProductForm) quando existir; sem
+  // nenhum produto marcado, monta automaticamente a partir do próprio
+  // catálogo em estoque — peças com selo promocional primeiro, depois as de
+  // maior valor — garantindo que o produto e o preço mostrados são sempre
+  // reais e batem com o estoque atual.
+  const heroProducts = useMemo(() => {
+    const eligible = shopProducts.filter((product) => hasStock(product) && pixPrice(product) != null);
+    if (eligible.length === 0) return [];
+
+    const curated = eligible
+      .filter((product) => product.featuredInHero)
+      .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.id - b.id);
+
+    if (curated.length > 0) return curated.slice(0, 6);
+
+    const byPriceDesc = (a: CatalogProduct, b: CatalogProduct) => (pixPrice(b) ?? 0) - (pixPrice(a) ?? 0);
+    const withTag = eligible.filter((product) => product.promoTag).sort(byPriceDesc);
+    const withoutTag = eligible.filter((product) => !product.promoTag).sort(byPriceDesc);
+
+    return [...withTag, ...withoutTag].slice(0, 5);
+  }, [shopProducts]);
+
   useEffect(() => {
     captureReferralFromLocation();
   }, []);
 
+  // Mantém o slide ativo dentro dos limites quando a lista de destaques
+  // muda de tamanho (ex.: um produto sai de estoque).
   useEffect(() => {
+    setActiveSlide((current) => (heroProducts.length === 0 ? 0 : current % heroProducts.length));
+  }, [heroProducts.length]);
+
+  useEffect(() => {
+    if (heroProducts.length < 2) return;
     const timer = window.setInterval(() => {
-      setActiveSlide((current) => (current + 1) % HERO_BANNERS.length);
+      setActiveSlide((current) => (current + 1) % heroProducts.length);
     }, 5200);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [heroProducts.length]);
 
   const categories = useMemo(
     () => Array.from(new Set(shopProducts.map((product) => product.category))),
@@ -287,7 +317,7 @@ export default function Marketplace() {
     });
   }, [shopProducts, category, search]);
 
-  const currentBanner = HERO_BANNERS[activeSlide];
+  const currentBanner = heroProducts[activeSlide] ?? null;
 
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: SANS }}>
@@ -413,49 +443,80 @@ export default function Marketplace() {
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-[1.5rem] border border-neutral-100 bg-[#fbfaf7] shadow-[0_16px_70px_rgba(15,23,42,0.07)]">
-            <Link href="/vitrine">
-              <img
-                src={currentBanner.image}
-                alt={currentBanner.title}
-                className="block w-full object-cover"
-                style={{ aspectRatio: "16/7" }}
-              />
-            </Link>
-
-            <div className="pointer-events-none absolute left-5 top-5 hidden rounded-full bg-white/75 px-3 py-1.5 text-[8px] font-semibold uppercase tracking-[0.22em] text-neutral-500 backdrop-blur sm:block">
-              {currentBanner.subtitle}
+          <div>
+            <div className="relative overflow-hidden rounded-[1.5rem] border border-neutral-100 bg-[#fbfaf7] shadow-[0_16px_70px_rgba(15,23,42,0.07)]">
+              {currentBanner ? (
+                <Link href={`/vitrine/${currentBanner.id}`}>
+                  <div className="flex cursor-pointer flex-col sm:flex-row sm:items-stretch">
+                    <div className="order-2 flex flex-1 flex-col justify-center gap-3 px-7 py-7 sm:order-1 sm:px-10 sm:py-8">
+                      <span className="inline-flex w-fit items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-[8px] font-semibold uppercase tracking-[0.24em] text-amber-800">
+                        <Sparkles className="h-3 w-3" />
+                        {currentBanner.promoTag || "Peça em destaque"}
+                      </span>
+                      <h3
+                        className="line-clamp-2 text-xl font-extrabold text-neutral-900 sm:text-[1.75rem]"
+                        style={{ fontFamily: SERIF, letterSpacing: "-0.03em", lineHeight: 1.1 }}
+                      >
+                        {currentBanner.name}
+                      </h3>
+                      <PriceTag product={currentBanner} size="lg" />
+                      <span className="mt-1 inline-flex w-fit items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-neutral-900">
+                        Ver peça <ArrowRight className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+                    <div className="order-1 h-52 overflow-hidden bg-white sm:order-2 sm:h-auto sm:w-[40%]">
+                      {currentBanner.imageUrl ? (
+                        <img
+                          src={currentBanner.imageUrl}
+                          alt={currentBanner.name}
+                          className="h-full w-full object-contain p-6"
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center">
+                          <ShoppingBag className="h-10 w-10 text-neutral-200" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              ) : (
+                <div className="flex items-center justify-center px-8 py-20 text-center">
+                  <p className="text-sm text-neutral-400">Em breve, novidades selecionadas do estoque.</p>
+                </div>
+              )}
             </div>
 
-            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/70 px-3 py-2 backdrop-blur">
-              <button
-                type="button"
-                onClick={() => setActiveSlide((current) => (current - 1 + HERO_BANNERS.length) % HERO_BANNERS.length)}
-                className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-500 hover:bg-white hover:text-neutral-900"
-                aria-label="Banner anterior"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              {HERO_BANNERS.map((banner, index) => (
+            {heroProducts.length > 1 && (
+              <div className="mt-4 flex items-center justify-center gap-2">
                 <button
-                  key={banner.title}
                   type="button"
-                  onClick={() => setActiveSlide(index)}
-                  className={`h-2 rounded-full transition-all ${
-                    index === activeSlide ? "w-6 bg-amber-700" : "w-2 bg-neutral-300 hover:bg-neutral-400"
-                  }`}
-                  aria-label={`Abrir banner ${index + 1}`}
-                />
-              ))}
-              <button
-                type="button"
-                onClick={() => setActiveSlide((current) => (current + 1) % HERO_BANNERS.length)}
-                className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-500 hover:bg-white hover:text-neutral-900"
-                aria-label="Próximo banner"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
+                  onClick={() => setActiveSlide((current) => (current - 1 + heroProducts.length) % heroProducts.length)}
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+                  aria-label="Peça anterior"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                {heroProducts.map((product, index) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => setActiveSlide(index)}
+                    className={`h-2 rounded-full transition-all ${
+                      index === activeSlide ? "w-6 bg-amber-700" : "w-2 bg-neutral-300 hover:bg-neutral-400"
+                    }`}
+                    aria-label={`Abrir peça ${index + 1}`}
+                  />
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setActiveSlide((current) => (current + 1) % heroProducts.length)}
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+                  aria-label="Próxima peça"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </section>

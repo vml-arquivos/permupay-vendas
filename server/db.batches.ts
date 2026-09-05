@@ -709,6 +709,8 @@ export async function getPublishedProducts() {
       cardEnabled: products.cardEnabled,
       boletoEnabled: products.boletoEnabled,
       cashEnabled: products.cashEnabled,
+      featuredInHero: products.featuredInHero,
+      displayOrder: products.displayOrder,
     })
     .from(products)
     .where(and(eq(products.published, true), eq(products.active, true), sql`COALESCE(${products.salesChannel}, 'SHOP') <> 'QUASE_ZERO'`))
@@ -750,6 +752,8 @@ export async function getPublishedProductsByCategory(category?: string) {
       cardEnabled: products.cardEnabled,
       boletoEnabled: products.boletoEnabled,
       cashEnabled: products.cashEnabled,
+      featuredInHero: products.featuredInHero,
+      displayOrder: products.displayOrder,
     })
     .from(products)
     .where(
@@ -797,6 +801,8 @@ export async function getQuaseZeroProducts() {
       cardEnabled: products.cardEnabled,
       boletoEnabled: products.boletoEnabled,
       cashEnabled: products.cashEnabled,
+      featuredInHero: products.featuredInHero,
+      displayOrder: products.displayOrder,
     })
     .from(products)
     .where(
@@ -844,6 +850,8 @@ export async function getPublishedProductById(id: number) {
       cardEnabled: products.cardEnabled,
       boletoEnabled: products.boletoEnabled,
       cashEnabled: products.cashEnabled,
+      featuredInHero: products.featuredInHero,
+      displayOrder: products.displayOrder,
     })
     .from(products)
     .where(and(eq(products.id, id), eq(products.published, true), eq(products.active, true)))

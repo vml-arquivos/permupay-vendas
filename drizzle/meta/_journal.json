@@ -239,6 +239,13 @@
       "when": 1779950000000,
       "tag": "0034_payment_settings_methods",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1779960000000,
+      "tag": "0035_products_featured_hero",
+      "breakpoints": true
     }
   ]
 }

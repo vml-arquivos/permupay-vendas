@@ -178,6 +178,13 @@ export const products = pgTable("permupay_products", {
   // Ordenação manual na vitrine (0 = posição não definida, menor = aparece primeiro)
   displayOrder: integer("display_order").notNull().default(0),
 
+  // Selecionado para o carrossel principal da vitrine ("Destacar no
+  // carrossel"). Curadoria manual do admin — quando nenhum produto está
+  // marcado, a vitrine cai automaticamente para um destaque calculado a
+  // partir do próprio catálogo em estoque (ver Marketplace.tsx), nunca uma
+  // imagem estática desatualizada.
+  featuredInHero: boolean("featured_in_hero").notNull().default(false),
+
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

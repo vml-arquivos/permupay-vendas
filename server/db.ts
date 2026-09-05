@@ -501,6 +501,7 @@ export async function createProduct(data: any) {
       categoryLabel: data.categoryLabel ? String(data.categoryLabel).trim() : null,
       promoTag: data.promoTag ? String(data.promoTag).trim() : null,
       published: data.published === true,
+      featuredInHero: data.featuredInHero === true,
       suggestedPrice: Math.max(0, Number(data.suggestedPrice) || 0),
       suggestedPricePix: Math.max(0, Number(data.suggestedPricePix) || 0),
       suggestedPriceCard: Math.max(0, Number(data.suggestedPriceCard) || 0),
@@ -603,6 +604,7 @@ export async function updateProduct(id: number, data: any, _userId?: number) {
     if (data.conditionNotes !== undefined) updateData.conditionNotes = data.conditionNotes ? String(data.conditionNotes).trim() : null;
     if (data.isUniquePiece !== undefined) updateData.isUniquePiece = data.isUniquePiece === true;
     if (data.published !== undefined) updateData.published = data.published === true;
+    if (data.featuredInHero !== undefined) updateData.featuredInHero = data.featuredInHero === true;
     if (data.suggestedPrice !== undefined) updateData.suggestedPrice = Math.max(0, Number(data.suggestedPrice) || 0);
     if (data.suggestedPricePix !== undefined) updateData.suggestedPricePix = Math.max(0, Number(data.suggestedPricePix) || 0);
     if (data.suggestedPriceCard !== undefined) updateData.suggestedPriceCard = Math.max(0, Number(data.suggestedPriceCard) || 0);
